@@ -129,10 +129,14 @@ WS_RECONNECT_INTERVAL = timedelta(minutes=1)
 # Reconnection backoff settings
 RECONNECT_BACKOFF_BASE = timedelta(minutes=1)  # Initial retry interval
 RECONNECT_BACKOFF_MAX = timedelta(minutes=15)  # Maximum backoff time
-RECONNECT_MAX_ATTEMPTS_BEFORE_MAX = 4  # Attempts before reaching max (1, 2, 4, 8, 15 min pattern)
+RECONNECT_MAX_ATTEMPTS_BEFORE_MAX = (
+    4  # Attempts before reaching max (1, 2, 4, 8, 15 min pattern)
+)
 
 # AWS credential caching
-AWS_CREDENTIALS_TTL = timedelta(hours=1, minutes=50)  # AWS IoT credentials valid for 2h, use 1h50m for safety
+AWS_CREDENTIALS_TTL = timedelta(
+    hours=1, minutes=50
+)  # AWS IoT credentials valid for 2h, use 1h50m for safety
 AWS_CREDENTIALS_EXPIRY = "aws_credentials_expiry"
 
 # Rate limiting for token fetches

@@ -1,7 +1,7 @@
 """Generate AWS token test file."""
 from __future__ import annotations
 
-from base64 import urlsafe_b64encode, urlsafe_b64decode
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 import hashlib
 import os
 import secrets
