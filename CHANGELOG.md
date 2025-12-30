@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.0.24
+
+- Implement exponential backoff for reconnection attempts to prevent aggressive retries
+  - Initial retry after 1 minute, increasing to 2, 4, 8, and maximum 15 minutes
+  - Reduces server load during extended connection issues
+- Add AWS IoT credential caching with 2-hour validity
+  - Credentials are cached and reused for 1h50m after successful fetch
+  - Eliminates redundant token API calls when credentials are still valid
+- Implement rate limiting for token endpoint calls
+  - Minimum 5-minute interval between token API requests
+  - Protects against API rate limiting during recurring disconnection issues
+- Reduce token API calls from ~20-30 per hour during outages to ~1 per hour maximum
+- Fix excessive API calls to Maytronics token endpoint during recurring disconnections
+- Fix integration-version header value
+
 ## v1.0.23
 
 - Remove navigate service (`mydolphin_plus.navigate`)

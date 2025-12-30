@@ -126,6 +126,23 @@ UPDATE_ENTITIES_INTERVAL = timedelta(seconds=5)
 API_RECONNECT_INTERVAL = timedelta(minutes=1)
 WS_RECONNECT_INTERVAL = timedelta(minutes=1)
 
+# Reconnection backoff settings
+RECONNECT_BACKOFF_BASE = timedelta(minutes=1)  # Initial retry interval
+RECONNECT_BACKOFF_MAX = timedelta(minutes=15)  # Maximum backoff time
+RECONNECT_MAX_ATTEMPTS_BEFORE_MAX = (
+    4  # Attempts before reaching max (1, 2, 4, 8, 15 min pattern)
+)
+
+# AWS credential caching
+AWS_CREDENTIALS_TTL = timedelta(
+    hours=1, minutes=50
+)  # AWS IoT credentials valid for 2h, use 1h50m for safety
+AWS_CREDENTIALS_EXPIRY = "aws_credentials_expiry"
+
+# Rate limiting for token fetches
+MIN_TOKEN_FETCH_INTERVAL = timedelta(minutes=5)  # Minimum time between token API calls
+STORAGE_DATA_LAST_TOKEN_FETCH = "last-token-fetch"
+
 WS_LAST_UPDATE = "last-update"
 
 BASE_API = "https://mbapp18.maytronics.com/api"
@@ -309,6 +326,8 @@ TOKEN_PARAMS = [
     STORAGE_DATA_API_TOKEN,
     STORAGE_DATA_SERIAL_NUMBER,
     STORAGE_DATA_MOTOR_UNIT_SERIAL,
+    STORAGE_DATA_LAST_TOKEN_FETCH,
+    AWS_CREDENTIALS_EXPIRY,
 ]
 
 TO_REDACT = [

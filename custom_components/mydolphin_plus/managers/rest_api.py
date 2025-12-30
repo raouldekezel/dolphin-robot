@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from asyncio import sleep
-from base64 import b64encode
+from base64 import urlsafe_b64encode
+from datetime import datetime
 import hashlib
+import json
 import logging
 import secrets
 import sys
@@ -31,6 +32,7 @@ from ..common.consts import (
     API_RESPONSE_STATUS_SUCCESS,
     API_RESPONSE_UNIT_SERIAL_NUMBER,
     API_TOKEN_FIELDS,
+    AWS_CREDENTIALS_TTL,
     BLOCK_SIZE,
     DATA_ROBOT_DETAILS,
     DEFAULT_NAME,
@@ -38,12 +40,14 @@ from ..common.consts import (
     FORGOT_PASSWORD_URL,
     LOGIN_HEADERS,
     LOGIN_URL,
+    MIN_TOKEN_FETCH_INTERVAL,
     ROBOT_DETAILS_BY_SN_URL,
     ROBOT_DETAILS_URL,
     SIGNAL_API_STATUS,
     SIGNAL_DEVICE_NEW,
     TOKEN_URL,
 )
+from ..common.integration_info import IntegrationInfo
 from ..models.config_data import ConfigData
 from .config_manager import ConfigManager
 
@@ -58,6 +62,7 @@ class RestAPI:
     _status: ConnectivityStatus | None
     _session: ClientSession | None
     _config_manager: ConfigManager
+    _integration_info: IntegrationInfo
 
     _device_loaded: bool
 
@@ -68,6 +73,8 @@ class RestAPI:
             self.data = {}
 
             self._config_manager = config_manager
+
+            self._integration_info = IntegrationInfo()
 
             self._status = None
 
@@ -109,6 +116,8 @@ class RestAPI:
     async def initialize(self):
         _LOGGER.info("Initializing MyDolphin API")
 
+        await self._integration_info.initialize(self._hass)
+
         await self._initialize_session()
 
         await self._login()
@@ -145,10 +154,14 @@ class RestAPI:
         result = None
 
         try:
+            # Copy headers and set User-Agent if available
+            headers = headers.copy() if headers else {}
+            self._integration_info.set_user_agent(headers)
+
             async with self._session.post(
                 url, headers=headers, data=request_data, ssl=False
             ) as response:
-                _LOGGER.debug(f"Status of {url}: {response.status}")
+                _LOGGER.debug(f"Status of POST request to {url}: {response.status}")
 
                 response.raise_for_status()
 
@@ -173,8 +186,11 @@ class RestAPI:
         result = None
 
         try:
+            headers = headers.copy() if headers else {}
+            self._integration_info.set_user_agent(headers)
+
             async with self._session.get(url, headers=headers, ssl=False) as response:
-                _LOGGER.debug(f"Status of {url}: {response.status}")
+                _LOGGER.debug(f"Status of GET request to {url}: {response.status}")
 
                 response.raise_for_status()
 
@@ -409,7 +425,42 @@ class RestAPI:
 
                 await self._config_manager.update_aws_token(aws_token)
 
+            # Check if cached AWS IoT credentials are still valid
+            if await self._are_cached_credentials_valid():
+                _LOGGER.info("Using cached AWS IoT credentials (still valid)")
+                self._set_status(ConnectivityStatus.CONNECTED)
+                return
+
+            # Check rate limiting
+            now = datetime.now().timestamp()
+            last_fetch = self._config_manager.last_token_fetch
+            time_since_last = now - last_fetch
+
+            if time_since_last < MIN_TOKEN_FETCH_INTERVAL.total_seconds():
+                wait_time = MIN_TOKEN_FETCH_INTERVAL.total_seconds() - time_since_last
+                _LOGGER.warning(
+                    f"Token fetch rate limited. Last fetch was {time_since_last:.0f}s ago. "
+                    f"Need to wait {wait_time:.0f}s more. Using cached credentials if available."
+                )
+
+                # Try to use cached credentials even if expired, better than nothing
+                if self._has_cached_credentials():
+                    _LOGGER.info(
+                        "Using potentially expired cached credentials due to rate limit"
+                    )
+                    self._set_status(ConnectivityStatus.CONNECTED)
+                    return
+                else:
+                    _LOGGER.warning(
+                        "No cached credentials available, will attempt fetch despite rate limit"
+                    )
+
+            # Make API call to get fresh credentials
             request_data = f"{API_REQUEST_SERIAL_NUMBER}={aws_token}"
+
+            _LOGGER.info("Fetching fresh AWS IoT credentials from token endpoint")
+            _LOGGER.debug(f"Request data: {json.dumps(request_data)}")
+            _LOGGER.debug(f"Headers: {json.dumps(headers)}")
 
             payload = await self._async_post(TOKEN_URL, headers, request_data)
 
@@ -421,6 +472,18 @@ class RestAPI:
                 if status == API_RESPONSE_STATUS_SUCCESS:
                     for field in API_TOKEN_FIELDS:
                         self.data[field] = data.get(field)
+
+                    # Update timestamps
+                    now = datetime.now().timestamp()
+                    expiry = now + AWS_CREDENTIALS_TTL.total_seconds()
+
+                    await self._config_manager.update_last_token_fetch(now)
+                    await self._config_manager.update_aws_credentials_expiry(expiry)
+
+                    _LOGGER.info(
+                        f"Successfully fetched AWS IoT credentials. "
+                        f"Valid until {datetime.fromtimestamp(expiry).isoformat()}"
+                    )
 
                     self._set_status(ConnectivityStatus.CONNECTED)
 
@@ -438,6 +501,30 @@ class RestAPI:
             message = f"Failed to retrieve AWS token from service, Error: {str(ex)}, Line: {line_number}"
 
             self._set_status(ConnectivityStatus.FAILED, message)
+
+    async def _are_cached_credentials_valid(self) -> bool:
+        """Check if cached AWS IoT credentials are still valid."""
+        if not self._has_cached_credentials():
+            return False
+
+        expiry = self._config_manager.aws_credentials_expiry
+        now = datetime.now().timestamp()
+
+        is_valid = expiry > now
+
+        if is_valid:
+            remaining_hours = (expiry - now) / 3600
+            _LOGGER.debug(
+                f"Cached credentials valid for {remaining_hours:.1f} more hours"
+            )
+        else:
+            _LOGGER.debug("Cached credentials have expired")
+
+        return is_valid
+
+    def _has_cached_credentials(self) -> bool:
+        """Check if AWS IoT credentials exist in cache."""
+        return all(self.data.get(field) is not None for field in API_TOKEN_FIELDS)
 
     async def _load_details(self):
         if self._status != ConnectivityStatus.CONNECTED:
@@ -485,30 +572,24 @@ class RestAPI:
             f"ENCRYPT: Motor Unit Serial: {self._config_manager.motor_unit_serial}"
         )
 
-        for i in range(0, 10):
-            backend = default_backend()
-            iv = secrets.token_bytes(BLOCK_SIZE)
-            mode = modes.CBC(iv)
-            aes_key = self._get_aes_key()
+        backend = default_backend()
+        iv = secrets.token_bytes(BLOCK_SIZE)
+        mode = modes.CBC(iv)
+        aes_key = self._get_aes_key()
 
-            aes = algorithms.AES(aes_key)
-            cipher = Cipher(aes, mode, backend=backend)
+        aes = algorithms.AES(aes_key)
+        cipher = Cipher(aes, mode, backend=backend)
 
-            encryptor = cipher.encryptor()
+        encryptor = cipher.encryptor()
 
-            data = self._pad(self._config_manager.motor_unit_serial).encode()
-            ct = encryptor.update(data) + encryptor.finalize()
+        data = self._pad(self._config_manager.motor_unit_serial).encode()
+        ct = encryptor.update(data) + encryptor.finalize()
 
-            result_b64 = iv + ct
+        result_b64 = iv + ct
 
-            result = b64encode(result_b64).decode()
+        result = urlsafe_b64encode(result_b64).decode()
 
-            if "+" not in result:
-                return result
-
-            await sleep(0.5)
-
-        raise ValueError("Invalid AWS Token generated")
+        return result
 
     @staticmethod
     def _pad(text) -> str:
