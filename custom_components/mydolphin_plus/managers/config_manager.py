@@ -19,12 +19,14 @@ from ..common.clean_modes import (
     get_clean_mode_cycle_time_key,
 )
 from ..common.consts import (
+    AWS_CREDENTIALS_EXPIRY,
     CONFIGURATION_FILE,
     DEFAULT_NAME,
     DOMAIN,
     INVALID_TOKEN_SECTION,
     STORAGE_DATA_API_TOKEN,
     STORAGE_DATA_AWS_TOKEN,
+    STORAGE_DATA_LAST_TOKEN_FETCH,
     STORAGE_DATA_LOCATING,
     STORAGE_DATA_MOTOR_UNIT_SERIAL,
     STORAGE_DATA_SERIAL_NUMBER,
@@ -123,6 +125,16 @@ class ConfigManager:
         motor_unit_serial = self._data.get(STORAGE_DATA_MOTOR_UNIT_SERIAL)
 
         return motor_unit_serial
+
+    @property
+    def last_token_fetch(self) -> float:
+        timestamp = self._data.get(STORAGE_DATA_LAST_TOKEN_FETCH, 0)
+        return timestamp
+
+    @property
+    def aws_credentials_expiry(self) -> float:
+        expiry = self._data.get(AWS_CREDENTIALS_EXPIRY, 0)
+        return expiry
 
     @property
     def _token_details(self):
@@ -262,6 +274,14 @@ class ConfigManager:
     async def update_is_locating(self, state: bool):
         self._data[STORAGE_DATA_LOCATING] = state
 
+        await self._save()
+
+    async def update_last_token_fetch(self, timestamp: float):
+        self._data[STORAGE_DATA_LAST_TOKEN_FETCH] = timestamp
+        await self._save()
+
+    async def update_aws_credentials_expiry(self, expiry: float):
+        self._data[AWS_CREDENTIALS_EXPIRY] = expiry
         await self._save()
 
     def get_debug_data(self) -> dict:
