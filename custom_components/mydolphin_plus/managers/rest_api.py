@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from base64 import urlsafe_b64encode
 from datetime import datetime
 import hashlib
@@ -18,6 +19,7 @@ from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.dispatcher import dispatcher_send
 
 from ..common.connectivity_status import ConnectivityStatus
+from ..common.integration_info import IntegrationInfo
 from ..common.consts import (
     API_REQUEST_HEADER_TOKEN,
     API_REQUEST_SERIAL_EMAIL,
@@ -61,6 +63,7 @@ class RestAPI:
     _status: ConnectivityStatus | None
     _session: ClientSession | None
     _config_manager: ConfigManager
+    _integration_info: IntegrationInfo
 
     _device_loaded: bool
 
@@ -71,6 +74,8 @@ class RestAPI:
             self.data = {}
 
             self._config_manager = config_manager
+
+            self._integration_info = IntegrationInfo()
 
             self._status = None
 
@@ -112,6 +117,9 @@ class RestAPI:
     async def initialize(self):
         _LOGGER.info("Initializing MyDolphin API")
 
+        
+        await self._integration_info.initialize(self._hass)
+
         await self._initialize_session()
 
         await self._login()
@@ -148,10 +156,14 @@ class RestAPI:
         result = None
 
         try:
+            # Copy headers and set User-Agent if available
+            headers = headers.copy() if headers else {}
+            self._integration_info.set_user_agent(headers)
+
             async with self._session.post(
                 url, headers=headers, data=request_data, ssl=False
             ) as response:
-                _LOGGER.debug(f"Status of {url}: {response.status}")
+                _LOGGER.debug(f"Status of POST request to {url}: {response.status}")
 
                 response.raise_for_status()
 
@@ -176,8 +188,11 @@ class RestAPI:
         result = None
 
         try:
+            headers = headers.copy() if headers else {}
+            self._integration_info.set_user_agent(headers)
+
             async with self._session.get(url, headers=headers, ssl=False) as response:
-                _LOGGER.debug(f"Status of {url}: {response.status}")
+                _LOGGER.debug(f"Status of GET request to {url}: {response.status}")
 
                 response.raise_for_status()
 
@@ -442,6 +457,9 @@ class RestAPI:
             request_data = f"{API_REQUEST_SERIAL_NUMBER}={aws_token}"
             
             _LOGGER.info("Fetching fresh AWS IoT credentials from token endpoint")
+            _LOGGER.debug(f"Request data: {json.dumps(request_data)}")
+            _LOGGER.debug(f"Headers: {json.dumps(headers)}")
+
             payload = await self._async_post(TOKEN_URL, headers, request_data)
 
             if self._status == ConnectivityStatus.TEMPORARY_CONNECTED:
