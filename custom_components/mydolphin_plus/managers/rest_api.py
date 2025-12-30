@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from asyncio import sleep
-from base64 import b64encode
+from base64 import urlsafe_b64encode
 from datetime import datetime
 import hashlib
 import logging
@@ -554,30 +553,24 @@ class RestAPI:
             f"ENCRYPT: Motor Unit Serial: {self._config_manager.motor_unit_serial}"
         )
 
-        for i in range(0, 10):
-            backend = default_backend()
-            iv = secrets.token_bytes(BLOCK_SIZE)
-            mode = modes.CBC(iv)
-            aes_key = self._get_aes_key()
+        backend = default_backend()
+        iv = secrets.token_bytes(BLOCK_SIZE)
+        mode = modes.CBC(iv)
+        aes_key = self._get_aes_key()
 
-            aes = algorithms.AES(aes_key)
-            cipher = Cipher(aes, mode, backend=backend)
+        aes = algorithms.AES(aes_key)
+        cipher = Cipher(aes, mode, backend=backend)
 
-            encryptor = cipher.encryptor()
+        encryptor = cipher.encryptor()
 
-            data = self._pad(self._config_manager.motor_unit_serial).encode()
-            ct = encryptor.update(data) + encryptor.finalize()
+        data = self._pad(self._config_manager.motor_unit_serial).encode()
+        ct = encryptor.update(data) + encryptor.finalize()
 
-            result_b64 = iv + ct
+        result_b64 = iv + ct
 
-            result = b64encode(result_b64).decode()
+        result = urlsafe_b64encode(result_b64).decode()
 
-            if "+" not in result:
-                return result
-
-            await sleep(0.5)
-
-        raise ValueError("Invalid AWS Token generated")
+        return result
 
     @staticmethod
     def _pad(text) -> str:
