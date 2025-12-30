@@ -33,7 +33,6 @@ from ..common.calculated_state import CalculatedState
 from ..common.clean_modes import CleanModes, get_clean_mode_cycle_time_key
 from ..common.connectivity_status import ConnectivityStatus
 from ..common.consts import (
-    API_RECONNECT_INTERVAL,
     ATTR_ACTIONS,
     ATTR_ATTRIBUTES,
     ATTR_EXPECTED_END_TIME,
@@ -264,7 +263,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         if status == ConnectivityStatus.CONNECTED:
             self._reconnection_attempts = 0  # Reset backoff counter on success
-            
+
             await self._api.update()
 
             await self._aws_client.update_api_data(self.api_data)
@@ -293,21 +292,20 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
     async def _handle_connection_failure(self):
         await self._aws_client.terminate()
-        
+
         # Calculate exponential backoff: 1min, 2min, 4min, 8min, 15min (max)
         backoff_minutes = min(
-            2 ** self._reconnection_attempts,
-            RECONNECT_BACKOFF_MAX.total_seconds() / 60
+            2**self._reconnection_attempts, RECONNECT_BACKOFF_MAX.total_seconds() / 60
         )
         backoff_interval = timedelta(minutes=backoff_minutes)
-        
+
         self._reconnection_attempts += 1
-        
+
         _LOGGER.warning(
             f"Connection failure - reconnection attempt #{self._reconnection_attempts}, "
             f"waiting {backoff_minutes} minute(s) before retry"
         )
-        
+
         await sleep(backoff_interval.total_seconds())
         await self._api.initialize()
 

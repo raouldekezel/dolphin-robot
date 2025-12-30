@@ -47,7 +47,7 @@ class IntegrationInfo:
                 is_initialized = True
             except Exception as ex:
                 _LOGGER.warning(f"Failed to get integration info: {ex}")
-        
+
         self._name = name
         self._version = version
         self._user_agent = user_agent
@@ -59,7 +59,7 @@ class IntegrationInfo:
 
     def set_user_agent(self, headers: dict) -> None:
         """Set User-Agent header if name and version are available.
-        
+
         Args:
             headers: Headers dict to modify. Will set User-Agent if name/version are valid.
         """
