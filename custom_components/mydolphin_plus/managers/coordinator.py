@@ -102,6 +102,7 @@ from ..common.consts import (
     LED_MODE_ICON_DEFAULT,
     MANUFACTURER,
     PLATFORMS,
+    RECONNECT_BACKOFF_MAX,
     SIGNAL_API_STATUS,
     SIGNAL_AWS_CLIENT_STATUS,
     UPDATE_API_INTERVAL,
@@ -149,6 +150,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         self._last_update_api = 0
         self._last_update_ws = 0
+        self._reconnection_attempts = 0
 
         self._load_signal_handlers()
 
@@ -261,6 +263,8 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             return
 
         if status == ConnectivityStatus.CONNECTED:
+            self._reconnection_attempts = 0  # Reset backoff counter on success
+            
             await self._api.update()
 
             await self._aws_client.update_api_data(self.api_data)
@@ -281,6 +285,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             return
 
         if status == ConnectivityStatus.CONNECTED:
+            self._reconnection_attempts = 0  # Reset backoff counter on success
             await self._aws_client.update()
 
         if status in [ConnectivityStatus.FAILED, ConnectivityStatus.NOT_CONNECTED]:
@@ -288,9 +293,22 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
     async def _handle_connection_failure(self):
         await self._aws_client.terminate()
-
-        await sleep(API_RECONNECT_INTERVAL.total_seconds())
-
+        
+        # Calculate exponential backoff: 1min, 2min, 4min, 8min, 15min (max)
+        backoff_minutes = min(
+            2 ** self._reconnection_attempts,
+            RECONNECT_BACKOFF_MAX.total_seconds() / 60
+        )
+        backoff_interval = timedelta(minutes=backoff_minutes)
+        
+        self._reconnection_attempts += 1
+        
+        _LOGGER.warning(
+            f"Connection failure - reconnection attempt #{self._reconnection_attempts}, "
+            f"waiting {backoff_minutes} minute(s) before retry"
+        )
+        
+        await sleep(backoff_interval.total_seconds())
         await self._api.initialize()
 
     async def _async_update_data(self):
