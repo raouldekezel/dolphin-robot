@@ -236,6 +236,10 @@ class RestAPI:
             self._set_status(
                 ConnectivityStatus.TEMPORARY_CONNECTED, "API Token available"
             )
+            
+            if self._config_manager.motor_unit_serial is None:
+                _LOGGER.info("Motor unit serial missing, fetching from API")
+                await self._set_actual_motor_unit_serial()
 
         if self._status == ConnectivityStatus.TEMPORARY_CONNECTED:
             await self._generate_aws_token()
@@ -488,7 +492,7 @@ class RestAPI:
                     self._set_status(ConnectivityStatus.CONNECTED)
 
                 else:
-                    message = f"Failed to retrieve AWS token, Error: {alert}"
+                    message = f"Failed to retrieve AWS token, Data: {json.dumps(data)}, Error: {alert}"
 
                     self._set_status(ConnectivityStatus.FAILED, message)
 
@@ -568,9 +572,13 @@ class RestAPI:
             )
 
     async def _get_aws_token(self) -> str | None:
-        _LOGGER.debug(
-            f"ENCRYPT: Motor Unit Serial: {self._config_manager.motor_unit_serial}"
-        )
+        motor_unit_serial = self._config_manager.motor_unit_serial
+        
+        if not motor_unit_serial:
+            _LOGGER.error("Motor unit serial is not set, cannot generate AWS token")
+            return None
+        
+        _LOGGER.debug(f"ENCRYPT: Motor Unit Serial: {motor_unit_serial}")
 
         backend = default_backend()
         iv = secrets.token_bytes(BLOCK_SIZE)

@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.25b1
+
+- Fix AWS token generation errors for users upgrading from older versions
+  - Resolves "Value cannot be null. Parameter name: s" error
+  - Resolves "The input is not a valid Base-64 string" error
+  - Automatically fetch missing motor unit serial for upgraded installations
+- Add validation to prevent encryption of null/empty motor unit serial values
+
 ## v1.0.24
 
 - Implement exponential backoff for reconnection attempts to prevent aggressive retries
