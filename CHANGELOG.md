@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.25b3
+
+- Add validation to prevent API calls with invalid or missing AWS tokens
+
 ## v1.0.25b2
 
 - Ensure token fetching works properly for all upgraded installations

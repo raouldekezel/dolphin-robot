@@ -416,6 +416,7 @@ class RestAPI:
             self._set_status(ConnectivityStatus.FAILED, message)
 
     async def _generate_aws_token(self):
+        payload = None
         try:
             headers = {API_REQUEST_HEADER_TOKEN: self._config_manager.api_token}
 
@@ -424,10 +425,15 @@ class RestAPI:
 
             aws_token = self._config_manager.aws_token
 
-            if aws_token is None:
+            if not aws_token:
                 aws_token = await self._get_aws_token()
 
                 await self._config_manager.update_aws_token(aws_token)
+
+            if not aws_token:
+                message = "Cannot fetch AWS IoT credentials: AWS token is missing or invalid."
+                
+                raise Exception(message)
 
             # Check if cached AWS IoT credentials are still valid
             if await self._are_cached_credentials_valid():
@@ -492,7 +498,7 @@ class RestAPI:
                     self._set_status(ConnectivityStatus.CONNECTED)
 
                 else:
-                    message = f"Failed to retrieve AWS token, Data: {json.dumps(data)}, Error: {alert}"
+                    message = f"Failed to retrieve AWS token, Data: {json.dumps(payload)}, Error: {alert}"
 
                     self._set_status(ConnectivityStatus.FAILED, message)
 
