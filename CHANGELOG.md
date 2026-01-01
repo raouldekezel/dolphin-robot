@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.25b2
+
+- Ensure token fetching works properly for all upgraded installations
+
 ## v1.0.25b1
 
 - Fix AWS token generation errors for users upgrading from older versions

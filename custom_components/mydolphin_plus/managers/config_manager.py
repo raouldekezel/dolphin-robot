@@ -128,12 +128,12 @@ class ConfigManager:
 
     @property
     def last_token_fetch(self) -> float:
-        timestamp = self._data.get(STORAGE_DATA_LAST_TOKEN_FETCH, 0)
+        timestamp = self._data.get(STORAGE_DATA_LAST_TOKEN_FETCH, 0) or 0
         return timestamp
 
     @property
     def aws_credentials_expiry(self) -> float:
-        expiry = self._data.get(AWS_CREDENTIALS_EXPIRY, 0)
+        expiry = self._data.get(AWS_CREDENTIALS_EXPIRY, 0) or 0
         return expiry
 
     @property
@@ -277,12 +277,14 @@ class ConfigManager:
         await self._save()
 
     async def update_last_token_fetch(self, timestamp: float):
-        self._data[STORAGE_DATA_LAST_TOKEN_FETCH] = timestamp
-        await self._save()
+        if timestamp is not None:
+            self._data[STORAGE_DATA_LAST_TOKEN_FETCH] = timestamp
+            await self._save()
 
     async def update_aws_credentials_expiry(self, expiry: float):
-        self._data[AWS_CREDENTIALS_EXPIRY] = expiry
-        await self._save()
+        if expiry is not None:
+            self._data[AWS_CREDENTIALS_EXPIRY] = expiry
+            await self._save()
 
     def get_debug_data(self) -> dict:
         data = self._config_data.to_dict()
@@ -321,7 +323,11 @@ class ConfigManager:
 
     @staticmethod
     def _get_defaults() -> dict:
-        data = {STORAGE_DATA_LOCATING: False}
+        data = {
+            STORAGE_DATA_LOCATING: False,
+            STORAGE_DATA_LAST_TOKEN_FETCH: 0,
+            AWS_CREDENTIALS_EXPIRY: 0,
+        }
 
         for clean_mode in list(CleanModes):
             key = get_clean_mode_cycle_time_key(CleanModes(clean_mode))
