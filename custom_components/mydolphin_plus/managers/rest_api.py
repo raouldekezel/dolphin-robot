@@ -236,7 +236,7 @@ class RestAPI:
             self._set_status(
                 ConnectivityStatus.TEMPORARY_CONNECTED, "API Token available"
             )
-            
+
             if self._config_manager.motor_unit_serial is None:
                 _LOGGER.info("Motor unit serial missing, fetching from API")
                 await self._set_actual_motor_unit_serial()
@@ -428,11 +428,21 @@ class RestAPI:
             if not aws_token:
                 aws_token = await self._get_aws_token()
 
-                await self._config_manager.update_aws_token(aws_token)
+                if aws_token:
+                    await self._config_manager.update_aws_token(aws_token)
 
             if not aws_token:
-                message = "Cannot fetch AWS IoT credentials: AWS token is missing or invalid."
-                
+                motor_unit_serial = self._config_manager.motor_unit_serial
+                if not motor_unit_serial:
+                    message = (
+                        "Cannot fetch AWS IoT credentials: Motor unit serial is missing. "
+                        "Please ensure the device is properly configured."
+                    )
+                else:
+                    message = (
+                        "Cannot fetch AWS IoT credentials: AWS token generation failed."
+                    )
+
                 raise Exception(message)
 
             # Check if cached AWS IoT credentials are still valid
@@ -579,11 +589,11 @@ class RestAPI:
 
     async def _get_aws_token(self) -> str | None:
         motor_unit_serial = self._config_manager.motor_unit_serial
-        
+
         if not motor_unit_serial:
             _LOGGER.error("Motor unit serial is not set, cannot generate AWS token")
             return None
-        
+
         _LOGGER.debug(f"ENCRYPT: Motor Unit Serial: {motor_unit_serial}")
 
         backend = default_backend()
