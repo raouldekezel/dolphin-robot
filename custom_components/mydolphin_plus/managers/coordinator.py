@@ -24,6 +24,7 @@ from homeassistant.const import (
     SERVICE_TURN_ON,
 )
 from homeassistant.core import Event, callback
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -105,7 +106,6 @@ from ..common.consts import (
     SIGNAL_API_STATUS,
     SIGNAL_AWS_CLIENT_STATUS,
     UPDATE_API_INTERVAL,
-    UPDATE_ENTITIES_INTERVAL,
     UPDATE_WS_INTERVAL,
 )
 from ..common.joystick_direction import JoystickDirection
@@ -135,12 +135,12 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name=config_manager.name,
-            update_interval=UPDATE_ENTITIES_INTERVAL,
+            update_interval=UPDATE_WS_INTERVAL,
             update_method=self._async_update_data,
         )
 
         self._api = RestAPI(hass, config_manager)
-        self._aws_client = AWSClient(hass, config_manager)
+        self._aws_client = AWSClient(hass, config_manager, self._on_mqtt_data_update)
 
         self._config_manager = config_manager
 
@@ -150,6 +150,19 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._last_update_api = 0
         self._last_update_ws = 0
         self._reconnection_attempts = 0
+
+        # MQTT debouncing
+        self._mqtt_debouncer = Debouncer(
+            hass,
+            _LOGGER,
+            cooldown=1.0,
+            immediate=False,
+            function=self._debounced_mqtt_refresh,
+        )
+
+        # Safety net for maximum MQTT delay
+        self._last_mqtt_refresh = 0
+        self._max_mqtt_delay = 5.0
 
         self._load_signal_handlers()
 
@@ -289,6 +302,37 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         if status in [ConnectivityStatus.FAILED, ConnectivityStatus.NOT_CONNECTED]:
             await self._handle_connection_failure()
+
+    def _on_mqtt_data_update(self):
+        """Callback when MQTT data is updated - with max delay safety net."""
+        if self.hass is None:
+            return
+
+        now = datetime.now().timestamp()
+        time_since_last = now - self._last_mqtt_refresh
+
+        # Safety net: force refresh if waited too long
+        if time_since_last >= self._max_mqtt_delay:
+            self._last_mqtt_refresh = now
+            # Use call_soon_threadsafe to schedule from a different thread
+            self.hass.loop.call_soon_threadsafe(
+                lambda: self.hass.async_create_task(self.async_request_refresh())
+            )
+            _LOGGER.debug(
+                f"Forced MQTT refresh - max delay exceeded "
+                f"(last refresh was {time_since_last:.1f}s ago)"
+            )
+        else:
+            # Normal debounced call
+            self.hass.loop.call_soon_threadsafe(
+                lambda: self.hass.async_create_task(self._mqtt_debouncer.async_call())
+            )
+
+    async def _debounced_mqtt_refresh(self):
+        """Execute coordinator refresh - called by debouncer after cooldown."""
+        self._last_mqtt_refresh = datetime.now().timestamp()
+        await self.async_request_refresh()
+        _LOGGER.debug("Executed debounced MQTT refresh")
 
     async def _handle_connection_failure(self):
         await self._aws_client.terminate()
