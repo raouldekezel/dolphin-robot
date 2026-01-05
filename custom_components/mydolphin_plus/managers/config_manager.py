@@ -25,6 +25,7 @@ from ..common.consts import (
     DEFAULT_NAME,
     DOMAIN,
     INVALID_TOKEN_SECTION,
+    RECONNECT_BACKOFF_MAX,
     STORAGE_DATA_API_TOKEN,
     STORAGE_DATA_AWS_TOKEN,
     STORAGE_DATA_LAST_TOKEN_FETCH,
@@ -253,6 +254,23 @@ class ConfigManager:
 
         await self._save()
 
+    async def _validate_cached_credentials(self):
+        """Check if cached credentials are too old and clear them if needed."""
+        last_fetch = self._data.get(STORAGE_DATA_LAST_TOKEN_FETCH, 0) or 0
+        
+        if last_fetch == 0:
+            return  # No cached credentials to validate
+        
+        token_age_seconds = datetime.now().timestamp() - last_fetch
+        
+        if token_age_seconds >= RECONNECT_BACKOFF_MAX.total_seconds():
+            _LOGGER.debug(
+                f"Stored API credentials expired (age: {token_age_seconds/60:.1f} minutes, "
+                f"max: {RECONNECT_BACKOFF_MAX.total_seconds()/60:.0f} minutes). "
+                "Clearing for fresh authentication."
+            )
+            await self.reset_login_details()
+
     async def update_login_details(self, api_token: str, serial_number: str):
         self._data[STORAGE_DATA_API_TOKEN] = api_token
         self._data[STORAGE_DATA_SERIAL_NUMBER] = serial_number
@@ -325,6 +343,9 @@ class ConfigManager:
         if should_save:
             _LOGGER.info("updated")
             await self._save()
+
+        # Validate credentials aren't too old
+        await self._validate_cached_credentials()
 
     @staticmethod
     def _get_defaults() -> dict:
