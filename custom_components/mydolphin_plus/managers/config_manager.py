@@ -1,3 +1,4 @@
+from datetime import datetime
 import json
 import logging
 import os
@@ -245,13 +246,15 @@ class ConfigManager:
 
     async def reset_login_details(self):
         for token_param in TOKEN_PARAMS:
-            self._data[token_param] = None
+            if token_param != STORAGE_DATA_MOTOR_UNIT_SERIAL:
+                self._data[token_param] = None
 
         await self._save()
 
     async def update_login_details(self, api_token: str, serial_number: str):
         self._data[STORAGE_DATA_API_TOKEN] = api_token
         self._data[STORAGE_DATA_SERIAL_NUMBER] = serial_number
+        self._data[STORAGE_DATA_LAST_TOKEN_FETCH] = datetime.now().timestamp()
 
         await self._save()
 
