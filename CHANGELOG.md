@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.25b4
+
+- Prevent clearing the motor serial number when reset_login_details
+
 ## v1.0.25b3
 
 - Add validation to prevent API calls with invalid or missing AWS tokens
