@@ -245,6 +245,8 @@ class ConfigManager:
         return value
 
     async def reset_login_details(self):
+        # Reset login-related tokens, but preserve motor_unit_serial
+        # as it's needed to regenerate AWS token after re-authentication
         for token_param in TOKEN_PARAMS:
             if token_param != STORAGE_DATA_MOTOR_UNIT_SERIAL:
                 self._data[token_param] = None
