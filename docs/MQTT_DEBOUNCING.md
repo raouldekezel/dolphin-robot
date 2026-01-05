@@ -9,6 +9,7 @@ The integration uses a smart debouncing mechanism to optimize UI updates when re
 ### Problem Statement
 
 Without debouncing, the integration would trigger a coordinator refresh for every MQTT message received, leading to:
+
 - ❌ Excessive UI updates (potentially hundreds per minute)
 - ❌ High CPU usage
 - ❌ UI flickering
@@ -17,6 +18,7 @@ Without debouncing, the integration would trigger a coordinator refresh for ever
 ### Solution
 
 Implement a **debounced update mechanism** that:
+
 - ✅ Batches rapid MQTT messages into single UI updates
 - ✅ Maintains real-time responsiveness for single updates
 - ✅ Prevents indefinite delays with a safety net
@@ -34,11 +36,11 @@ Implement a **debounced update mechanism** that:
 
 ### Update Mechanisms
 
-| Mechanism | Frequency | Purpose |
-|-----------|-----------|---------|
-| **Scheduled Update** | Every 30s | Regular polling of device shadow |
-| **Debounced MQTT** | 1s after last message | Batch rapid real-time updates |
-| **Forced Refresh** | After 5s max delay | Safety net for continuous streams |
+| Mechanism            | Frequency             | Purpose                           |
+| -------------------- | --------------------- | --------------------------------- |
+| **Scheduled Update** | Every 30s             | Regular polling of device shadow  |
+| **Debounced MQTT**   | 1s after last message | Batch rapid real-time updates     |
+| **Forced Refresh**   | After 5s max delay    | Safety net for continuous streams |
 
 ---
 
@@ -57,6 +59,7 @@ When MQTT messages arrive:
 ### Debouncer Behavior (Trailing Edge)
 
 The debouncer uses **trailing edge** behavior:
+
 - Waits for message burst to finish
 - Executes 1 second after the **last** message
 - Each new message resets the timer
@@ -72,6 +75,7 @@ Message 3 → Timer resets (1s)
 ### Safety Net (Maximum Delay)
 
 If messages arrive continuously without stopping:
+
 - Tracks time since last coordinator refresh
 - Forces immediate refresh if ≥5 seconds
 - Prevents indefinite delays
@@ -94,11 +98,11 @@ update_interval=UPDATE_WS_INTERVAL  # 30 seconds
 
 ### Tuning Parameters
 
-| Parameter | Default | Purpose | Tuning Notes |
-|-----------|---------|---------|--------------|
-| `cooldown` | 1.0s | Debounce delay | Lower = more responsive, higher = more batching |
-| `_max_mqtt_delay` | 5.0s | Safety net ceiling | Lower = more forced refreshes, higher = longer tolerance |
-| `UPDATE_WS_INTERVAL` | 30s | Scheduled polling | Ultimate fallback for reliability |
+| Parameter            | Default | Purpose            | Tuning Notes                                             |
+| -------------------- | ------- | ------------------ | -------------------------------------------------------- |
+| `cooldown`           | 1.0s    | Debounce delay     | Lower = more responsive, higher = more batching          |
+| `_max_mqtt_delay`    | 5.0s    | Safety net ceiling | Lower = more forced refreshes, higher = longer tolerance |
+| `UPDATE_WS_INTERVAL` | 30s     | Scheduled polling  | Ultimate fallback for reliability                        |
 
 ---
 
@@ -149,6 +153,7 @@ Time 3.9s:  Debouncer executes
 **Result**: 3.9s total delay, 1 UI update instead of 30
 
 **Benefits**:
+
 - 96.7% reduction in UI updates (1 vs 30)
 - All data captured without loss
 - Smooth UI experience
@@ -180,6 +185,7 @@ Time 9.9s:  Debouncer executes
 **Result**: 2 UI updates instead of 60 (96.7% reduction)
 
 **Key Points**:
+
 - First batch: Forced at 5s due to continuous messages
 - Second batch: Normal debounce (1s after last message)
 - Zero data loss - all 60 messages captured
@@ -205,6 +211,7 @@ Time 16.0s: Debouncer executes
 ```
 
 **Key Points**:
+
 - Messages arriving >5s after last refresh trigger immediately
 - Messages arriving <5s after use normal 1s debounce
 
@@ -218,7 +225,7 @@ graph TD
     B -->|YES| C[Force Immediate Refresh]
     C --> D[Update _last_mqtt_refresh]
     C --> E[UI Updates Immediately]
-    
+
     B -->|NO| F[Call Debouncer]
     F --> G{New message within 1s?}
     G -->|YES| H[Reset Timer]
@@ -234,20 +241,20 @@ graph TD
 
 ### Performance Improvements
 
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| Coordinator runs | 720/hour | 120/hour | 83% reduction |
-| UI updates (burst scenario) | 30 | 1 | 97% reduction |
-| CPU usage | High | Low | Significant |
-| UI responsiveness | Poor (flickering) | Smooth | Excellent |
+| Metric                      | Before            | After    | Improvement   |
+| --------------------------- | ----------------- | -------- | ------------- |
+| Coordinator runs            | 720/hour          | 120/hour | 83% reduction |
+| UI updates (burst scenario) | 30                | 1        | 97% reduction |
+| CPU usage                   | High              | Low      | Significant   |
+| UI responsiveness           | Poor (flickering) | Smooth   | Excellent     |
 
 ### User Experience
 
-✅ **Smooth UI** - No flickering from rapid updates  
-✅ **Fast response** - Single messages update in ~1 second  
-✅ **No data loss** - All MQTT updates captured  
-✅ **Reliable** - 30-second scheduled updates as fallback  
-✅ **Efficient** - Minimal resource usage  
+✅ **Smooth UI** - No flickering from rapid updates
+✅ **Fast response** - Single messages update in ~1 second
+✅ **No data loss** - All MQTT updates captured
+✅ **Reliable** - 30-second scheduled updates as fallback
+✅ **Efficient** - Minimal resource usage
 
 ---
 
@@ -266,9 +273,9 @@ def __init__(self, hass, config_manager: ConfigManager):
         update_interval=UPDATE_WS_INTERVAL,  # 30 seconds
         update_method=self._async_update_data,
     )
-    
+
     # ... other initialization ...
-    
+
     # MQTT debouncing
     self._mqtt_debouncer = Debouncer(
         hass,
@@ -277,7 +284,7 @@ def __init__(self, hass, config_manager: ConfigManager):
         immediate=False,  # Trailing edge behavior
         function=self._debounced_mqtt_refresh,
     )
-    
+
     # Safety net
     self._last_mqtt_refresh = 0
     self._max_mqtt_delay = 5.0  # 5 seconds maximum
@@ -290,10 +297,10 @@ def _on_mqtt_data_update(self):
     """Callback when MQTT data is updated - with max delay safety net."""
     if self.hass is None:
         return
-    
+
     now = datetime.now().timestamp()
     time_since_last = now - self._last_mqtt_refresh
-    
+
     # Safety net: force refresh if waited too long
     if time_since_last >= self._max_mqtt_delay:
         self._last_mqtt_refresh = now
@@ -327,7 +334,7 @@ def set_update_callback(self, callback):
 
 def _on_message_received(self, topic, payload, **kwargs):
     # ... process message and update self.data ...
-    
+
     # Trigger callback for real-time updates
     if self._on_data_update_callback is not None:
         self._on_data_update_callback()
@@ -373,6 +380,7 @@ Forced MQTT refresh - max delay exceeded (last refresh was 5.2s ago)
 **Symptom**: UI updates delayed more than expected
 
 **Check**:
+
 1. Verify `cooldown` value (should be 1.0s)
 2. Check if safety net is triggering frequently (5s delays)
 3. Review logs for "Forced MQTT refresh" warnings
@@ -386,6 +394,7 @@ Forced MQTT refresh - max delay exceeded (last refresh was 5.2s ago)
 **Symptom**: UI still flickering with rapid messages
 
 **Check**:
+
 1. Verify debouncer is being used (check logs)
 2. Confirm messages are triggering callback
 
@@ -398,6 +407,7 @@ Forced MQTT refresh - max delay exceeded (last refresh was 5.2s ago)
 **Symptom**: Some changes not reflected in UI
 
 **Check**:
+
 1. Verify 30-second scheduled update is running
 2. Check AWS IoT connectivity status
 3. Review MQTT message logs
@@ -426,5 +436,3 @@ The MQTT debouncing feature provides:
 - **Smooth UI experience** (no flickering)
 
 This optimization significantly improves the integration's efficiency while maintaining or improving user experience.
-
-

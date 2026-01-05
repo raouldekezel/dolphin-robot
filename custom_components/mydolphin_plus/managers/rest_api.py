@@ -217,7 +217,7 @@ class RestAPI:
             if not self._device_loaded:
                 _LOGGER.debug("Connected. Refresh details")
                 await self._load_details()
-            
+
                 self._device_loaded = True
 
                 self._async_dispatcher_send(
@@ -400,15 +400,19 @@ class RestAPI:
 
             if data and isinstance(data, dict):
                 motor_unit_serial = data.get(API_RESPONSE_UNIT_SERIAL_NUMBER)
-                
+
                 if motor_unit_serial:
                     message = f"Successfully retrieved motor unit serial for {self._config_manager.serial_number}"
-                    
-                    await self._config_manager.update_motor_unit_serial(motor_unit_serial)
+
+                    await self._config_manager.update_motor_unit_serial(
+                        motor_unit_serial
+                    )
                     self._set_status(ConnectivityStatus.TEMPORARY_CONNECTED, message)
                 else:
                     _LOGGER.error("Motor unit serial missing from API response")
-                    self._set_status(ConnectivityStatus.FAILED, "Motor unit serial not in response")
+                    self._set_status(
+                        ConnectivityStatus.FAILED, "Motor unit serial not in response"
+                    )
             else:
                 _LOGGER.error("Invalid API response data")
                 self._set_status(ConnectivityStatus.FAILED, "Invalid API response")
@@ -651,8 +655,17 @@ class RestAPI:
 
         return encryption_key
 
-    def _set_status(self, status: ConnectivityStatus, message: str | None = None, force_log_level: int | None = None):
-        log_level = ConnectivityStatus.get_log_level(status) if force_log_level is None else force_log_level
+    def _set_status(
+        self,
+        status: ConnectivityStatus,
+        message: str | None = None,
+        force_log_level: int | None = None,
+    ):
+        log_level = (
+            ConnectivityStatus.get_log_level(status)
+            if force_log_level is None
+            else force_log_level
+        )
 
         if status != self._status:
             log_message = f"Status update {self._status} --> {status}"
@@ -661,7 +674,7 @@ class RestAPI:
                 log_message = f"{log_message}, {message}"
 
             _LOGGER.log(log_level, log_message)
-            
+
             if status.is_disconnected():
                 self._device_loaded = False
 
@@ -693,32 +706,32 @@ class RestAPI:
 
         if crex.status in [401]:
             flow = "No API token present"
-            
+
             has_api_key = self._config_manager.api_token is not None
             last_fetch = self._config_manager.last_token_fetch
-                
+
             if has_api_key:
                 if last_fetch > 0:
                     token_age_seconds = datetime.now().timestamp() - last_fetch
-                    
+
                     if token_age_seconds >= RECONNECT_BACKOFF_MAX.total_seconds():
                         await self._config_manager.reset_login_details()
                         flow = "Old token, cleared for re-auth"
                         status = ConnectivityStatus.EXPIRED_TOKEN
-                        
+
                     else:
                         flow = "Fresh token within window"
                         forced_log_level = logging.DEBUG
-                        
+
                 else:
                     flow = "Token exists but no timestamp"
                     forced_log_level = logging.DEBUG
-            
+
             message = f"{message}, flow: {flow}"
 
         elif crex.status in [404, 405]:
             status = ConnectivityStatus.API_NOT_FOUND
-        
+
         self._set_status(status, message, forced_log_level)
 
     def _handle_server_timeout(self, endpoint: str, method: str):

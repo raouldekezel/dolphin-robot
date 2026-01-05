@@ -257,16 +257,19 @@ class ConfigManager:
     async def _validate_cached_credentials(self):
         """Check if cached credentials are too old and clear them if needed."""
         last_fetch = self._data.get(STORAGE_DATA_LAST_TOKEN_FETCH, 0) or 0
-        
+
         if last_fetch == 0:
             return  # No cached credentials to validate
-        
+
         token_age_seconds = datetime.now().timestamp() - last_fetch
-        
+
         if token_age_seconds >= RECONNECT_BACKOFF_MAX.total_seconds():
+            token_age_minutes = token_age_seconds / 60
+            max_age_minutes = RECONNECT_BACKOFF_MAX.total_seconds() / 60
+
             _LOGGER.debug(
-                f"Stored API credentials expired (age: {token_age_seconds/60:.1f} minutes, "
-                f"max: {RECONNECT_BACKOFF_MAX.total_seconds()/60:.0f} minutes). "
+                f"Stored API credentials expired (age: {token_age_minutes:.1f} minutes, "
+                f"max: {max_age_minutes:.0f} minutes). "
                 "Clearing for fresh authentication."
             )
             await self.reset_login_details()
