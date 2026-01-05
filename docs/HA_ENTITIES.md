@@ -10,47 +10,47 @@ The MyDolphin Plus integration creates **25 entities** (24 for standard models, 
 
 ## 🤖 Vacuum Entity (1)
 
-| Entity | Type | Functionality |
-|--------|------|---------------|
+| Entity                                     | Type     | Functionality                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [**{Robot Name}**](#vacuum-entity-details) | `vacuum` | Main vacuum control entity with the following features:<br/>• **Start** - Begin cleaning cycle<br/>• **Pause** - Pause current cleaning<br/>• **Return to Base** - Pickup/dock the robot<br/>• **Set Fan Speed** - Select cleaning mode (all, short, floor, water, ultra, pickup)<br/>• **Locate** - Turn on LED to find the robot<br/>• Shows current state: docked, cleaning, paused, error |
 
 ---
 
 ## 🎮 Remote Control Entity (1)
 
-| Entity | Type | Functionality |
-|--------|------|---------------|
+| Entity                                       | Type     | Functionality                                                                                                                                                                                                                                                                       |
+| -------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [**Remote**](#remote-control-entity-details) | `remote` | Manual joystick control for the robot:<br/>• **Send Command** - Control direction (forward, backward, left, right, stop)<br/>• **Turn Off** - Exit manual control mode<br/>• **Activity** - Shows current manual control direction<br/>• Allows manual navigation of the pool robot |
 
 ---
 
 ## 💡 Light Entity (1)
 
-| Entity | Type | Functionality |
-|--------|------|---------------|
+| Entity                           | Type    | Functionality                                                                                                                                         |
+| -------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [**LED**](#light-entity-details) | `light` | Control the robot's LED light:<br/>• **Turn On/Off** - Enable/disable LED<br/>• Used for locating the robot in the pool<br/>• Category: Configuration |
 
 ---
 
 ## 🎚️ Select Entity (1)
 
-| Entity | Type | Functionality |
-|--------|------|---------------|
+| Entity                                 | Type     | Functionality                                                                                                                                  |
+| -------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | [**LED Mode**](#select-entity-details) | `select` | Select LED blinking pattern:<br/>• Various LED modes available (blinking patterns)<br/>• Customizes LED behavior<br/>• Category: Configuration |
 
 ---
 
 ## 🔢 Number Entities (7)
 
-| Entity | Type | Range | Functionality |
-|--------|------|-------|---------------|
-| [**LED Intensity**](#led-intensity) | `number` | 0-100 | Adjust LED brightness level (0-100%)<br/>• Category: Configuration<br/>• Device Class: Power Factor |
-| [**Cycle Time all**](#cycle-time-configuration) | `number` | 0-600 min | Set duration for Regular cleaning mode |
-| [**Cycle Time short**](#cycle-time-configuration) | `number` | 0-600 min | Set duration for Fast Mode cleaning |
-| [**Cycle Time floor**](#cycle-time-configuration) | `number` | 0-600 min | Set duration for Floor Only cleaning |
-| [**Cycle Time water**](#cycle-time-configuration) | `number` | 0-600 min | Set duration for Water Line cleaning |
-| [**Cycle Time ultra**](#cycle-time-configuration) | `number` | 0-600 min | Set duration for Ultra Clean mode |
-| [**Cycle Time pickup**](#cycle-time-configuration) | `number` | 0-600 min | Set duration for Pickup mode |
+| Entity                                             | Type     | Range     | Functionality                                                                                       |
+| -------------------------------------------------- | -------- | --------- | --------------------------------------------------------------------------------------------------- |
+| [**LED Intensity**](#led-intensity)                | `number` | 0-100     | Adjust LED brightness level (0-100%)<br/>• Category: Configuration<br/>• Device Class: Power Factor |
+| [**Cycle Time all**](#cycle-time-configuration)    | `number` | 0-600 min | Set duration for Regular cleaning mode                                                              |
+| [**Cycle Time short**](#cycle-time-configuration)  | `number` | 0-600 min | Set duration for Fast Mode cleaning                                                                 |
+| [**Cycle Time floor**](#cycle-time-configuration)  | `number` | 0-600 min | Set duration for Floor Only cleaning                                                                |
+| [**Cycle Time water**](#cycle-time-configuration)  | `number` | 0-600 min | Set duration for Water Line cleaning                                                                |
+| [**Cycle Time ultra**](#cycle-time-configuration)  | `number` | 0-600 min | Set duration for Ultra Clean mode                                                                   |
+| [**Cycle Time pickup**](#cycle-time-configuration) | `number` | 0-600 min | Set duration for Pickup mode                                                                        |
 
 ---
 
@@ -58,66 +58,66 @@ The MyDolphin Plus integration creates **25 entities** (24 for standard models, 
 
 ### Status & Diagnostic Sensors
 
-| Entity | Type | Functionality |
-|--------|------|---------------|
-| [**Status**](#status) | `sensor` | Shows calculated overall system state<br/>• Includes attributes with detailed status information<br/>• Category: Diagnostic |
-| [**RSSI**](#wifi-signal-strength-rssi) | `sensor` | WiFi signal strength in dBm<br/>• Device Class: Signal Strength<br/>• Category: Diagnostic |
-| [**Network Name**](#network-name) | `sensor` | WiFi network the robot is connected to<br/>• Category: Diagnostic |
-| [**Clean Mode**](#clean-mode) | `sensor` | Current active cleaning mode (all/short/floor/water/ultra/pickup)<br/>• Category: Diagnostic |
-| [**Power Supply Status**](#power-supply-status) | `sensor` | Power unit state (charging, floating, etc.)<br/>• Category: Diagnostic |
-| [**Robot Status**](#robot-status) | `sensor` | Robot's current operational status<br/>• Category: Diagnostic |
-| [**Robot Type**](#robot-type) | `sensor` | Model type of the robot<br/>• Category: Diagnostic |
-| [**Cycle Count**](#cycle-count) | `sensor` | Total number of cleaning cycles completed<br/>• State Class: Total Increasing<br/>• Category: Diagnostic |
+| Entity                                          | Type     | Functionality                                                                                                               |
+| ----------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| [**Status**](#status)                           | `sensor` | Shows calculated overall system state<br/>• Includes attributes with detailed status information<br/>• Category: Diagnostic |
+| [**RSSI**](#wifi-signal-strength-rssi)          | `sensor` | WiFi signal strength in dBm<br/>• Device Class: Signal Strength<br/>• Category: Diagnostic                                  |
+| [**Network Name**](#network-name)               | `sensor` | WiFi network the robot is connected to<br/>• Category: Diagnostic                                                           |
+| [**Clean Mode**](#clean-mode)                   | `sensor` | Current active cleaning mode (all/short/floor/water/ultra/pickup)<br/>• Category: Diagnostic                                |
+| [**Power Supply Status**](#power-supply-status) | `sensor` | Power unit state (charging, floating, etc.)<br/>• Category: Diagnostic                                                      |
+| [**Robot Status**](#robot-status)               | `sensor` | Robot's current operational status<br/>• Category: Diagnostic                                                               |
+| [**Robot Type**](#robot-type)                   | `sensor` | Model type of the robot<br/>• Category: Diagnostic                                                                          |
+| [**Cycle Count**](#cycle-count)                 | `sensor` | Total number of cleaning cycles completed<br/>• State Class: Total Increasing<br/>• Category: Diagnostic                    |
 
 ### Cleaning Cycle Sensors
 
-| Entity | Type | Unit | Functionality |
-|--------|------|------|---------------|
-| [**Cycle Time**](#cycle-time) | `sensor` | Minutes | Duration of current/last cleaning cycle<br/>• Shows start time in attributes<br/>• Device Class: Duration |
+| Entity                                  | Type     | Unit    | Functionality                                                                                                                    |
+| --------------------------------------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [**Cycle Time**](#cycle-time)           | `sensor` | Minutes | Duration of current/last cleaning cycle<br/>• Shows start time in attributes<br/>• Device Class: Duration                        |
 | [**Cycle Time Left**](#cycle-time-left) | `sensor` | Seconds | Remaining time in current cleaning cycle<br/>• Shows start time and expected end time in attributes<br/>• Device Class: Duration |
 
 ### Filter & Maintenance Sensors
 
-| Entity | Type | Functionality |
-|--------|------|---------------|
+| Entity                              | Type     | Functionality                                                                                                                                                   |
+| ----------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [**Filter Status**](#filter-status) | `sensor` | Filter bag status (OK, Warning, Critical)<br/>• Shows numeric filter state value<br/>• Includes reset_fbi flag in attributes<br/>• Dynamic icon based on status |
 
 ### Error Sensors
 
-| Entity | Type | Functionality |
-|--------|------|---------------|
-| [**Robot Error**](#robot-error) | `sensor` | Robot error code (0 = no error)<br/>• Icon changes when error present<br/>• Category: Diagnostic |
-| [**PWS Error**](#pws-error) | `sensor` | Power Supply error code (0 = no error)<br/>• Icon changes when error present<br/>• Category: Diagnostic |
+| Entity                          | Type     | Functionality                                                                                           |
+| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| [**Robot Error**](#robot-error) | `sensor` | Robot error code (0 = no error)<br/>• Icon changes when error present<br/>• Category: Diagnostic        |
+| [**PWS Error**](#pws-error)     | `sensor` | Power Supply error code (0 = no error)<br/>• Icon changes when error present<br/>• Category: Diagnostic |
 
 ### Battery & Environment Sensors
 
-| Entity | Type | Unit | Functionality |
-|--------|------|------|---------------|
-| [**Battery**](#battery) | `sensor` | % | Battery level (always 100% for corded robots)<br/>• Device Class: Battery<br/>• State Class: Measurement |
-| [**Temperature**](#temperature-m700-models-only) | `sensor` | °C | Water temperature (M700 models only)<br/>• Device Class: Temperature<br/>• State Class: Measurement<br/>• Only appears on M700 family robots |
+| Entity                                           | Type     | Unit | Functionality                                                                                                                                |
+| ------------------------------------------------ | -------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| [**Battery**](#battery)                          | `sensor` | %    | Battery level (always 100% for corded robots)<br/>• Device Class: Battery<br/>• State Class: Measurement                                     |
+| [**Temperature**](#temperature-m700-models-only) | `sensor` | °C   | Water temperature (M700 models only)<br/>• Device Class: Temperature<br/>• State Class: Measurement<br/>• Only appears on M700 family robots |
 
 ---
 
 ## 🔌 Binary Sensor Entity (1)
 
-| Entity | Type | Functionality |
-|--------|------|---------------|
+| Entity                                     | Type            | Functionality                                                                                                                                                                                          |
+| ------------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [**AWS Broker**](#aws-broker-connectivity) | `binary_sensor` | AWS IoT MQTT connection status:<br/>• **On** - Connected to AWS IoT<br/>• **Off** - Disconnected<br/>• Shows detailed status in attributes<br/>• Device Class: Connectivity<br/>• Category: Diagnostic |
 
 ---
 
 ## Summary by Platform
 
-| Platform | Count | Purpose |
-|----------|-------|---------|
-| **Vacuum** | 1 | Main robot control |
-| **Remote** | 1 | Manual joystick control |
-| **Light** | 1 | LED control |
-| **Select** | 1 | LED mode selection |
-| **Number** | 7 | LED intensity + 6 cycle time configurations |
-| **Sensor** | 13 | Status, diagnostics, cleaning info, errors |
-| **Binary Sensor** | 1 | AWS connectivity status |
-| **TOTAL** | **25** | (24 for non-M700, 25 for M700 with temperature) |
+| Platform          | Count  | Purpose                                         |
+| ----------------- | ------ | ----------------------------------------------- |
+| **Vacuum**        | 1      | Main robot control                              |
+| **Remote**        | 1      | Manual joystick control                         |
+| **Light**         | 1      | LED control                                     |
+| **Select**        | 1      | LED mode selection                              |
+| **Number**        | 7      | LED intensity + 6 cycle time configurations     |
+| **Sensor**        | 13     | Status, diagnostics, cleaning info, errors      |
+| **Binary Sensor** | 1      | AWS connectivity status                         |
+| **TOTAL**         | **25** | (24 for non-M700, 25 for M700 with temperature) |
 
 ---
 
@@ -138,12 +138,12 @@ The MyDolphin Plus integration creates **25 entities** (24 for standard models, 
 
 ### Main Vacuum Control
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `vacuum.{robot_name}` |
-| **Platform** | Vacuum |
-| **Device Class** | - |
-| **Features** | Start, Pause, Return to Base, Locate, Set Fan Speed |
+| Attribute        | Value                                               |
+| ---------------- | --------------------------------------------------- |
+| **Entity ID**    | `vacuum.{robot_name}`                               |
+| **Platform**     | Vacuum                                              |
+| **Device Class** | -                                                   |
+| **Features**     | Start, Pause, Return to Base, Locate, Set Fan Speed |
 
 #### Functionality
 
@@ -181,12 +181,12 @@ The main vacuum entity provides comprehensive control over the pool cleaning rob
 
 ### Manual Joystick Control
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `remote.{robot_name}_remote` |
-| **Platform** | Remote |
-| **Device Class** | - |
-| **Features** | Activity |
+| Attribute        | Value                        |
+| ---------------- | ---------------------------- |
+| **Entity ID**    | `remote.{robot_name}_remote` |
+| **Platform**     | Remote                       |
+| **Device Class** | -                            |
+| **Features**     | Activity                     |
 
 #### Functionality
 
@@ -221,12 +221,12 @@ Provides manual directional control of the robot using joystick commands:
 
 ### LED Light Control
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `light.{robot_name}_led` |
-| **Platform** | Light |
-| **Device Class** | - |
-| **Entity Category** | Configuration |
+| Attribute           | Value                    |
+| ------------------- | ------------------------ |
+| **Entity ID**       | `light.{robot_name}_led` |
+| **Platform**        | Light                    |
+| **Device Class**    | -                        |
+| **Entity Category** | Configuration            |
 
 #### Functionality
 
@@ -243,6 +243,7 @@ Controls the robot's built-in LED light:
 #### Usage
 
 The LED is primarily used for:
+
 - Locating the robot in the pool (via `vacuum.locate` service)
 - Visibility during night operation
 - Customizing robot appearance with LED modes
@@ -253,12 +254,12 @@ The LED is primarily used for:
 
 ### LED Mode Selection
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `select.{robot_name}_led_mode` |
-| **Platform** | Select |
-| **Device Class** | - |
-| **Entity Category** | Configuration |
+| Attribute           | Value                          |
+| ------------------- | ------------------------------ |
+| **Entity ID**       | `select.{robot_name}_led_mode` |
+| **Platform**        | Select                         |
+| **Device Class**    | -                              |
+| **Entity Category** | Configuration                  |
 
 #### Functionality
 
@@ -277,14 +278,14 @@ Current LED mode value (e.g., "blinking", "solid", etc.)
 
 ### LED Intensity
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `number.{robot_name}_led_intensity` |
-| **Platform** | Number |
-| **Device Class** | Power Factor |
-| **Entity Category** | Configuration |
-| **Range** | 0-100 |
-| **Unit** | % (percentage) |
+| Attribute           | Value                               |
+| ------------------- | ----------------------------------- |
+| **Entity ID**       | `number.{robot_name}_led_intensity` |
+| **Platform**        | Number                              |
+| **Device Class**    | Power Factor                        |
+| **Entity Category** | Configuration                       |
+| **Range**           | 0-100                               |
+| **Unit**            | % (percentage)                      |
 
 #### Functionality
 
@@ -298,14 +299,14 @@ Adjust the brightness level of the robot's LED:
 
 Configure the duration for each cleaning mode:
 
-| Entity ID | Cleaning Mode | Default | Range |
-|-----------|---------------|---------|-------|
-| `number.{robot_name}_cycle_time_all` | Regular | 120 min | 0-600 min |
-| `number.{robot_name}_cycle_time_short` | Fast Mode | 60 min | 0-600 min |
-| `number.{robot_name}_cycle_time_floor` | Floor Only | 120 min | 0-600 min |
-| `number.{robot_name}_cycle_time_water` | Water Line | 120 min | 0-600 min |
-| `number.{robot_name}_cycle_time_ultra` | Ultra Clean | 120 min | 0-600 min |
-| `number.{robot_name}_cycle_time_pickup` | Pickup | 5 min | 0-600 min |
+| Entity ID                               | Cleaning Mode | Default | Range     |
+| --------------------------------------- | ------------- | ------- | --------- |
+| `number.{robot_name}_cycle_time_all`    | Regular       | 120 min | 0-600 min |
+| `number.{robot_name}_cycle_time_short`  | Fast Mode     | 60 min  | 0-600 min |
+| `number.{robot_name}_cycle_time_floor`  | Floor Only    | 120 min | 0-600 min |
+| `number.{robot_name}_cycle_time_water`  | Water Line    | 120 min | 0-600 min |
+| `number.{robot_name}_cycle_time_ultra`  | Ultra Clean   | 120 min | 0-600 min |
+| `number.{robot_name}_cycle_time_pickup` | Pickup        | 5 min   | 0-600 min |
 
 #### Functionality
 
@@ -329,11 +330,11 @@ Minutes
 
 #### Status
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_status` |
-| **Device Class** | - |
-| **Entity Category** | Diagnostic |
+| Attribute           | Value                        |
+| ------------------- | ---------------------------- |
+| **Entity ID**       | `sensor.{robot_name}_status` |
+| **Device Class**    | -                            |
+| **Entity Category** | Diagnostic                   |
 
 Displays the calculated overall system state combining robot status, power supply status, and cleaning state.
 
@@ -343,12 +344,12 @@ Displays the calculated overall system state combining robot status, power suppl
 
 #### WiFi Signal Strength (RSSI)
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_rssi` |
-| **Device Class** | Signal Strength |
-| **Entity Category** | Diagnostic |
-| **Unit** | dBm |
+| Attribute           | Value                      |
+| ------------------- | -------------------------- |
+| **Entity ID**       | `sensor.{robot_name}_rssi` |
+| **Device Class**    | Signal Strength            |
+| **Entity Category** | Diagnostic                 |
+| **Unit**            | dBm                        |
 
 Shows the WiFi signal strength between the robot and your wireless network.
 
@@ -358,11 +359,11 @@ Shows the WiFi signal strength between the robot and your wireless network.
 
 #### Network Name
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_network_name` |
-| **Device Class** | - |
-| **Entity Category** | Diagnostic |
+| Attribute           | Value                              |
+| ------------------- | ---------------------------------- |
+| **Entity ID**       | `sensor.{robot_name}_network_name` |
+| **Device Class**    | -                                  |
+| **Entity Category** | Diagnostic                         |
 
 Displays the SSID of the WiFi network the robot is connected to.
 
@@ -370,11 +371,11 @@ Displays the SSID of the WiFi network the robot is connected to.
 
 #### Clean Mode
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_clean_mode` |
-| **Device Class** | - |
-| **Entity Category** | Diagnostic |
+| Attribute           | Value                            |
+| ------------------- | -------------------------------- |
+| **Entity ID**       | `sensor.{robot_name}_clean_mode` |
+| **Device Class**    | -                                |
+| **Entity Category** | Diagnostic                       |
 
 Shows the current active cleaning mode.
 
@@ -384,11 +385,11 @@ Shows the current active cleaning mode.
 
 #### Power Supply Status
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_power_supply_status` |
-| **Device Class** | - |
-| **Entity Category** | Diagnostic |
+| Attribute           | Value                                     |
+| ------------------- | ----------------------------------------- |
+| **Entity ID**       | `sensor.{robot_name}_power_supply_status` |
+| **Device Class**    | -                                         |
+| **Entity Category** | Diagnostic                                |
 
 Displays the current state of the robot's power supply unit.
 
@@ -398,11 +399,11 @@ Displays the current state of the robot's power supply unit.
 
 #### Robot Status
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_robot_status` |
-| **Device Class** | - |
-| **Entity Category** | Diagnostic |
+| Attribute           | Value                              |
+| ------------------- | ---------------------------------- |
+| **Entity ID**       | `sensor.{robot_name}_robot_status` |
+| **Device Class**    | -                                  |
+| **Entity Category** | Diagnostic                         |
 
 Shows the robot's current operational status.
 
@@ -410,11 +411,11 @@ Shows the robot's current operational status.
 
 #### Robot Type
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_robot_type` |
-| **Device Class** | - |
-| **Entity Category** | Diagnostic |
+| Attribute           | Value                            |
+| ------------------- | -------------------------------- |
+| **Entity ID**       | `sensor.{robot_name}_robot_type` |
+| **Device Class**    | -                                |
+| **Entity Category** | Diagnostic                       |
 
 Displays the model type of your Dolphin robot.
 
@@ -422,12 +423,12 @@ Displays the model type of your Dolphin robot.
 
 #### Cycle Count
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_cycle_count` |
-| **Device Class** | - |
-| **Entity Category** | Diagnostic |
-| **State Class** | Total Increasing |
+| Attribute           | Value                             |
+| ------------------- | --------------------------------- |
+| **Entity ID**       | `sensor.{robot_name}_cycle_count` |
+| **Device Class**    | -                                 |
+| **Entity Category** | Diagnostic                        |
+| **State Class**     | Total Increasing                  |
 
 Total number of cleaning cycles completed since the robot was first used.
 
@@ -439,16 +440,17 @@ Total number of cleaning cycles completed since the robot was first used.
 
 #### Cycle Time
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_cycle_time` |
-| **Device Class** | Duration |
-| **State Class** | Measurement |
-| **Unit** | Minutes |
+| Attribute        | Value                            |
+| ---------------- | -------------------------------- |
+| **Entity ID**    | `sensor.{robot_name}_cycle_time` |
+| **Device Class** | Duration                         |
+| **State Class**  | Measurement                      |
+| **Unit**         | Minutes                          |
 
 Duration of the current or last cleaning cycle.
 
 **Attributes**:
+
 - `start_time` - When the cycle started
 
 **Icon**: Dynamic clock icon showing hour
@@ -457,16 +459,17 @@ Duration of the current or last cleaning cycle.
 
 #### Cycle Time Left
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_cycle_time_left` |
-| **Device Class** | Duration |
-| **State Class** | Measurement |
-| **Unit** | Seconds |
+| Attribute        | Value                                 |
+| ---------------- | ------------------------------------- |
+| **Entity ID**    | `sensor.{robot_name}_cycle_time_left` |
+| **Device Class** | Duration                              |
+| **State Class**  | Measurement                           |
+| **Unit**         | Seconds                               |
 
 Remaining time in the current cleaning cycle.
 
 **Attributes**:
+
 - `start_time` - When the cycle started
 - `expected_end_time` - When the cycle is expected to finish
 
@@ -480,20 +483,22 @@ Remaining time in the current cleaning cycle.
 
 #### Filter Status
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_filter_status` |
-| **Device Class** | - |
-| **State Class** | - |
+| Attribute        | Value                               |
+| ---------------- | ----------------------------------- |
+| **Entity ID**    | `sensor.{robot_name}_filter_status` |
+| **Device Class** | -                                   |
+| **State Class**  | -                                   |
 
 Status of the robot's filter bag indicating when it needs cleaning or replacement.
 
 **States**:
+
 - `OK` - Filter is clean
 - `Warning` - Filter should be cleaned soon
 - `Critical` - Filter needs immediate attention
 
 **Attributes**:
+
 - `status` - Numeric filter state value (0-255)
 - `reset_fbi` - Filter bag indication reset flag
 
@@ -505,12 +510,12 @@ Status of the robot's filter bag indicating when it needs cleaning or replacemen
 
 #### Robot Error
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_robot_error` |
-| **Device Class** | - |
-| **Entity Category** | Diagnostic |
-| **Icon** | `mdi:robot-vacuum-variant` (changes to alert when error present) |
+| Attribute           | Value                                                            |
+| ------------------- | ---------------------------------------------------------------- |
+| **Entity ID**       | `sensor.{robot_name}_robot_error`                                |
+| **Device Class**    | -                                                                |
+| **Entity Category** | Diagnostic                                                       |
+| **Icon**            | `mdi:robot-vacuum-variant` (changes to alert when error present) |
 
 Robot error code. A value of `0` indicates no error.
 
@@ -520,12 +525,12 @@ Robot error code. A value of `0` indicates no error.
 
 #### PWS Error
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_pws_error` |
-| **Device Class** | - |
-| **Entity Category** | Diagnostic |
-| **Icon** | `mdi:water-boiler` (changes to alert when error present) |
+| Attribute           | Value                                                    |
+| ------------------- | -------------------------------------------------------- |
+| **Entity ID**       | `sensor.{robot_name}_pws_error`                          |
+| **Device Class**    | -                                                        |
+| **Entity Category** | Diagnostic                                               |
+| **Icon**            | `mdi:water-boiler` (changes to alert when error present) |
 
 Power Supply (PWS) error code. A value of `0` indicates no error.
 
@@ -537,12 +542,12 @@ Power Supply (PWS) error code. A value of `0` indicates no error.
 
 #### Battery
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_battery` |
-| **Device Class** | Battery |
-| **State Class** | Measurement |
-| **Unit** | % |
+| Attribute        | Value                         |
+| ---------------- | ----------------------------- |
+| **Entity ID**    | `sensor.{robot_name}_battery` |
+| **Device Class** | Battery                       |
+| **State Class**  | Measurement                   |
+| **Unit**         | %                             |
 
 Battery level percentage.
 
@@ -552,13 +557,13 @@ Battery level percentage.
 
 #### Temperature (M700 Models Only)
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `sensor.{robot_name}_temperature` |
-| **Device Class** | Temperature |
-| **State Class** | Measurement |
-| **Unit** | °C |
-| **Availability** | M700 family robots only |
+| Attribute        | Value                             |
+| ---------------- | --------------------------------- |
+| **Entity ID**    | `sensor.{robot_name}_temperature` |
+| **Device Class** | Temperature                       |
+| **State Class**  | Measurement                       |
+| **Unit**         | °C                                |
+| **Availability** | M700 family robots only           |
 
 Water temperature measured by the robot.
 
@@ -570,12 +575,12 @@ Water temperature measured by the robot.
 
 ### AWS Broker Connectivity
 
-| Attribute | Value |
-|-----------|-------|
-| **Entity ID** | `binary_sensor.{robot_name}_aws_broker` |
-| **Device Class** | Connectivity |
-| **Entity Category** | Diagnostic |
-| **Icon** | `mdi:aws` |
+| Attribute           | Value                                   |
+| ------------------- | --------------------------------------- |
+| **Entity ID**       | `binary_sensor.{robot_name}_aws_broker` |
+| **Device Class**    | Connectivity                            |
+| **Entity Category** | Diagnostic                              |
+| **Icon**            | `mdi:aws`                               |
 
 Indicates whether the integration is connected to AWS IoT MQTT broker.
 
@@ -591,6 +596,7 @@ Indicates whether the integration is connected to AWS IoT MQTT broker.
 #### Importance
 
 This entity is crucial for monitoring the health of the integration:
+
 - When **on**: Real-time updates are working, commands are sent immediately
 - When **off**: Integration is attempting to reconnect with exponential backoff
 
@@ -757,11 +763,11 @@ automation:
     condition:
       - condition: state
         entity_id: binary_sensor.my_dolphin_aws_broker
-        state: "on"  # Ensure connection is active
+        state: "on" # Ensure connection is active
     action:
       - service: vacuum.set_fan_speed
         data:
-          fan_speed: all  # Regular mode
+          fan_speed: all # Regular mode
         target:
           entity_id: vacuum.my_dolphin
       - service: vacuum.start
@@ -793,7 +799,7 @@ automation:
     trigger:
       - platform: template
         value_template: >
-          {{ states('sensor.my_dolphin_robot_error')|int > 0 or 
+          {{ states('sensor.my_dolphin_robot_error')|int > 0 or
              states('sensor.my_dolphin_pws_error')|int > 0 }}
     action:
       - service: notify.mobile_app
@@ -826,16 +832,16 @@ automation:
 
 ## Entity Summary Table
 
-| Platform | Count | Category | Purpose |
-|----------|-------|----------|---------|
-| Vacuum | 1 | Main | Robot control and status |
-| Remote | 1 | Main | Manual joystick control |
-| Light | 1 | Configuration | LED on/off |
-| Select | 1 | Configuration | LED mode selection |
-| Number | 7 | Configuration | LED intensity + 6 cycle times |
-| Sensor | 13 | Mixed | Status, diagnostics, measurements |
-| Binary Sensor | 1 | Diagnostic | AWS connectivity |
-| **TOTAL** | **25*** | | |
+| Platform      | Count    | Category      | Purpose                           |
+| ------------- | -------- | ------------- | --------------------------------- |
+| Vacuum        | 1        | Main          | Robot control and status          |
+| Remote        | 1        | Main          | Manual joystick control           |
+| Light         | 1        | Configuration | LED on/off                        |
+| Select        | 1        | Configuration | LED mode selection                |
+| Number        | 7        | Configuration | LED intensity + 6 cycle times     |
+| Sensor        | 13       | Mixed         | Status, diagnostics, measurements |
+| Binary Sensor | 1        | Diagnostic    | AWS connectivity                  |
+| **TOTAL**     | **25\*** |               |                                   |
 
 \* 24 entities for standard models, 25 for M700 models (includes temperature sensor)
 
@@ -857,4 +863,3 @@ automation:
 3. **Real-time Updates**: Most entities update in real-time via MQTT; some update every 30 seconds via polling
 4. **M700 Models**: Temperature sensor is only available on M700 family robots
 5. **Entity Registry**: You can customize entity IDs, names, and icons through Home Assistant's entity registry
-

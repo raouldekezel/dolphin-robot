@@ -318,7 +318,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             self.hass.loop.call_soon_threadsafe(
                 lambda: self.hass.async_create_task(self.async_request_refresh())
             )
-            
+
         else:
             # Normal debounced call
             self.hass.loop.call_soon_threadsafe(
