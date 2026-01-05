@@ -427,3 +427,4 @@ The MQTT debouncing feature provides:
 
 This optimization significantly improves the integration's efficiency while maintaining or improving user experience.
 
+
