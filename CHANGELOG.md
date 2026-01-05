@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.25b5
+
+- Fix payload handling in AWS token generation when 401 errors occur
+- Refactor AWSClient to include callback for real-time MQTT data updates
+- Add credential validation in ConfigManager
+- Enhance connectivity status handling and improve API response validation
+- Add MQTT update debouncing documentation
+- Add workflows and entities documentation
+
 ## v1.0.25b4
 
 - Prevent clearing the motor serial number when reset_login_details
