@@ -490,6 +490,10 @@ class RestAPI:
 
             payload = await self._async_post(TOKEN_URL, headers, request_data)
 
+            if payload is None:
+                _LOGGER.debug("AWS token generation failed: Empty response from server")
+                return
+
             if self._status == ConnectivityStatus.TEMPORARY_CONNECTED:
                 data = payload.get(API_RESPONSE_DATA, {})
                 alert = payload.get(API_RESPONSE_ALERT, {})

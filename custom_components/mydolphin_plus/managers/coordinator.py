@@ -318,10 +318,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             self.hass.loop.call_soon_threadsafe(
                 lambda: self.hass.async_create_task(self.async_request_refresh())
             )
-            _LOGGER.debug(
-                f"Forced MQTT refresh - max delay exceeded "
-                f"(last refresh was {time_since_last:.1f}s ago)"
-            )
+            
         else:
             # Normal debounced call
             self.hass.loop.call_soon_threadsafe(

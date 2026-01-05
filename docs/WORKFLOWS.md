@@ -739,8 +739,38 @@ sequenceDiagram
     end
 
     Note over AWS,Coord: Data now available for entities
+    
+    AWS->>Coord: _on_data_update_callback() triggered
+    Coord->>Coord: _on_mqtt_data_update()
+    Coord->>Coord: Check time_since_last_refresh
+    
+    alt Max delay exceeded (5 seconds)
+        Coord->>Coord: Force immediate refresh
+        Coord->>Coord: async_request_refresh()
+    else Within cooldown window
+        Coord->>Coord: _mqtt_debouncer.async_call()
+        Note over Coord: Debounced refresh with 1s cooldown
+        Coord->>Coord: _debounced_mqtt_refresh() after delay
+        Coord->>Coord: async_request_refresh()
+    end
+    
     AWS->>Coord: Data automatically available via aws_data property
 ```
+
+### MQTT Update Debouncing
+
+To optimize performance and prevent excessive coordinator refreshes, MQTT updates are debounced:
+
+- **Debounce Cooldown**: 1.0 second - Multiple rapid updates are batched together
+- **Maximum Delay Safety Net**: 5.0 seconds - Forces immediate refresh if no update occurred for too long
+- **Callback Mechanism**: AWSClient triggers `_on_mqtt_data_update()` callback after processing each message
+- **Coordinator Response**: Debouncer ensures coordinator refresh happens at most once per second, even with multiple rapid MQTT messages
+
+**Benefits**:
+- Reduces CPU usage by batching rapid updates
+- Prevents UI flicker from excessive entity updates
+- Ensures responsiveness with safety net for missed updates
+- Optimizes Home Assistant entity refresh cycles
 
 ### Message Types
 
@@ -922,13 +952,13 @@ The MyDolphin Plus integration uses a **robust, multi-layered approach**:
 3. **Update Flows**:
    - Periodic REST API calls for static information (5 min interval, once per connection)
    - Periodic MQTT shadow requests for reliable state sync (30 sec interval)
-   - Real-time MQTT push notifications for immediate updates (async)
+   - Real-time MQTT push notifications with debouncing for immediate updates (async, 1s debounce, 5s max delay)
    - On-demand entity requests for user actions and state queries
 
 ### Architecture Benefits
 
 - **Reliability**: Periodic polling ensures state is eventually consistent; automatic recovery handles failures
-- **Responsiveness**: Real-time MQTT provides immediate updates; sub-second command execution
+- **Responsiveness**: Real-time MQTT provides immediate updates with debouncing (1s cooldown, 5s max delay); sub-second command execution
 - **Efficiency**: Smart caching (device details once per connection), rate limiting, and backoff strategies minimize unnecessary API calls
 - **Resilience**: Exponential backoff and automatic recovery ensure graceful handling of network/service disruptions
 - **Flexibility**: Separate update mechanisms can be tuned independently; recovery is transparent to users
