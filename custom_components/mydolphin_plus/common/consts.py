@@ -121,8 +121,7 @@ DEFAULT_TIME_ZONE_NAME = "UTC"
 DEFAULT_TIME_PART = 255
 
 UPDATE_API_INTERVAL = timedelta(hours=1)
-UPDATE_WS_INTERVAL = timedelta(minutes=5)
-UPDATE_ENTITIES_INTERVAL = timedelta(seconds=5)
+UPDATE_WS_INTERVAL = timedelta(seconds=30)
 API_RECONNECT_INTERVAL = timedelta(minutes=1)
 WS_RECONNECT_INTERVAL = timedelta(minutes=1)
 
