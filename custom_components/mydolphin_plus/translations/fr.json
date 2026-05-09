@@ -106,7 +106,7 @@
         "state": {
           "0": "OK",
           "1": "Tension d'entrée CC",
-          "10": "Sous-charge moteur 2",
+          "10": "Sous-charge entraînement 2",
           "11": "Capteur mur/sol",
           "12": "Tension d'entrée CC 23V",
           "13": "Capteur mur/sol 2",
@@ -115,22 +115,22 @@
           "16": "Surcharge de l'alimentation",
           "17": "Défaillance pilote turbine 1",
           "18": "Défaillance pilote turbine 2",
-          "19": "Défaillance pilote moteur 1",
+          "19": "Défaillance pilote entraînement 1",
           "2": "Hors de l'eau",
-          "20": "Défaillance pilote moteur 2",
+          "20": "Défaillance pilote entraînement 2",
           "21": "Surcharge servo",
           "22": "Défaillance moteur turbine 1",
           "23": "Défaillance moteur turbine 2",
-          "24": "Défaillance moteur 1",
-          "25": "Défaillance moteur 2",
+          "24": "Défaillance moteur entraînement 1",
+          "25": "Défaillance moteur entraînement 2",
           "255": "OK",
           "3": "Surcharge turbine",
           "4": "Sous-charge turbine 1",
           "5": "Surcharge turbine",
           "6": "Sous-charge turbine 2",
-          "7": "Surcharge moteur",
-          "8": "Sous-charge moteur 1",
-          "9": "Surcharge moteur"
+          "7": "Surcharge entraînement",
+          "8": "Sous-charge entraînement 1",
+          "9": "Surcharge entraînement"
         },
         "state_attributes": {
           "instructions": {
@@ -160,7 +160,7 @@
         "state": {
           "0": "OK",
           "1": "Tension d'entrée CC",
-          "10": "Sous-charge moteur 2",
+          "10": "Sous-charge entraînement 2",
           "11": "Capteur mur/sol",
           "12": "Tension d'entrée CC 23V",
           "13": "Capteur mur/sol 2",
@@ -169,22 +169,22 @@
           "16": "Surcharge de l'alimentation",
           "17": "Défaillance pilote turbine 1",
           "18": "Défaillance pilote turbine 2",
-          "19": "Défaillance pilote moteur 1",
+          "19": "Défaillance pilote entraînement 1",
           "2": "Hors de l'eau",
-          "20": "Défaillance pilote moteur 2",
+          "20": "Défaillance pilote entraînement 2",
           "21": "Surcharge servo",
           "22": "Défaillance moteur turbine 1",
           "23": "Défaillance moteur turbine 2",
-          "24": "Défaillance moteur 1",
-          "25": "Défaillance moteur 2",
+          "24": "Défaillance moteur entraînement 1",
+          "25": "Défaillance moteur entraînement 2",
           "255": "OK",
           "3": "Surcharge turbine",
           "4": "Sous-charge turbine 1",
           "5": "Surcharge turbine",
           "6": "Sous-charge turbine 2",
-          "7": "Surcharge moteur",
-          "8": "Sous-charge moteur 1",
-          "9": "Surcharge moteur"
+          "7": "Surcharge entraînement",
+          "8": "Sous-charge entraînement 1",
+          "9": "Surcharge entraînement"
         },
         "state_attributes": {
           "instructions": {
@@ -202,7 +202,7 @@
         "state": {
           "fault": "Défaut",
           "finished": "Terminé",
-          "init": "Initialisation",
+          "init": "Initialisé",
           "notconnected": "Déconnecté",
           "programming": "Programmation",
           "scanning": "Analyse en cours"
@@ -220,7 +220,7 @@
           "cleaning": "Nettoyage en cours",
           "holddelay": "En attente (différé)",
           "holdweekly": "En attente (programmation)",
-          "init": "Initialisation",
+          "init": "Vérification de l'environnement",
           "off": "Éteint",
           "on": "Allumé",
           "programming": "Programmation"
@@ -260,7 +260,7 @@
           "reset_password": "Réinitialiser le mot de passe du compte (contournement OTP)",
           "username": "Nom d'utilisateur"
         },
-        "description": "Configurez vos identifiants MyDolphin Plus.",
+        "description": "Configurez votre nom d'utilisateur et mot de passe.",
         "title": "Options de MyDolphin Plus"
       }
     }
