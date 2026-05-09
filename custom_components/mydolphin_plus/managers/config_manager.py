@@ -25,7 +25,6 @@ from ..common.consts import (
     DEFAULT_NAME,
     DOMAIN,
     INVALID_TOKEN_SECTION,
-    RECONNECT_BACKOFF_MAX,
     STORAGE_DATA_ID_TOKEN,
     STORAGE_DATA_ID_TOKEN_EXPIRES_AT,
     STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH,
@@ -262,24 +261,19 @@ class ConfigManager:
         await self._save()
 
     async def _validate_cached_credentials(self):
-        """Check if cached credentials are too old and clear them if needed."""
+        """Clear stale AWS cache metadata without clearing Cognito login tokens."""
         last_fetch = self._data.get(STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH, 0) or 0
+        expiry = self._data.get(AWS_CREDENTIALS_EXPIRY, 0) or 0
 
-        if last_fetch == 0:
-            return  # No cached credentials to validate
+        if last_fetch == 0 or expiry > datetime.now().timestamp():
+            return
 
-        token_age_seconds = datetime.now().timestamp() - last_fetch
-
-        if token_age_seconds >= RECONNECT_BACKOFF_MAX.total_seconds():
-            token_age_minutes = token_age_seconds / 60
-            max_age_minutes = RECONNECT_BACKOFF_MAX.total_seconds() / 60
-
-            _LOGGER.debug(
-                f"Stored API credentials expired (age: {token_age_minutes:.1f} minutes, "
-                f"max: {max_age_minutes:.0f} minutes). "
-                "Clearing for fresh authentication."
-            )
-            await self.reset_login_details()
+        _LOGGER.debug(
+            "Stored AWS credential metadata expired. Clearing cache metadata."
+        )
+        self._data[STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH] = 0
+        self._data[AWS_CREDENTIALS_EXPIRY] = 0
+        await self._save()
 
     async def update_tokens(
         self,
@@ -368,7 +362,7 @@ class ConfigManager:
             _LOGGER.info("updated")
             await self._save()
 
-        # Validate credentials aren't too old
+        # Validate cached AWS credential metadata without invalidating login tokens.
         await self._validate_cached_credentials()
 
     @staticmethod

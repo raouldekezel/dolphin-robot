@@ -9,7 +9,15 @@ import pytest
 from custom_components.mydolphin_plus.common.connectivity_status import (
     ConnectivityStatus,
 )
-from custom_components.mydolphin_plus.common.consts import API_TOKEN_FIELDS
+from custom_components.mydolphin_plus.common.consts import (
+    API_TOKEN_FIELDS,
+    AWS_CREDENTIALS_EXPIRY,
+    STORAGE_DATA_ID_TOKEN,
+    STORAGE_DATA_ID_TOKEN_EXPIRES_AT,
+    STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH,
+    STORAGE_DATA_LAST_TOKEN_FETCH,
+    STORAGE_DATA_REFRESH_TOKEN,
+)
 from custom_components.mydolphin_plus.managers.config_manager import ConfigManager
 import custom_components.mydolphin_plus.managers.rest_api as rest_api_module
 from custom_components.mydolphin_plus.managers.rest_api import (
@@ -165,6 +173,35 @@ async def test_update_tokens_does_not_touch_aws_fetch_timestamp():
     await manager.update_tokens("id", "refresh", 1234567890)
 
     assert manager.last_aws_credentials_fetch == 99
+
+
+@pytest.mark.asyncio
+async def test_stale_aws_cache_metadata_does_not_clear_login_tokens():
+    """Expired AWS cache metadata on startup should not force Cognito reauth."""
+    now = datetime.now().timestamp()
+    manager = ConfigManager(None)
+    manager._data = {
+        STORAGE_DATA_ID_TOKEN: "id-token",
+        STORAGE_DATA_REFRESH_TOKEN: "refresh-token",
+        STORAGE_DATA_ID_TOKEN_EXPIRES_AT: now + 3600,
+        STORAGE_DATA_LAST_TOKEN_FETCH: now,
+        STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH: now - 7200,
+        AWS_CREDENTIALS_EXPIRY: now - 60,
+    }
+    saved = {"called": False}
+
+    async def mark_saved():
+        saved["called"] = True
+
+    manager._save = mark_saved
+
+    await manager._validate_cached_credentials()
+
+    assert manager.id_token == "id-token"
+    assert manager.refresh_token == "refresh-token"
+    assert manager.last_aws_credentials_fetch == 0
+    assert manager.aws_credentials_expiry == 0
+    assert saved["called"] is True
 
 
 @pytest.mark.asyncio
