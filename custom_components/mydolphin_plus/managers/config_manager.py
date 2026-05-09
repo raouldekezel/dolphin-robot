@@ -7,7 +7,7 @@ import sys
 from cryptography.fernet import InvalidToken
 
 from homeassistant.config_entries import STORAGE_VERSION, ConfigEntry
-from homeassistant.const import CONF_NAME, CONF_PASSWORD, CONF_USERNAME, Platform
+from homeassistant.const import CONF_NAME, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import translation
 from homeassistant.helpers.entity import DeviceInfo
@@ -26,11 +26,12 @@ from ..common.consts import (
     DOMAIN,
     INVALID_TOKEN_SECTION,
     RECONNECT_BACKOFF_MAX,
-    STORAGE_DATA_API_TOKEN,
-    STORAGE_DATA_AWS_TOKEN,
+    STORAGE_DATA_ID_TOKEN,
+    STORAGE_DATA_ID_TOKEN_EXPIRES_AT,
     STORAGE_DATA_LAST_TOKEN_FETCH,
     STORAGE_DATA_LOCATING,
     STORAGE_DATA_MOTOR_UNIT_SERIAL,
+    STORAGE_DATA_REFRESH_TOKEN,
     STORAGE_DATA_SERIAL_NUMBER,
     TOKEN_PARAMS,
 )
@@ -105,16 +106,16 @@ class ConfigManager:
         return is_locating
 
     @property
-    def api_token(self) -> str | None:
-        api_token = self._data.get(STORAGE_DATA_API_TOKEN)
-
-        return api_token
+    def id_token(self) -> str | None:
+        return self._data.get(STORAGE_DATA_ID_TOKEN)
 
     @property
-    def aws_token(self) -> str | None:
-        aws_token = self._data.get(STORAGE_DATA_AWS_TOKEN)
+    def refresh_token(self) -> str | None:
+        return self._data.get(STORAGE_DATA_REFRESH_TOKEN)
 
-        return aws_token
+    @property
+    def id_token_expires_at(self) -> float | None:
+        return self._data.get(STORAGE_DATA_ID_TOKEN_EXPIRES_AT)
 
     @property
     def serial_number(self) -> str | None:
@@ -247,7 +248,7 @@ class ConfigManager:
 
     async def reset_login_details(self):
         # Reset login-related tokens, but preserve motor_unit_serial
-        # as it's needed to regenerate AWS token after re-authentication
+        # so we can re-attach to the same robot after re-authentication
         for token_param in TOKEN_PARAMS:
             if token_param != STORAGE_DATA_MOTOR_UNIT_SERIAL:
                 self._data[token_param] = None
@@ -274,15 +275,24 @@ class ConfigManager:
             )
             await self.reset_login_details()
 
-    async def update_login_details(self, api_token: str, serial_number: str):
-        self._data[STORAGE_DATA_API_TOKEN] = api_token
-        self._data[STORAGE_DATA_SERIAL_NUMBER] = serial_number
+    async def update_tokens(
+        self,
+        id_token: str,
+        refresh_token: str | None,
+        expires_at: float,
+    ):
+        self._data[STORAGE_DATA_ID_TOKEN] = id_token
+        if refresh_token is not None:
+            # REFRESH_TOKEN_AUTH does not return a new RefreshToken; only overwrite
+            # when one is supplied (e.g. by InitiateAuth/RespondToAuthChallenge).
+            self._data[STORAGE_DATA_REFRESH_TOKEN] = refresh_token
+        self._data[STORAGE_DATA_ID_TOKEN_EXPIRES_AT] = expires_at
         self._data[STORAGE_DATA_LAST_TOKEN_FETCH] = datetime.now().timestamp()
 
         await self._save()
 
-    async def update_aws_token(self, aws_token: str | None):
-        self._data[STORAGE_DATA_AWS_TOKEN] = aws_token
+    async def update_serial_number(self, serial_number: str):
+        self._data[STORAGE_DATA_SERIAL_NUMBER] = serial_number
 
         await self._save()
 
@@ -408,10 +418,9 @@ class ConfigManager:
             for key in self._data:
                 stored_value = entry_data.get(key)
 
-                if key in [CONF_PASSWORD, CONF_USERNAME]:
-                    entry_data.pop(CONF_USERNAME)
-
+                if key == CONF_USERNAME:
                     if stored_value is not None:
+                        entry_data.pop(CONF_USERNAME)
                         should_save = True
 
                 else:
