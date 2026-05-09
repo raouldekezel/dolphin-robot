@@ -1,4 +1,5 @@
 """Config flow to configure."""
+
 from __future__ import annotations
 
 import logging
@@ -23,11 +24,7 @@ from ..common.consts import (
 )
 from ..models.config_data import ConfigData
 from ..models.exceptions import LoginError
-from .rest_api import (
-    cognito_initiate_auth,
-    cognito_respond_otp,
-    fetch_user_profile,
-)
+from .rest_api import cognito_initiate_auth, cognito_respond_otp, fetch_user_profile
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,9 +77,7 @@ class IntegrationFlowManager:
             init = await cognito_initiate_auth(session, email)
         except LoginError as ex:
             _LOGGER.warning(f"Cognito InitiateAuth failed: {ex}")
-            return self._show_user_form(
-                user_input, errors={"base": "otp_send_failed"}
-            )
+            return self._show_user_form(user_input, errors={"base": "otp_send_failed"})
 
         setattr(
             self._flow_handler,

@@ -1,4 +1,5 @@
 """Config flow to configure."""
+
 from __future__ import annotations
 
 import logging
@@ -52,13 +53,9 @@ class DomainOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         """Manage the domain options (re-trigger OTP login)."""
-        flow_manager = IntegrationFlowManager(
-            self.hass, self, self._config_entry
-        )
+        flow_manager = IntegrationFlowManager(self.hass, self, self._config_entry)
         return await flow_manager.async_step_user(user_input)
 
     async def async_step_otp(self, user_input=None):
-        flow_manager = IntegrationFlowManager(
-            self.hass, self, self._config_entry
-        )
+        flow_manager = IntegrationFlowManager(self.hass, self, self._config_entry)
         return await flow_manager.async_step_otp(user_input)

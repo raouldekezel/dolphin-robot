@@ -267,9 +267,7 @@ class RestAPI:
 
         self._device_loaded = True
 
-        self._async_dispatcher_send(
-            SIGNAL_DEVICE_NEW, self._config_manager.entry_id
-        )
+        self._async_dispatcher_send(SIGNAL_DEVICE_NEW, self._config_manager.entry_id)
 
         _LOGGER.debug(f"API Data updated: {self.data}")
 
@@ -385,7 +383,8 @@ class RestAPI:
         if not data:
             alert = payload.get(API_RESPONSE_ALERT)
             self._set_status(
-                ConnectivityStatus.FAILED, f"authenticate-user empty data, Alert: {alert}"
+                ConnectivityStatus.FAILED,
+                f"authenticate-user empty data, Alert: {alert}",
             )
             return False
 
