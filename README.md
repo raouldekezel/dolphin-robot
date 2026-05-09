@@ -35,11 +35,11 @@ The refresh token is reused on every Home Assistant restart and silently renewed
 
 ###### Basic configuration (Configuration -> Integrations -> Add MyDolphin Plus)
 
-| Field      | Type    | Required | Description                                                                                |
-| ---------- | ------- | -------- | ------------------------------------------------------------------------------------------ |
-| Title      | Textbox | yes      | Display name for the integration entry                                                     |
-| Email      | Textbox | yes      | Email of your MyDolphin Plus account — Maytronics emails a login code to this address      |
-| Login code | Textbox | yes      | The one-time code from the email, entered on the second step of the config flow            |
+| Field      | Type    | Required | Description                                                                           |
+| ---------- | ------- | -------- | ------------------------------------------------------------------------------------- |
+| Title      | Textbox | yes      | Display name for the integration entry                                                |
+| Email      | Textbox | yes      | Email of your MyDolphin Plus account — Maytronics emails a login code to this address |
+| Login code | Textbox | yes      | The one-time code from the email, entered on the second step of the config flow       |
 
 ###### Configuration validations
 
