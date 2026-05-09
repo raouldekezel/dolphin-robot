@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.26b3
+
+- Fix pause control so active robots send the power-off command instead of only acting while docked
+
 ## v1.0.26b2
 
 - Preserve stored Cognito tokens across Home Assistant restarts when cached AWS IoT credentials expire

@@ -872,9 +872,9 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
     async def _vacuum_pause(self, _entity_description: EntityDescription, state):
         is_idle_state = state == VacuumActivity.DOCKED
-        _LOGGER.debug(f"Pause vacuum, State: {state}, State: {state}")
+        _LOGGER.debug(f"Pause vacuum, State: {state}")
 
-        if is_idle_state:
+        if not is_idle_state:
             self._aws_client.pause()
 
     async def _vacuum_locate(self, entity_description: EntityDescription):
