@@ -272,3 +272,20 @@ If you cannot complete the OTP flow:
 - **"Invalid or expired login code"** — codes are short-lived. Restart the config flow to receive a fresh one.
 - **"Failed to send login code"** — usually means Cognito does not recognise the email. Confirm you can sign in to the official MyDolphin Plus app with the same address; if not, register the account in the app first.
 - **Repeated failures with a known-good email** — collect debug logs (see [Troubleshooting](#troubleshooting)) and open an issue.
+
+## Contributors
+
+Thanks to everyone who has contributed to this project:
+
+- [Elad Bar](https://github.com/elad-bar)
+- Dan Wheaton
+- [sh00t2kill](https://github.com/sh00t2kill)
+- [tigers75](https://github.com/tigers75)
+- [Loïc](https://github.com/zoic21)
+- Gil Peeters
+- [devilismyfriend](https://github.com/devilismyfriend)
+- [yumlevi](https://github.com/yumlevi)
+- [grillp](https://github.com/grillp)
+- [lordlala](https://github.com/lordlala)
+
+See [Contributing](CONTRIBUTING.md) for contribution guidelines.
