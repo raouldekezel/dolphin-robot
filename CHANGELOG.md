@@ -6,6 +6,7 @@
 - Update config entry unload and removal handling for newer Home Assistant lifecycle behavior
 - Remove deprecated config flow connection class usage and rely on manifest `iot_class`
 - Use Home Assistant's managed options flow config entry access
+- Add French translation support
 
 ## v1.0.26b2
 
