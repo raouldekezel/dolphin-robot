@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.0.25
+
+- Fix AWS token generation errors for users upgrading from older versions
+  - Resolves "Value cannot be null. Parameter name: s" error
+  - Resolves "The input is not a valid Base-64 string" error
+  - Automatically fetch missing motor unit serial for upgraded installations
+- Ensure token fetching works properly for all upgraded installations
+- Add validation to prevent encryption of null/empty motor unit serial values
+- Add validation to prevent API calls with invalid or missing AWS tokens
+- Prevent clearing the motor serial number when reset_login_details
+- Fix payload handling in AWS token generation when 401 errors occur
+- Refactor AWSClient to include callback for real-time MQTT data updates
+- Add credential validation in ConfigManager
+- Enhance connectivity status handling and improve API response validation
+- Add MQTT update debouncing documentation
+- Add workflows and entities documentation
+
 ## v1.0.25b5
 
 - Fix payload handling in AWS token generation when 401 errors occur
