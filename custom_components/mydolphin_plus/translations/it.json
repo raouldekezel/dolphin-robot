@@ -1,5 +1,8 @@
 {
   "config": {
+    "abort": {
+      "reauth_successful": "Riautenticazione completata"
+    },
     "error": {
       "already_configured": "Integrazione gi\u00e0 configurata con il nome",
       "invalid_account": "Account non valido",
@@ -22,6 +25,10 @@
         },
         "description": "Inserisci il codice di accesso ricevuto via email.",
         "title": "Conferma OTP"
+      },
+      "reauth_confirm": {
+        "description": "La sessione MyDolphin Plus è scaduta. Continua per accedere di nuovo con un nuovo codice di accesso.",
+        "title": "Riautentica MyDolphin Plus"
       }
     }
   },
