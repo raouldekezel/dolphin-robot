@@ -3,6 +3,9 @@
 ## v1.0.26b3
 
 - Fix pause control so active robots send the power-off command instead of only acting while docked
+- Update config entry unload and removal handling for newer Home Assistant lifecycle behavior
+- Remove deprecated config flow connection class usage and rely on manifest `iot_class`
+- Use Home Assistant's managed options flow config entry access
 
 ## v1.0.26b2
 
