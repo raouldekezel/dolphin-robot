@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-from base64 import urlsafe_b64encode
 from datetime import datetime
-import hashlib
 import json
 import logging
-import secrets
 import sys
+import time
 from typing import Any
 
 from aiohttp import ClientResponseError, ClientSession
 from aiohttp.hdrs import METH_GET, METH_POST
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
@@ -20,46 +16,172 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 
 from ..common.connectivity_status import ConnectivityStatus
 from ..common.consts import (
-    API_REQUEST_HEADER_TOKEN,
-    API_REQUEST_SERIAL_EMAIL,
-    API_REQUEST_SERIAL_NUMBER,
-    API_REQUEST_SERIAL_PASSWORD,
     API_RESPONSE_ALERT,
     API_RESPONSE_DATA,
-    API_RESPONSE_IS_EMAIL_EXISTS,
-    API_RESPONSE_STATUS,
-    API_RESPONSE_STATUS_FAILURE,
-    API_RESPONSE_STATUS_SUCCESS,
     API_RESPONSE_UNIT_SERIAL_NUMBER,
     API_TOKEN_FIELDS,
+    AUTHENTICATE_USER_URL,
     AWS_CREDENTIALS_TTL,
-    BLOCK_SIZE,
+    AWS_STS_TOKEN_URL,
+    BEARER_HEADERS_BASE,
+    COGNITO_AUTH_FLOW_CUSTOM,
+    COGNITO_AUTH_FLOW_REFRESH,
+    COGNITO_CHALLENGE_NAME,
+    COGNITO_CLIENT_ID,
+    COGNITO_CONTENT_TYPE,
+    COGNITO_ENDPOINT,
+    COGNITO_HEADER_TARGET,
+    COGNITO_TARGET_PREFIX,
     DATA_ROBOT_DETAILS,
-    DEFAULT_NAME,
-    EMAIL_VALIDATION_URL,
-    FORGOT_PASSWORD_URL,
-    LOGIN_HEADERS,
-    LOGIN_URL,
+    ID_TOKEN_REFRESH_WINDOW_SECONDS,
     MIN_TOKEN_FETCH_INTERVAL,
     RECONNECT_BACKOFF_MAX,
-    ROBOT_DETAILS_BY_SN_URL,
-    ROBOT_DETAILS_URL,
     SIGNAL_API_STATUS,
     SIGNAL_DEVICE_NEW,
-    TOKEN_URL,
 )
 from ..common.integration_info import IntegrationInfo
 from ..models.config_data import ConfigData
+from ..models.exceptions import LoginError
 from .config_manager import ConfigManager
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _bearer_headers(id_token: str, extra: dict | None = None) -> dict:
+    headers = {
+        "Authorization": f"Bearer {id_token}",
+        **BEARER_HEADERS_BASE,
+    }
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+async def _cognito_call(session: ClientSession, target: str, body: dict) -> dict:
+    headers = {
+        "Content-Type": COGNITO_CONTENT_TYPE,
+        COGNITO_HEADER_TARGET: f"{COGNITO_TARGET_PREFIX}{target}",
+    }
+    try:
+        async with session.post(
+            COGNITO_ENDPOINT, headers=headers, data=json.dumps(body)
+        ) as response:
+            text = await response.text()
+            if response.status >= 400:
+                _LOGGER.debug(
+                    f"Cognito {target} failed, Status: {response.status}, Body: {text}"
+                )
+                raise LoginError(f"Cognito {target} returned {response.status}")
+            return json.loads(text)
+    except LoginError:
+        raise
+    except Exception as ex:
+        _LOGGER.debug(f"Cognito {target} request failed, Error: {ex}")
+        raise LoginError(f"Cognito {target} request failed: {ex}") from ex
+
+
+async def cognito_initiate_auth(session: ClientSession, email: str) -> dict:
+    response = await _cognito_call(
+        session,
+        "InitiateAuth",
+        {
+            "AuthFlow": COGNITO_AUTH_FLOW_CUSTOM,
+            "ClientId": COGNITO_CLIENT_ID,
+            "AuthParameters": {"USERNAME": email},
+            "ClientMetadata": {},
+        },
+    )
+    if response.get("ChallengeName") != COGNITO_CHALLENGE_NAME:
+        raise LoginError(
+            f"Unexpected Cognito challenge: {response.get('ChallengeName')}"
+        )
+    return response
+
+
+async def cognito_respond_otp(
+    session: ClientSession, email: str, cognito_session: str, code: str
+) -> dict:
+    response = await _cognito_call(
+        session,
+        "RespondToAuthChallenge",
+        {
+            "ChallengeName": COGNITO_CHALLENGE_NAME,
+            "ClientId": COGNITO_CLIENT_ID,
+            "Session": cognito_session,
+            "ChallengeResponses": {"USERNAME": email, "ANSWER": code},
+            "ClientMetadata": {},
+        },
+    )
+    auth = response.get("AuthenticationResult")
+    if not auth or "IdToken" not in auth:
+        raise LoginError("OTP rejected by Cognito")
+    return auth
+
+
+async def cognito_refresh(session: ClientSession, refresh_token: str) -> dict:
+    response = await _cognito_call(
+        session,
+        "InitiateAuth",
+        {
+            "AuthFlow": COGNITO_AUTH_FLOW_REFRESH,
+            "ClientId": COGNITO_CLIENT_ID,
+            "AuthParameters": {"REFRESH_TOKEN": refresh_token},
+            "ClientMetadata": {},
+        },
+    )
+    auth = response.get("AuthenticationResult")
+    if not auth or "IdToken" not in auth:
+        raise LoginError("Refresh token rejected by Cognito")
+    return auth
+
+
+async def fetch_user_profile(session: ClientSession, id_token: str) -> dict:
+    headers = _bearer_headers(
+        id_token,
+        {"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        async with session.post(
+            AUTHENTICATE_USER_URL, headers=headers, data=""
+        ) as response:
+            response.raise_for_status()
+            payload = await response.json()
+    except ClientResponseError as ex:
+        raise LoginError(f"authenticate-user failed: HTTP {ex.status}") from ex
+    except Exception as ex:
+        raise LoginError(f"authenticate-user request failed: {ex}") from ex
+
+    data = payload.get(API_RESPONSE_DATA) or {}
+    if not data:
+        raise LoginError(
+            f"authenticate-user returned empty data, Alert: {payload.get(API_RESPONSE_ALERT)}"
+        )
+    return data
+
+
+async def fetch_aws_credentials(session: ClientSession, id_token: str) -> dict:
+    headers = _bearer_headers(id_token)
+    try:
+        async with session.get(AWS_STS_TOKEN_URL, headers=headers) as response:
+            response.raise_for_status()
+            payload = await response.json()
+    except ClientResponseError as ex:
+        raise LoginError(f"getToken failed: HTTP {ex.status}") from ex
+    except Exception as ex:
+        raise LoginError(f"getToken request failed: {ex}") from ex
+
+    data = payload.get(API_RESPONSE_DATA) or {}
+    if not data.get("AccessKeyId"):
+        raise LoginError(
+            f"getToken returned no credentials, Alert: {payload.get(API_RESPONSE_ALERT)}"
+        )
+    return data
 
 
 class RestAPI:
     data: dict
 
     _hass: HomeAssistant | None
-    _base_url: str | None
     _status: ConnectivityStatus | None
     _session: ClientSession | None
     _config_manager: ConfigManager
@@ -70,45 +192,32 @@ class RestAPI:
     def __init__(self, hass: HomeAssistant | None, config_manager: ConfigManager):
         try:
             self._hass = hass
-
             self.data = {}
-
             self._config_manager = config_manager
-
             self._integration_info = IntegrationInfo()
-
             self._status = None
-
             self._session = None
             self._device_loaded = False
-
             self._local_async_dispatcher_send = None
 
         except Exception as ex:
             exc_type, exc_obj, tb = sys.exc_info()
             line_number = tb.tb_lineno
-
             _LOGGER.error(
                 f"Failed to load MyDolphin Plus API, error: {ex}, line: {line_number}"
             )
 
     @property
     def is_connected(self):
-        result = self._session is not None
-
-        return result
+        return self._session is not None
 
     @property
     def config_data(self) -> ConfigData:
-        result = self._config_manager.config_data
-
-        return result
+        return self._config_manager.config_data
 
     @property
     def status(self) -> str | None:
-        status = self._status
-
-        return status
+        return self._status
 
     @property
     def _is_home_assistant(self):
@@ -118,423 +227,241 @@ class RestAPI:
         _LOGGER.info("Initializing MyDolphin API")
 
         await self._integration_info.initialize(self._hass)
-
         await self._initialize_session()
-
         await self._login()
 
     async def terminate(self):
         if self._session is not None:
             await self._session.close()
-
             self._set_status(ConnectivityStatus.DISCONNECTED, "terminate requested")
 
     async def _initialize_session(self):
         try:
             if self._is_home_assistant:
                 self._session = async_create_clientsession(hass=self._hass)
-
             else:
                 self._session = ClientSession()
 
         except Exception as ex:
             exc_type, exc_obj, tb = sys.exc_info()
             line_number = tb.tb_lineno
-
             message = (
                 f"Failed to initialize session, Error: {str(ex)}, Line: {line_number}"
             )
-
             self._set_status(ConnectivityStatus.FAILED, message)
-
-    async def validate(self):
-        await self._initialize_session()
-        await self._service_login()
-
-    async def _async_post(self, url, headers: dict, request_data: str | dict | None):
-        result = None
-
-        try:
-            # Copy headers and set User-Agent if available
-            headers = headers.copy() if headers else {}
-            self._integration_info.set_user_agent(headers)
-
-            async with self._session.post(
-                url, headers=headers, data=request_data, ssl=False
-            ) as response:
-                _LOGGER.debug(f"Status of POST request to {url}: {response.status}")
-
-                response.raise_for_status()
-
-                result = await response.json()
-
-                _LOGGER.debug(
-                    f"POST request [{url}] completed successfully, Result: {result}"
-                )
-
-        except ClientResponseError as crex:
-            await self._handle_client_error(url, METH_POST, crex)
-
-        except TimeoutError:
-            self._handle_server_timeout(url, METH_POST)
-
-        except Exception as ex:
-            self._handle_general_request_failure(url, METH_POST, ex)
-
-        return result
-
-    async def _async_get(self, url, headers: dict):
-        result = None
-
-        try:
-            headers = headers.copy() if headers else {}
-            self._integration_info.set_user_agent(headers)
-
-            async with self._session.get(url, headers=headers, ssl=False) as response:
-                _LOGGER.debug(f"Status of GET request to {url}: {response.status}")
-
-                response.raise_for_status()
-
-                result = await response.json()
-
-                _LOGGER.debug(
-                    f"GET request [{url}] completed successfully, Result: {result}"
-                )
-
-        except ClientResponseError as crex:
-            await self._handle_client_error(url, METH_GET, crex)
-
-        except TimeoutError:
-            self._handle_server_timeout(url, METH_GET)
-
-        except Exception as ex:
-            self._handle_general_request_failure(url, METH_GET, ex)
-
-        return result
 
     async def update(self):
-        if self._status == ConnectivityStatus.CONNECTED:
-            if not self._device_loaded:
-                _LOGGER.debug("Connected. Refresh details")
-                await self._load_details()
-
-                self._device_loaded = True
-
-                self._async_dispatcher_send(
-                    SIGNAL_DEVICE_NEW, self._config_manager.entry_id
-                )
-
-            _LOGGER.debug(f"API Data updated: {self.data}")
-
-    async def _login(self):
-        if self._config_manager.api_token is None:
-            await self._service_login()
-
-        else:
-            self._set_status(
-                ConnectivityStatus.TEMPORARY_CONNECTED, "API Token available"
-            )
-
-            if self._config_manager.motor_unit_serial is None:
-                _LOGGER.info("Motor unit serial missing, fetching from API")
-                await self._set_actual_motor_unit_serial()
-
-        if self._status == ConnectivityStatus.TEMPORARY_CONNECTED:
-            await self._generate_aws_token()
-
-        elif self._status in [
-            ConnectivityStatus.INVALID_CREDENTIALS,
-            ConnectivityStatus.INVALID_ACCOUNT,
-        ]:
+        if self._status != ConnectivityStatus.CONNECTED:
             return
 
-        else:
-            self._set_status(ConnectivityStatus.FAILED, "general failure of login")
+        if self._device_loaded:
+            return
 
-    async def reset_password(self):
-        _LOGGER.debug("Starting reset password process")
+        _LOGGER.debug("Connected. Refresh details")
 
-        if self._session is None:
-            await self._initialize_session()
+        if not await self._ensure_id_token_valid():
+            return
 
-        is_valid_email = await self._email_validation()
+        if not await self._authenticate_user():
+            return
 
-        if is_valid_email:
-            username = self.config_data.username
+        self._device_loaded = True
 
-            request_data = f"{API_REQUEST_SERIAL_EMAIL}={username}"
+        self._async_dispatcher_send(
+            SIGNAL_DEVICE_NEW, self._config_manager.entry_id
+        )
 
-            payload = await self._async_post(
-                FORGOT_PASSWORD_URL, LOGIN_HEADERS, request_data
+        _LOGGER.debug(f"API Data updated: {self.data}")
+
+    async def _login(self):
+        if self._config_manager.refresh_token is None:
+            self._set_status(
+                ConnectivityStatus.EXPIRED_TOKEN,
+                "no refresh token stored — remove and re-add the integration",
             )
+            return
 
-            if payload is None:
-                _LOGGER.error("Empty response of reset password")
+        if not await self._ensure_id_token_valid():
+            return
 
+        if not await self._authenticate_user():
+            return
+
+        self._set_status(
+            ConnectivityStatus.TEMPORARY_CONNECTED,
+            f"profile loaded for {self._config_manager.serial_number}",
+        )
+
+        await self._refresh_aws_credentials()
+
+    async def _ensure_id_token_valid(self) -> bool:
+        expires_at = self._config_manager.id_token_expires_at or 0
+        id_token = self._config_manager.id_token
+        now = time.time()
+
+        if id_token and (expires_at - now) > ID_TOKEN_REFRESH_WINDOW_SECONDS:
+            return True
+
+        refresh_token = self._config_manager.refresh_token
+        if not refresh_token:
+            self._set_status(
+                ConnectivityStatus.EXPIRED_TOKEN,
+                "no refresh token available — remove and re-add the integration",
+            )
+            return False
+
+        try:
+            auth = await cognito_refresh(self._session, refresh_token)
+        except LoginError as ex:
+            await self._config_manager.reset_login_details()
+            self._set_status(
+                ConnectivityStatus.EXPIRED_TOKEN,
+                f"refresh failed ({ex}) — remove and re-add the integration",
+            )
+            return False
+
+        new_expires = time.time() + int(auth.get("ExpiresIn", 3600))
+        await self._config_manager.update_tokens(
+            auth["IdToken"],
+            auth.get("RefreshToken"),
+            new_expires,
+        )
+        _LOGGER.debug("Refreshed Cognito IdToken")
+        return True
+
+    async def _bearer_post(
+        self, url: str, body: str | dict | None = None
+    ) -> dict | None:
+        headers = _bearer_headers(
+            self._config_manager.id_token,
+            {"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        self._integration_info.set_user_agent(headers)
+        return await self._async_send(METH_POST, url, headers, data=body or "")
+
+    async def _bearer_get(self, url: str) -> dict | None:
+        headers = _bearer_headers(self._config_manager.id_token)
+        self._integration_info.set_user_agent(headers)
+        return await self._async_send(METH_GET, url, headers)
+
+    async def _async_send(
+        self,
+        method: str,
+        url: str,
+        headers: dict,
+        data: str | dict | None = None,
+    ) -> dict | None:
+        try:
+            _LOGGER.debug(f"Sending {method} {url}")
+            if method == METH_POST:
+                async with self._session.post(
+                    url, headers=headers, data=data
+                ) as response:
+                    response.raise_for_status()
+                    return await response.json()
             else:
-                data = payload.get(API_RESPONSE_DATA)
+                async with self._session.get(url, headers=headers) as response:
+                    response.raise_for_status()
+                    return await response.json()
+        except ClientResponseError as crex:
+            await self._handle_client_error(url, method, crex)
+        except TimeoutError:
+            self._handle_server_timeout(url, method)
+        except Exception as ex:
+            self._handle_general_request_failure(url, method, ex)
+        return None
 
-                if data is None:
-                    _LOGGER.error("Empty response payload of reset password")
+    async def _authenticate_user(self) -> bool:
+        try:
+            payload = await self._bearer_post(AUTHENTICATE_USER_URL, body="")
+        except Exception as ex:
+            self._set_status(ConnectivityStatus.FAILED, f"authenticate-user: {ex}")
+            return False
 
-                else:
-                    _LOGGER.info(f"Reset password response: {data}")
+        if payload is None:
+            return False
 
-    async def _email_validation(self) -> bool:
-        _LOGGER.debug("Validating account email")
-
-        if self._status != ConnectivityStatus.INVALID_ACCOUNT:
-            username = self.config_data.username
-
-            request_data = f"{API_REQUEST_SERIAL_EMAIL}={username}"
-
-            payload = await self._async_post(
-                EMAIL_VALIDATION_URL, LOGIN_HEADERS, request_data
+        data = payload.get(API_RESPONSE_DATA) or {}
+        if not data:
+            alert = payload.get(API_RESPONSE_ALERT)
+            self._set_status(
+                ConnectivityStatus.FAILED, f"authenticate-user empty data, Alert: {alert}"
             )
+            return False
 
-            if payload is None:
-                self._set_status(
-                    ConnectivityStatus.INVALID_ACCOUNT,
-                    "empty response of email validation",
+        serial_number = data.get("Sernum")
+        motor_unit_serial = data.get(API_RESPONSE_UNIT_SERIAL_NUMBER)
+
+        if serial_number and serial_number != self._config_manager.serial_number:
+            await self._config_manager.update_serial_number(serial_number)
+
+        if (
+            motor_unit_serial
+            and motor_unit_serial != self._config_manager.motor_unit_serial
+        ):
+            await self._config_manager.update_motor_unit_serial(motor_unit_serial)
+
+        for key, mapped in DATA_ROBOT_DETAILS.items():
+            if key in data:
+                self.data[mapped] = data.get(key)
+
+        return True
+
+    async def _refresh_aws_credentials(self):
+        # Use cached creds when still valid
+        if await self._are_cached_credentials_valid():
+            _LOGGER.info("Using cached AWS IoT credentials (still valid)")
+            self._set_status(ConnectivityStatus.CONNECTED)
+            return
+
+        # Rate limit fresh fetches; fall back to (potentially stale) cache when limited
+        now = datetime.now().timestamp()
+        last_fetch = self._config_manager.last_token_fetch
+        time_since_last = now - last_fetch
+
+        if (
+            last_fetch > 0
+            and time_since_last < MIN_TOKEN_FETCH_INTERVAL.total_seconds()
+        ):
+            wait_time = MIN_TOKEN_FETCH_INTERVAL.total_seconds() - time_since_last
+            _LOGGER.warning(
+                f"Token fetch rate limited. Last fetch was {time_since_last:.0f}s ago. "
+                f"Need to wait {wait_time:.0f}s more."
+            )
+            if self._has_cached_credentials():
+                _LOGGER.info(
+                    "Using potentially expired cached credentials due to rate limit"
                 )
-
-            else:
-                data = payload.get(API_RESPONSE_DATA)
-
-                if data is None:
-                    self._set_status(
-                        ConnectivityStatus.INVALID_ACCOUNT,
-                        "empty response payload of email validation",
-                    )
-
-                else:
-                    status = data.get(API_RESPONSE_IS_EMAIL_EXISTS, False)
-
-                    if not status:
-                        self._set_status(
-                            ConnectivityStatus.INVALID_ACCOUNT,
-                            f"account [{username}] is not valid",
-                        )
-
-        is_valid_account = self._status != ConnectivityStatus.INVALID_ACCOUNT
-
-        return is_valid_account
-
-    async def _service_login(self):
-        try:
-            is_valid_account = await self._email_validation()
-
-            if not is_valid_account:
-                return
-
-            self._set_status(ConnectivityStatus.CONNECTING)
-
-            username = self.config_data.username
-            password = self.config_data.password
-
-            request_data = f"{API_REQUEST_SERIAL_EMAIL}={username}&{API_REQUEST_SERIAL_PASSWORD}={password}"
-
-            payload = await self._async_post(LOGIN_URL, LOGIN_HEADERS, request_data)
-
-            if payload is None:
-                self._set_status(ConnectivityStatus.FAILED, "empty response of login")
-
-            else:
-                data = payload.get(API_RESPONSE_DATA)
-
-                if data is None:
-                    self._set_status(
-                        ConnectivityStatus.INVALID_CREDENTIALS,
-                        "empty response payload of login",
-                    )
-
-                elif isinstance(data, str):
-                    _LOGGER.error(f"Invalid response payload of login: {data}")
-
-                    self._set_status(
-                        ConnectivityStatus.INVALID_CREDENTIALS,
-                        "invalid response payload of login",
-                    )
-
-                else:
-                    _LOGGER.info(f"Logged in to user {username}")
-
-                    serial_number = data.get(API_REQUEST_SERIAL_NUMBER)
-                    api_token = data.get(API_REQUEST_HEADER_TOKEN)
-
-                    await self._config_manager.update_login_details(
-                        api_token, serial_number
-                    )
-
-                    await self._set_actual_motor_unit_serial()
-
-        except Exception as ex:
-            exc_type, exc_obj, tb = sys.exc_info()
-            line_number = tb.tb_lineno
-
-            message = f"Failed to login into {DEFAULT_NAME} service, Error: {str(ex)}, Line: {line_number}"
-
-            self._set_status(ConnectivityStatus.FAILED, message)
-
-    async def _set_actual_motor_unit_serial(self):
-        try:
-            headers = {API_REQUEST_HEADER_TOKEN: self._config_manager.api_token}
-
-            for key in LOGIN_HEADERS:
-                headers[key] = LOGIN_HEADERS[key]
-
-            request_data = (
-                f"{API_REQUEST_SERIAL_NUMBER}={self._config_manager.serial_number}"
-            )
-
-            payload = await self._async_post(
-                ROBOT_DETAILS_BY_SN_URL, headers, request_data
-            )
-
-            if payload is None:
-                # Request failed - don't proceed, error status was already set by error handler
-                _LOGGER.error("Failed to retrieve motor unit serial")
-                return
-
-            data: dict = payload.get(API_RESPONSE_DATA)
-
-            if data and isinstance(data, dict):
-                motor_unit_serial = data.get(API_RESPONSE_UNIT_SERIAL_NUMBER)
-
-                if motor_unit_serial:
-                    message = f"Successfully retrieved motor unit serial for {self._config_manager.serial_number}"
-
-                    await self._config_manager.update_motor_unit_serial(
-                        motor_unit_serial
-                    )
-                    self._set_status(ConnectivityStatus.TEMPORARY_CONNECTED, message)
-                else:
-                    _LOGGER.error("Motor unit serial missing from API response")
-                    self._set_status(
-                        ConnectivityStatus.FAILED, "Motor unit serial not in response"
-                    )
-            else:
-                _LOGGER.error("Invalid API response data")
-                self._set_status(ConnectivityStatus.FAILED, "Invalid API response")
-
-        except Exception as ex:
-            exc_type, exc_obj, tb = sys.exc_info()
-            line_number = tb.tb_lineno
-
-            message = f"Failed to retrieve motor unit serial, Error: {str(ex)}, Line: {line_number}"
-
-            self._set_status(ConnectivityStatus.FAILED, message)
-
-    async def _generate_aws_token(self):
-        payload = None
-        try:
-            headers = {API_REQUEST_HEADER_TOKEN: self._config_manager.api_token}
-
-            for key in LOGIN_HEADERS:
-                headers[key] = LOGIN_HEADERS[key]
-
-            aws_token = self._config_manager.aws_token
-
-            if not aws_token:
-                aws_token = await self._get_aws_token()
-
-                if aws_token:
-                    await self._config_manager.update_aws_token(aws_token)
-
-            if not aws_token:
-                motor_unit_serial = self._config_manager.motor_unit_serial
-                if not motor_unit_serial:
-                    message = (
-                        "Cannot fetch AWS IoT credentials: Motor unit serial is missing. "
-                        "Please ensure the device is properly configured."
-                    )
-                else:
-                    message = (
-                        "Cannot fetch AWS IoT credentials: AWS token generation failed."
-                    )
-
-                raise Exception(message)
-
-            # Check if cached AWS IoT credentials are still valid
-            if await self._are_cached_credentials_valid():
-                _LOGGER.info("Using cached AWS IoT credentials (still valid)")
                 self._set_status(ConnectivityStatus.CONNECTED)
                 return
+            _LOGGER.warning(
+                "No cached credentials available, attempting fetch despite rate limit"
+            )
 
-            # Check rate limiting
-            now = datetime.now().timestamp()
-            last_fetch = self._config_manager.last_token_fetch
-            time_since_last = now - last_fetch
+        _LOGGER.info("Fetching fresh AWS IoT credentials from getToken endpoint")
 
-            if time_since_last < MIN_TOKEN_FETCH_INTERVAL.total_seconds():
-                wait_time = MIN_TOKEN_FETCH_INTERVAL.total_seconds() - time_since_last
-                _LOGGER.warning(
-                    f"Token fetch rate limited. Last fetch was {time_since_last:.0f}s ago. "
-                    f"Need to wait {wait_time:.0f}s more. Using cached credentials if available."
-                )
+        try:
+            data = await fetch_aws_credentials(
+                self._session, self._config_manager.id_token
+            )
+        except LoginError as ex:
+            self._set_status(ConnectivityStatus.FAILED, f"getToken: {ex}")
+            return
 
-                # Try to use cached credentials even if expired, better than nothing
-                if self._has_cached_credentials():
-                    _LOGGER.info(
-                        "Using potentially expired cached credentials due to rate limit"
-                    )
-                    self._set_status(ConnectivityStatus.CONNECTED)
-                    return
-                else:
-                    _LOGGER.warning(
-                        "No cached credentials available, will attempt fetch despite rate limit"
-                    )
+        for field in API_TOKEN_FIELDS:
+            self.data[field] = data.get(field)
 
-            # Make API call to get fresh credentials
-            request_data = f"{API_REQUEST_SERIAL_NUMBER}={aws_token}"
+        now = datetime.now().timestamp()
+        expiry = now + AWS_CREDENTIALS_TTL.total_seconds()
+        await self._config_manager.update_last_token_fetch(now)
+        await self._config_manager.update_aws_credentials_expiry(expiry)
 
-            _LOGGER.info("Fetching fresh AWS IoT credentials from token endpoint")
-            _LOGGER.debug(f"Request data: {json.dumps(request_data)}")
-            _LOGGER.debug(f"Headers: {json.dumps(headers)}")
+        _LOGGER.info(
+            f"Successfully fetched AWS IoT credentials. "
+            f"Valid until {datetime.fromtimestamp(expiry).isoformat()}"
+        )
 
-            payload = await self._async_post(TOKEN_URL, headers, request_data)
-
-            if payload is None:
-                _LOGGER.debug("AWS token generation failed: Empty response from server")
-                return
-
-            if self._status == ConnectivityStatus.TEMPORARY_CONNECTED:
-                data = payload.get(API_RESPONSE_DATA, {})
-                alert = payload.get(API_RESPONSE_ALERT, {})
-                status = payload.get(API_RESPONSE_STATUS, API_RESPONSE_STATUS_FAILURE)
-
-                if status == API_RESPONSE_STATUS_SUCCESS:
-                    for field in API_TOKEN_FIELDS:
-                        self.data[field] = data.get(field)
-
-                    # Update timestamps
-                    now = datetime.now().timestamp()
-                    expiry = now + AWS_CREDENTIALS_TTL.total_seconds()
-
-                    await self._config_manager.update_last_token_fetch(now)
-                    await self._config_manager.update_aws_credentials_expiry(expiry)
-
-                    _LOGGER.info(
-                        f"Successfully fetched AWS IoT credentials. "
-                        f"Valid until {datetime.fromtimestamp(expiry).isoformat()}"
-                    )
-
-                    self._set_status(ConnectivityStatus.CONNECTED)
-
-                else:
-                    message = f"Failed to retrieve AWS token, Data: {json.dumps(payload)}, Error: {alert}"
-
-                    self._set_status(ConnectivityStatus.FAILED, message)
-
-                    await self._config_manager.update_aws_token(None)
-
-        except Exception as ex:
-            exc_type, exc_obj, tb = sys.exc_info()
-            line_number = tb.tb_lineno
-
-            message = f"Failed to retrieve AWS token from service, Error: {str(ex)}, Line: {line_number}"
-
-            self._set_status(ConnectivityStatus.FAILED, message)
+        self._set_status(ConnectivityStatus.CONNECTED)
 
     async def _are_cached_credentials_valid(self) -> bool:
         """Check if cached AWS IoT credentials are still valid."""
@@ -557,103 +484,8 @@ class RestAPI:
         return is_valid
 
     def _has_cached_credentials(self) -> bool:
-        """Check if AWS IoT credentials exist in cache."""
+        """Check if AWS IoT credentials exist in memory cache."""
         return all(self.data.get(field) is not None for field in API_TOKEN_FIELDS)
-
-    async def _load_details(self):
-        if self._status != ConnectivityStatus.CONNECTED:
-            return
-
-        try:
-            headers = {API_REQUEST_HEADER_TOKEN: self._config_manager.api_token}
-
-            for key in LOGIN_HEADERS:
-                headers[key] = LOGIN_HEADERS[key]
-
-            request_data = (
-                f"{API_REQUEST_SERIAL_NUMBER}={self._config_manager.motor_unit_serial}"
-            )
-
-            payload = await self._async_post(ROBOT_DETAILS_URL, headers, request_data)
-
-            if payload is not None:
-                response_status = payload.get(
-                    API_RESPONSE_STATUS, API_RESPONSE_STATUS_FAILURE
-                )
-                alert = payload.get(API_RESPONSE_STATUS, API_RESPONSE_ALERT)
-
-                if response_status == API_RESPONSE_STATUS_SUCCESS:
-                    data = payload.get(API_RESPONSE_DATA, {})
-
-                    for key in DATA_ROBOT_DETAILS:
-                        new_key = DATA_ROBOT_DETAILS.get(key)
-
-                        self.data[new_key] = data.get(key)
-
-                else:
-                    _LOGGER.error(f"Failed to reload details, Error: {alert}")
-
-        except Exception as ex:
-            exc_type, exc_obj, tb = sys.exc_info()
-            line_number = tb.tb_lineno
-
-            _LOGGER.error(
-                f"Failed to retrieve Robot Details, Error: {str(ex)}, Line: {line_number}"
-            )
-
-    async def _get_aws_token(self) -> str | None:
-        motor_unit_serial = self._config_manager.motor_unit_serial
-
-        if not motor_unit_serial:
-            _LOGGER.error("Motor unit serial is not set, cannot generate AWS token")
-            return None
-
-        _LOGGER.debug(f"ENCRYPT: Motor Unit Serial: {motor_unit_serial}")
-
-        backend = default_backend()
-        iv = secrets.token_bytes(BLOCK_SIZE)
-        mode = modes.CBC(iv)
-        aes_key = self._get_aes_key()
-
-        aes = algorithms.AES(aes_key)
-        cipher = Cipher(aes, mode, backend=backend)
-
-        encryptor = cipher.encryptor()
-
-        data = self._pad(self._config_manager.motor_unit_serial).encode()
-        ct = encryptor.update(data) + encryptor.finalize()
-
-        result_b64 = iv + ct
-
-        result = urlsafe_b64encode(result_b64).decode()
-
-        return result
-
-    @staticmethod
-    def _pad(text) -> str:
-        text_length = len(text)
-        amount_to_pad = BLOCK_SIZE - (text_length % BLOCK_SIZE)
-
-        if amount_to_pad == 0:
-            amount_to_pad = BLOCK_SIZE
-
-        pad = chr(amount_to_pad)
-
-        result = text + pad * amount_to_pad
-
-        return result
-
-    def _get_aes_key(self):
-        email_beginning = self.config_data.username[:2]
-
-        password = f"{email_beginning}ha".lower()
-
-        password_bytes = password.encode()
-
-        encryption_hash = hashlib.md5(password_bytes)
-        encryption_key = encryption_hash.digest()
-
-        return encryption_key
 
     def _set_status(
         self,
@@ -704,13 +536,17 @@ class RestAPI:
         status = ConnectivityStatus.FAILED
         forced_log_level: int | None = None
 
-        if crex.status in [401]:
-            flow = "No API token present"
+        if crex.status == 401:
+            # The IdToken is rejected. If the cached token is older than the
+            # backoff window, blow it away and force re-auth so we don't hammer
+            # the API with bad credentials. Otherwise, log quietly and let
+            # _ensure_id_token_valid try a refresh on the next iteration.
+            flow = "No id token present"
 
-            has_api_key = self._config_manager.api_token is not None
+            has_id_token = self._config_manager.id_token is not None
             last_fetch = self._config_manager.last_token_fetch
 
-            if has_api_key:
+            if has_id_token:
                 if last_fetch > 0:
                     token_age_seconds = datetime.now().timestamp() - last_fetch
 
@@ -718,11 +554,9 @@ class RestAPI:
                         await self._config_manager.reset_login_details()
                         flow = "Old token, cleared for re-auth"
                         status = ConnectivityStatus.EXPIRED_TOKEN
-
                     else:
                         flow = "Fresh token within window"
                         forced_log_level = logging.DEBUG
-
                 else:
                     flow = "Token exists but no timestamp"
                     forced_log_level = logging.DEBUG
@@ -740,7 +574,6 @@ class RestAPI:
             f"Endpoint: {endpoint}, "
             f"Method: {method}"
         )
-
         self._set_status(ConnectivityStatus.FAILED, message)
 
     def _handle_general_request_failure(
@@ -748,7 +581,6 @@ class RestAPI:
     ):
         exc_type, exc_obj, tb = sys.exc_info()
         line_number = tb.tb_lineno
-
         message = (
             "Failed to send HTTP request, "
             f"Endpoint: {endpoint}, "
@@ -756,7 +588,6 @@ class RestAPI:
             f"Error: {ex}, "
             f"Line: {line_number}"
         )
-
         self._set_status(ConnectivityStatus.FAILED, message)
 
     def set_local_async_dispatcher_send(self, callback):
@@ -765,6 +596,5 @@ class RestAPI:
     def _async_dispatcher_send(self, signal: str, *args: Any) -> None:
         if self._hass is None:
             self._local_async_dispatcher_send(signal, *args)
-
         else:
             dispatcher_send(self._hass, signal, *args)
