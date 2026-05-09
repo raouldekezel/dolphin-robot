@@ -468,7 +468,7 @@ class RestAPI:
 
         # Rate limit fresh fetches; fall back to (potentially stale) cache when limited
         now = datetime.now().timestamp()
-        last_fetch = self._config_manager.last_aws_credentials_fetch
+        last_fetch = self._config_manager.last_aws_credentials_fetch or 0
         time_since_last = now - last_fetch
 
         if (
