@@ -1,10 +1,11 @@
 """Config flow to configure."""
+
 from __future__ import annotations
 
 import logging
 import time
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
 from homeassistant.const import CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowHandler
@@ -21,13 +22,10 @@ from ..common.consts import (
     STORAGE_DATA_REFRESH_TOKEN,
     STORAGE_DATA_SERIAL_NUMBER,
 )
+from ..common.integration_info import IntegrationInfo
 from ..models.config_data import ConfigData
 from ..models.exceptions import LoginError
-from .rest_api import (
-    cognito_initiate_auth,
-    cognito_respond_otp,
-    fetch_user_profile,
-)
+from .rest_api import cognito_initiate_auth, cognito_respond_otp, fetch_user_profile
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,17 +38,24 @@ class IntegrationFlowManager:
 
     _flow_handler: FlowHandler
     _flow_id: str
+    _integration_info: IntegrationInfo
 
     def __init__(
         self,
         hass: HomeAssistant,
         flow_handler: FlowHandler,
         entry: ConfigEntry | None = None,
+        source: str | None = None,
     ):
         self._hass = hass
         self._flow_handler = flow_handler
         self._entry = entry
-        self._flow_id = "user" if entry is None else "init"
+        self._source = (
+            source if source is not None else getattr(flow_handler, "source", None)
+        )
+        self._is_reauth = self._source == SOURCE_REAUTH
+        self._flow_id = "user" if entry is None or self._is_reauth else "init"
+        self._integration_info = IntegrationInfo()
 
     async def async_step(self, user_input: dict | None = None):
         return await self.async_step_user(user_input)
@@ -76,13 +81,16 @@ class IntegrationFlowManager:
             return self._show_user_form(user_input, errors={"base": "invalid_account"})
 
         session = async_get_clientsession(self._hass)
+        await self._integration_info.initialize(self._hass)
         try:
-            init = await cognito_initiate_auth(session, email)
+            init = await cognito_initiate_auth(
+                session,
+                email,
+                integration_info=self._integration_info,
+            )
         except LoginError as ex:
             _LOGGER.warning(f"Cognito InitiateAuth failed: {ex}")
-            return self._show_user_form(
-                user_input, errors={"base": "otp_send_failed"}
-            )
+            return self._show_user_form(user_input, errors={"base": "otp_send_failed"})
 
         setattr(
             self._flow_handler,
@@ -109,11 +117,20 @@ class IntegrationFlowManager:
             return self._show_otp_form(errors={"base": "invalid_otp"})
 
         session = async_get_clientsession(self._hass)
+        await self._integration_info.initialize(self._hass)
         try:
             auth = await cognito_respond_otp(
-                session, state["email"], state["cognito_session"], code
+                session,
+                state["email"],
+                state["cognito_session"],
+                code,
+                integration_info=self._integration_info,
             )
-            profile = await fetch_user_profile(session, auth["IdToken"])
+            profile = await fetch_user_profile(
+                session,
+                auth["IdToken"],
+                integration_info=self._integration_info,
+            )
         except LoginError as ex:
             _LOGGER.warning(f"OTP exchange failed: {ex}")
             return self._show_otp_form(errors={"base": "invalid_otp"})
@@ -131,6 +148,15 @@ class IntegrationFlowManager:
             delattr(self._flow_handler, _FLOW_STATE_ATTR)
         except AttributeError:
             pass
+
+        if self._is_reauth:
+            return self._flow_handler.async_update_reload_and_abort(
+                self._flow_handler._get_reauth_entry(),
+                data_updates={
+                    CONF_USERNAME: state["email"],
+                    INITIAL_TOKENS_KEY: initial_tokens,
+                },
+            )
 
         if self._entry is not None:
             self._hass.config_entries.async_update_entry(

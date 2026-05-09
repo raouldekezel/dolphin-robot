@@ -1,5 +1,8 @@
 {
   "config": {
+    "abort": {
+      "reauth_successful": "Reauthentication was successful"
+    },
     "error": {
       "already_configured": "Integration already configured with the name",
       "invalid_account": "Invalid account",
@@ -22,6 +25,10 @@
         },
         "description": "Enter the login code sent to your email.",
         "title": "Confirm OTP"
+      },
+      "reauth_confirm": {
+        "description": "Your MyDolphin Plus session expired. Continue to sign in again with a fresh login code.",
+        "title": "Reauthenticate MyDolphin Plus"
       }
     }
   },

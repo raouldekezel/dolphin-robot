@@ -3,11 +3,12 @@ This component provides support for MyDolphin Plus.
 For more details about this component, please refer to the documentation at
 https://home-assistant.io/components/mydolphin_plus/
 """
+
 import logging
 import sys
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_START, CONF_USERNAME
+from homeassistant.const import CONF_USERNAME, EVENT_HOMEASSISTANT_START
 from homeassistant.core import HomeAssistant
 
 from .common.consts import (

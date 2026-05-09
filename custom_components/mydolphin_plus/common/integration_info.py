@@ -1,4 +1,5 @@
 """Integration information handler."""
+
 from __future__ import annotations
 
 import logging
