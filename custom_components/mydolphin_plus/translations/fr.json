@@ -1,23 +1,61 @@
 {
   "config": {
-    "error": {
-      "already_configured": "Intégration déjà configurée avec ce nom",
-      "corrupted_encryption_key": "La clé de chiffrement est corrompue, veuillez supprimer l'intégration puis la réinstaller",
-      "invalid_account": "Compte invalide",
-      "invalid_credentials": "Identifiants invalides",
-      "invalid_server_details": "Paramètres serveur invalides",
-      "missing_permanent_api_key": "Clé d'API permanente manquante"
-    },
     "step": {
       "user": {
+        "title": "Configurer MyDolphin Plus",
+        "description": "Saisissez l'adresse e-mail de votre compte MyDolphin Plus. Un code de connexion sera envoyé dans votre boîte de réception.",
         "data": {
-          "password": "Mot de passe",
-          "reset_password": "Réinitialiser le mot de passe du compte (contournement OTP)",
-          "username": "Nom d'utilisateur"
-        },
-        "description": "Configurez vos identifiants MyDolphin Plus",
-        "title": "Configurer MyDolphin Plus"
+          "title": "Titre",
+          "username": "E-mail"
+        }
+      },
+      "otp": {
+        "title": "Confirmer le code OTP",
+        "description": "Saisissez le code de connexion envoyé à votre adresse e-mail.",
+        "data": {
+          "otp": "Code de connexion"
+        }
+      },
+      "reauth_confirm": {
+        "title": "[%key:common::config_flow::title::reauth%]",
+        "description": "Votre session MyDolphin Plus a expiré. Continuez pour vous reconnecter avec un nouveau code de connexion."
       }
+    },
+    "error": {
+      "invalid_account": "Compte invalide",
+      "invalid_otp": "Code de connexion invalide ou expiré",
+      "otp_send_failed": "Échec de l'envoi du code de connexion, vérifiez l'adresse e-mail puis réessayez",
+      "invalid_server_details": "Paramètres serveur invalides",
+      "already_configured": "Intégration déjà configurée avec ce nom"
+    },
+    "abort": {
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Réauthentifier MyDolphin Plus",
+        "description": "Saisissez votre adresse e-mail MyDolphin Plus pour recevoir un nouveau code de connexion.",
+        "data": {
+          "title": "Titre",
+          "username": "E-mail"
+        }
+      },
+      "otp": {
+        "title": "Confirmer le code OTP",
+        "description": "Saisissez le code de connexion envoyé à votre adresse e-mail.",
+        "data": {
+          "otp": "Code de connexion"
+        }
+      }
+    },
+    "error": {
+      "invalid_account": "Compte invalide",
+      "invalid_otp": "Code de connexion invalide ou expiré",
+      "otp_send_failed": "Échec de l'envoi du code de connexion, vérifiez l'adresse e-mail puis réessayez",
+      "invalid_server_details": "Paramètres serveur invalides",
+      "already_configured": "Intégration déjà configurée avec ce nom"
     }
   },
   "entity": {
@@ -241,27 +279,6 @@
             }
           }
         }
-      }
-    }
-  },
-  "options": {
-    "error": {
-      "already_configured": "Intégration déjà configurée avec ce nom",
-      "corrupted_encryption_key": "La clé de chiffrement est corrompue, veuillez supprimer l'intégration puis la réinstaller",
-      "invalid_account": "Compte invalide",
-      "invalid_credentials": "Identifiants invalides",
-      "invalid_server_details": "Paramètres serveur invalides",
-      "missing_permanent_api_key": "Clé d'API permanente manquante"
-    },
-    "step": {
-      "mydolphin_plus_additional_settings": {
-        "data": {
-          "password": "Mot de passe",
-          "reset_password": "Réinitialiser le mot de passe du compte (contournement OTP)",
-          "username": "Nom d'utilisateur"
-        },
-        "description": "Configurez votre nom d'utilisateur et mot de passe.",
-        "title": "Options de MyDolphin Plus"
       }
     }
   }
