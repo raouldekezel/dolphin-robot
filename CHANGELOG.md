@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.26b2
+
+- Preserve stored Cognito tokens across Home Assistant restarts when cached AWS IoT credentials expire
+- Clear only stale AWS credential cache metadata so the integration can refresh credentials without forcing reauthentication
+
 ## v1.0.26b1
 
 - Merge pull request [#270](https://github.com/sh00t2kill/dolphin-robot/pull/270) from `yumlevi/cognito-otp-login`
