@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
 from homeassistant.const import CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowHandler
@@ -45,11 +45,16 @@ class IntegrationFlowManager:
         hass: HomeAssistant,
         flow_handler: FlowHandler,
         entry: ConfigEntry | None = None,
+        source: str | None = None,
     ):
         self._hass = hass
         self._flow_handler = flow_handler
         self._entry = entry
-        self._flow_id = "user" if entry is None else "init"
+        self._source = (
+            source if source is not None else getattr(flow_handler, "source", None)
+        )
+        self._is_reauth = self._source == SOURCE_REAUTH
+        self._flow_id = "user" if entry is None or self._is_reauth else "init"
         self._integration_info = IntegrationInfo()
 
     async def async_step(self, user_input: dict | None = None):
@@ -143,6 +148,15 @@ class IntegrationFlowManager:
             delattr(self._flow_handler, _FLOW_STATE_ATTR)
         except AttributeError:
             pass
+
+        if self._is_reauth:
+            return self._flow_handler.async_update_reload_and_abort(
+                self._flow_handler._get_reauth_entry(),
+                data_updates={
+                    CONF_USERNAME: state["email"],
+                    INITIAL_TOKENS_KEY: initial_tokens,
+                },
+            )
 
         if self._entry is not None:
             self._hass.config_entries.async_update_entry(
