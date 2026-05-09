@@ -7,6 +7,7 @@
 - Remove deprecated config flow connection class usage and rely on manifest `iot_class`
 - Use Home Assistant's managed options flow config entry access
 - Add French translation support
+- Fix AWS credential refresh when the last fetch timestamp is missing
 
 ## v1.0.26b2
 
