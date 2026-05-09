@@ -320,7 +320,7 @@ class RestAPI:
         if self._config_manager.refresh_token is None:
             self._set_status(
                 ConnectivityStatus.EXPIRED_TOKEN,
-                "no refresh token stored — remove and re-add the integration",
+                "no refresh token stored — reauthentication required",
             )
             return
 
@@ -349,7 +349,7 @@ class RestAPI:
         if not refresh_token:
             self._set_status(
                 ConnectivityStatus.EXPIRED_TOKEN,
-                "no refresh token available — remove and re-add the integration",
+                "no refresh token available — reauthentication required",
             )
             return False
 
@@ -363,7 +363,7 @@ class RestAPI:
             await self._config_manager.reset_login_details()
             self._set_status(
                 ConnectivityStatus.EXPIRED_TOKEN,
-                f"refresh failed ({ex}) — remove and re-add the integration",
+                f"refresh failed ({ex}) — reauthentication required",
             )
             return False
 

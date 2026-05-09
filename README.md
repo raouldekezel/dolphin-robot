@@ -16,7 +16,7 @@ Authentication uses the same email-OTP flow as the official MyDolphin Plus mobil
 
 The refresh token is reused on every Home Assistant restart and silently renewed (~hourly), so you should only need to re-enter an OTP if the refresh token expires (Cognito default ~30 days) or you remove and re-add the integration.
 
-> **Upgrading from a pre-OTP version (≤ 1.0.25b5):** the legacy email/password login endpoint has been retired by Maytronics. After updating, **remove the integration and re-add it** to go through the OTP flow.
+> **Upgrading from a pre-OTP version (≤ 1.0.25b5):** the legacy email/password login endpoint has been retired by Maytronics. After updating, Home Assistant should prompt you to **Reconfigure / Reauthenticate** the existing entry so you can complete OTP login without reinstalling.
 
 ## How to
 
@@ -219,7 +219,9 @@ Please attach also diagnostic details of the integration, available in:
 
 ### Refresh token expired
 
-If the integration logs `EXPIRED_TOKEN` and stops loading, the stored Cognito `RefreshToken` is no longer valid (it has expired or been invalidated server-side). Remove and re-add the integration to go through the OTP flow again.
+If the integration logs `EXPIRED_TOKEN` and stops loading, the stored Cognito `RefreshToken` is no longer valid (it has expired or been invalidated server-side). Home Assistant should raise a reauthentication prompt for the existing entry so you can complete the OTP flow again.
+
+If reauthentication does not appear or cannot be completed, remove and re-add the integration as a fallback.
 
 The token state lives in `.storage/mydolphin_plus.config.json`, keyed by the entry id:
 
