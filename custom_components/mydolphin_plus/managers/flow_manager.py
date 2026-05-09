@@ -22,6 +22,7 @@ from ..common.consts import (
     STORAGE_DATA_REFRESH_TOKEN,
     STORAGE_DATA_SERIAL_NUMBER,
 )
+from ..common.integration_info import IntegrationInfo
 from ..models.config_data import ConfigData
 from ..models.exceptions import LoginError
 from .rest_api import cognito_initiate_auth, cognito_respond_otp, fetch_user_profile
@@ -37,6 +38,7 @@ class IntegrationFlowManager:
 
     _flow_handler: FlowHandler
     _flow_id: str
+    _integration_info: IntegrationInfo
 
     def __init__(
         self,
@@ -48,6 +50,7 @@ class IntegrationFlowManager:
         self._flow_handler = flow_handler
         self._entry = entry
         self._flow_id = "user" if entry is None else "init"
+        self._integration_info = IntegrationInfo()
 
     async def async_step(self, user_input: dict | None = None):
         return await self.async_step_user(user_input)
@@ -73,8 +76,13 @@ class IntegrationFlowManager:
             return self._show_user_form(user_input, errors={"base": "invalid_account"})
 
         session = async_get_clientsession(self._hass)
+        await self._integration_info.initialize(self._hass)
         try:
-            init = await cognito_initiate_auth(session, email)
+            init = await cognito_initiate_auth(
+                session,
+                email,
+                integration_info=self._integration_info,
+            )
         except LoginError as ex:
             _LOGGER.warning(f"Cognito InitiateAuth failed: {ex}")
             return self._show_user_form(user_input, errors={"base": "otp_send_failed"})
@@ -104,11 +112,20 @@ class IntegrationFlowManager:
             return self._show_otp_form(errors={"base": "invalid_otp"})
 
         session = async_get_clientsession(self._hass)
+        await self._integration_info.initialize(self._hass)
         try:
             auth = await cognito_respond_otp(
-                session, state["email"], state["cognito_session"], code
+                session,
+                state["email"],
+                state["cognito_session"],
+                code,
+                integration_info=self._integration_info,
             )
-            profile = await fetch_user_profile(session, auth["IdToken"])
+            profile = await fetch_user_profile(
+                session,
+                auth["IdToken"],
+                integration_info=self._integration_info,
+            )
         except LoginError as ex:
             _LOGGER.warning(f"OTP exchange failed: {ex}")
             return self._show_otp_form(errors={"base": "invalid_otp"})
