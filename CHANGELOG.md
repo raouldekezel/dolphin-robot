@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.26b1
+
+- Merge pull request [#270](https://github.com/sh00t2kill/dolphin-robot/pull/270) from `yumlevi/cognito-otp-login`
+- Replace login flow with Cognito OTP login flow
+- Add Home Assistant native reauthentication flow for expired or invalid credentials
+- Trigger linked reauth prompt when refresh token is missing/expired, including for users upgrading from versions earlier than OTP support
+
 ## v1.0.25
 
 - Fix AWS token generation errors for users upgrading from older versions

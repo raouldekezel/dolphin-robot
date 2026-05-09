@@ -150,6 +150,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._last_update_api = 0
         self._last_update_ws = 0
         self._reconnection_attempts = 0
+        self._reauth_in_progress = False
 
         # MQTT debouncing
         self._mqtt_debouncer = Debouncer(
@@ -276,6 +277,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         if status == ConnectivityStatus.CONNECTED:
             self._reconnection_attempts = 0  # Reset backoff counter on success
+            self._reauth_in_progress = False
 
             await self._api.update()
 
@@ -288,7 +290,24 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             ConnectivityStatus.INVALID_CREDENTIALS,
             ConnectivityStatus.EXPIRED_TOKEN,
         ]:
+            if status == ConnectivityStatus.EXPIRED_TOKEN:
+                await self._start_reauth_if_needed()
             await self._handle_connection_failure()
+
+    async def _start_reauth_if_needed(self):
+        if self._reauth_in_progress:
+            return
+
+        entry = self.config_manager.entry
+        if entry is None:
+            return
+
+        try:
+            await entry.async_start_reauth(self.hass)
+            self._reauth_in_progress = True
+            _LOGGER.warning("Started Home Assistant reauthentication flow")
+        except Exception as ex:
+            _LOGGER.error(f"Failed to start Home Assistant reauthentication flow: {ex}")
 
     async def _on_aws_client_status_changed(
         self, entry_id: str, status: ConnectivityStatus

@@ -28,6 +28,7 @@ from ..common.consts import (
     RECONNECT_BACKOFF_MAX,
     STORAGE_DATA_ID_TOKEN,
     STORAGE_DATA_ID_TOKEN_EXPIRES_AT,
+    STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH,
     STORAGE_DATA_LAST_TOKEN_FETCH,
     STORAGE_DATA_LOCATING,
     STORAGE_DATA_MOTOR_UNIT_SERIAL,
@@ -132,6 +133,11 @@ class ConfigManager:
     @property
     def last_token_fetch(self) -> float:
         timestamp = self._data.get(STORAGE_DATA_LAST_TOKEN_FETCH, 0) or 0
+        return timestamp
+
+    @property
+    def last_aws_credentials_fetch(self) -> float:
+        timestamp = self._data.get(STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH, 0) or 0
         return timestamp
 
     @property
@@ -257,7 +263,7 @@ class ConfigManager:
 
     async def _validate_cached_credentials(self):
         """Check if cached credentials are too old and clear them if needed."""
-        last_fetch = self._data.get(STORAGE_DATA_LAST_TOKEN_FETCH, 0) or 0
+        last_fetch = self._data.get(STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH, 0) or 0
 
         if last_fetch == 0:
             return  # No cached credentials to validate
@@ -317,6 +323,11 @@ class ConfigManager:
             self._data[STORAGE_DATA_LAST_TOKEN_FETCH] = timestamp
             await self._save()
 
+    async def update_last_aws_credentials_fetch(self, timestamp: float):
+        if timestamp is not None:
+            self._data[STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH] = timestamp
+            await self._save()
+
     async def update_aws_credentials_expiry(self, expiry: float):
         if expiry is not None:
             self._data[AWS_CREDENTIALS_EXPIRY] = expiry
@@ -365,6 +376,7 @@ class ConfigManager:
         data = {
             STORAGE_DATA_LOCATING: False,
             STORAGE_DATA_LAST_TOKEN_FETCH: 0,
+            STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH: 0,
             AWS_CREDENTIALS_EXPIRY: 0,
         }
 

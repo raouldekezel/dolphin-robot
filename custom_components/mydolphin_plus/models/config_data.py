@@ -37,9 +37,7 @@ class ConfigData:
                 vol.Required(
                     CONF_TITLE, default=user_input.get(CONF_TITLE, DEFAULT_NAME)
                 ): str,
-                vol.Required(
-                    CONF_USERNAME, default=user_input.get(CONF_USERNAME)
-                ): str,
+                vol.Required(CONF_USERNAME, default=user_input.get(CONF_USERNAME)): str,
             }
         )
 

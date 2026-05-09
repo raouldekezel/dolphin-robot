@@ -47,21 +47,37 @@ from .config_manager import ConfigManager
 _LOGGER = logging.getLogger(__name__)
 
 
-def _bearer_headers(id_token: str, extra: dict | None = None) -> dict:
-    headers = {
-        "Authorization": f"Bearer {id_token}",
-        **BEARER_HEADERS_BASE,
-    }
+def _build_headers(
+    base: dict | None = None,
+    id_token: str | None = None,
+    extra: dict | None = None,
+    integration_info: IntegrationInfo | None = None,
+) -> dict:
+    headers = {}
+    if base:
+        headers.update(base)
+    if id_token:
+        headers["Authorization"] = f"Bearer {id_token}"
     if extra:
         headers.update(extra)
+    if integration_info is not None:
+        integration_info.set_user_agent(headers)
     return headers
 
 
-async def _cognito_call(session: ClientSession, target: str, body: dict) -> dict:
-    headers = {
-        "Content-Type": COGNITO_CONTENT_TYPE,
-        COGNITO_HEADER_TARGET: f"{COGNITO_TARGET_PREFIX}{target}",
-    }
+async def _cognito_call(
+    session: ClientSession,
+    target: str,
+    body: dict,
+    integration_info: IntegrationInfo | None = None,
+) -> dict:
+    headers = _build_headers(
+        base={
+            "Content-Type": COGNITO_CONTENT_TYPE,
+            COGNITO_HEADER_TARGET: f"{COGNITO_TARGET_PREFIX}{target}",
+        },
+        integration_info=integration_info,
+    )
     try:
         async with session.post(
             COGNITO_ENDPOINT, headers=headers, data=json.dumps(body)
@@ -80,7 +96,11 @@ async def _cognito_call(session: ClientSession, target: str, body: dict) -> dict
         raise LoginError(f"Cognito {target} request failed: {ex}") from ex
 
 
-async def cognito_initiate_auth(session: ClientSession, email: str) -> dict:
+async def cognito_initiate_auth(
+    session: ClientSession,
+    email: str,
+    integration_info: IntegrationInfo | None = None,
+) -> dict:
     response = await _cognito_call(
         session,
         "InitiateAuth",
@@ -90,6 +110,7 @@ async def cognito_initiate_auth(session: ClientSession, email: str) -> dict:
             "AuthParameters": {"USERNAME": email},
             "ClientMetadata": {},
         },
+        integration_info=integration_info,
     )
     if response.get("ChallengeName") != COGNITO_CHALLENGE_NAME:
         raise LoginError(
@@ -99,7 +120,11 @@ async def cognito_initiate_auth(session: ClientSession, email: str) -> dict:
 
 
 async def cognito_respond_otp(
-    session: ClientSession, email: str, cognito_session: str, code: str
+    session: ClientSession,
+    email: str,
+    cognito_session: str,
+    code: str,
+    integration_info: IntegrationInfo | None = None,
 ) -> dict:
     response = await _cognito_call(
         session,
@@ -111,6 +136,7 @@ async def cognito_respond_otp(
             "ChallengeResponses": {"USERNAME": email, "ANSWER": code},
             "ClientMetadata": {},
         },
+        integration_info=integration_info,
     )
     auth = response.get("AuthenticationResult")
     if not auth or "IdToken" not in auth:
@@ -118,7 +144,11 @@ async def cognito_respond_otp(
     return auth
 
 
-async def cognito_refresh(session: ClientSession, refresh_token: str) -> dict:
+async def cognito_refresh(
+    session: ClientSession,
+    refresh_token: str,
+    integration_info: IntegrationInfo | None = None,
+) -> dict:
     response = await _cognito_call(
         session,
         "InitiateAuth",
@@ -128,6 +158,7 @@ async def cognito_refresh(session: ClientSession, refresh_token: str) -> dict:
             "AuthParameters": {"REFRESH_TOKEN": refresh_token},
             "ClientMetadata": {},
         },
+        integration_info=integration_info,
     )
     auth = response.get("AuthenticationResult")
     if not auth or "IdToken" not in auth:
@@ -135,10 +166,16 @@ async def cognito_refresh(session: ClientSession, refresh_token: str) -> dict:
     return auth
 
 
-async def fetch_user_profile(session: ClientSession, id_token: str) -> dict:
-    headers = _bearer_headers(
-        id_token,
-        {"Content-Type": "application/x-www-form-urlencoded"},
+async def fetch_user_profile(
+    session: ClientSession,
+    id_token: str,
+    integration_info: IntegrationInfo | None = None,
+) -> dict:
+    headers = _build_headers(
+        base=BEARER_HEADERS_BASE,
+        id_token=id_token,
+        extra={"Content-Type": "application/x-www-form-urlencoded"},
+        integration_info=integration_info,
     )
     try:
         async with session.post(
@@ -159,8 +196,16 @@ async def fetch_user_profile(session: ClientSession, id_token: str) -> dict:
     return data
 
 
-async def fetch_aws_credentials(session: ClientSession, id_token: str) -> dict:
-    headers = _bearer_headers(id_token)
+async def fetch_aws_credentials(
+    session: ClientSession,
+    id_token: str,
+    integration_info: IntegrationInfo | None = None,
+) -> dict:
+    headers = _build_headers(
+        base=BEARER_HEADERS_BASE,
+        id_token=id_token,
+        integration_info=integration_info,
+    )
     try:
         async with session.get(AWS_STS_TOKEN_URL, headers=headers) as response:
             response.raise_for_status()
@@ -267,9 +312,7 @@ class RestAPI:
 
         self._device_loaded = True
 
-        self._async_dispatcher_send(
-            SIGNAL_DEVICE_NEW, self._config_manager.entry_id
-        )
+        self._async_dispatcher_send(SIGNAL_DEVICE_NEW, self._config_manager.entry_id)
 
         _LOGGER.debug(f"API Data updated: {self.data}")
 
@@ -277,7 +320,7 @@ class RestAPI:
         if self._config_manager.refresh_token is None:
             self._set_status(
                 ConnectivityStatus.EXPIRED_TOKEN,
-                "no refresh token stored — remove and re-add the integration",
+                "no refresh token stored — reauthentication required",
             )
             return
 
@@ -306,17 +349,21 @@ class RestAPI:
         if not refresh_token:
             self._set_status(
                 ConnectivityStatus.EXPIRED_TOKEN,
-                "no refresh token available — remove and re-add the integration",
+                "no refresh token available — reauthentication required",
             )
             return False
 
         try:
-            auth = await cognito_refresh(self._session, refresh_token)
+            auth = await cognito_refresh(
+                self._session,
+                refresh_token,
+                integration_info=self._integration_info,
+            )
         except LoginError as ex:
             await self._config_manager.reset_login_details()
             self._set_status(
                 ConnectivityStatus.EXPIRED_TOKEN,
-                f"refresh failed ({ex}) — remove and re-add the integration",
+                f"refresh failed ({ex}) — reauthentication required",
             )
             return False
 
@@ -332,16 +379,20 @@ class RestAPI:
     async def _bearer_post(
         self, url: str, body: str | dict | None = None
     ) -> dict | None:
-        headers = _bearer_headers(
-            self._config_manager.id_token,
-            {"Content-Type": "application/x-www-form-urlencoded"},
+        headers = _build_headers(
+            base=BEARER_HEADERS_BASE,
+            id_token=self._config_manager.id_token,
+            extra={"Content-Type": "application/x-www-form-urlencoded"},
+            integration_info=self._integration_info,
         )
-        self._integration_info.set_user_agent(headers)
         return await self._async_send(METH_POST, url, headers, data=body or "")
 
     async def _bearer_get(self, url: str) -> dict | None:
-        headers = _bearer_headers(self._config_manager.id_token)
-        self._integration_info.set_user_agent(headers)
+        headers = _build_headers(
+            base=BEARER_HEADERS_BASE,
+            id_token=self._config_manager.id_token,
+            integration_info=self._integration_info,
+        )
         return await self._async_send(METH_GET, url, headers)
 
     async def _async_send(
@@ -385,7 +436,8 @@ class RestAPI:
         if not data:
             alert = payload.get(API_RESPONSE_ALERT)
             self._set_status(
-                ConnectivityStatus.FAILED, f"authenticate-user empty data, Alert: {alert}"
+                ConnectivityStatus.FAILED,
+                f"authenticate-user empty data, Alert: {alert}",
             )
             return False
 
@@ -416,7 +468,7 @@ class RestAPI:
 
         # Rate limit fresh fetches; fall back to (potentially stale) cache when limited
         now = datetime.now().timestamp()
-        last_fetch = self._config_manager.last_token_fetch
+        last_fetch = self._config_manager.last_aws_credentials_fetch
         time_since_last = now - last_fetch
 
         if (
@@ -429,10 +481,17 @@ class RestAPI:
                 f"Need to wait {wait_time:.0f}s more."
             )
             if self._has_cached_credentials():
+                if await self._are_cached_credentials_valid():
+                    _LOGGER.info("Using cached AWS IoT credentials due to rate limit")
+                    self._set_status(ConnectivityStatus.CONNECTED)
+                    return
                 _LOGGER.info(
-                    "Using potentially expired cached credentials due to rate limit"
+                    "Cached AWS credentials are expired and refresh is rate limited"
                 )
-                self._set_status(ConnectivityStatus.CONNECTED)
+                self._set_status(
+                    ConnectivityStatus.FAILED,
+                    "AWS credentials expired and refresh is rate-limited",
+                )
                 return
             _LOGGER.warning(
                 "No cached credentials available, attempting fetch despite rate limit"
@@ -442,7 +501,9 @@ class RestAPI:
 
         try:
             data = await fetch_aws_credentials(
-                self._session, self._config_manager.id_token
+                self._session,
+                self._config_manager.id_token,
+                integration_info=self._integration_info,
             )
         except LoginError as ex:
             self._set_status(ConnectivityStatus.FAILED, f"getToken: {ex}")
@@ -453,7 +514,7 @@ class RestAPI:
 
         now = datetime.now().timestamp()
         expiry = now + AWS_CREDENTIALS_TTL.total_seconds()
-        await self._config_manager.update_last_token_fetch(now)
+        await self._config_manager.update_last_aws_credentials_fetch(now)
         await self._config_manager.update_aws_credentials_expiry(expiry)
 
         _LOGGER.info(
