@@ -11,12 +11,12 @@ On load, the coordinator initializes the REST API (token refresh + profile), fet
 
 ## Endpoints (in order)
 
-| # | URL | Purpose |
-|---|-----|---------|
-| 1 | `https://cognito-idp.us-west-2.amazonaws.com/` | Refresh IdToken via `REFRESH_TOKEN_AUTH` flow |
-| 2 | `https://apps.maytronics.com/mobapi/user/authenticate-user/` | Validate token, get serial numbers |
-| 3 | `https://apps.maytronics.com/mt-sso/aws/getToken/` | Fetch STS credentials (AccessKeyId, SecretAccessKey, Token) |
-| 4 | `wss://a12rqfdx55bdbv-ats.iot.eu-west-1.amazonaws.com:443` | MQTT over WebSocket (AWS IoT Core) |
+| #   | URL                                                          | Purpose                                                     |
+| --- | ------------------------------------------------------------ | ----------------------------------------------------------- |
+| 1   | `https://cognito-idp.us-west-2.amazonaws.com/`               | Refresh IdToken via `REFRESH_TOKEN_AUTH` flow               |
+| 2   | `https://apps.maytronics.com/mobapi/user/authenticate-user/` | Validate token, get serial numbers                          |
+| 3   | `https://apps.maytronics.com/mt-sso/aws/getToken/`           | Fetch STS credentials (AccessKeyId, SecretAccessKey, Token) |
+| 4   | `wss://a12rqfdx55bdbv-ats.iot.eu-west-1.amazonaws.com:443`   | MQTT over WebSocket (AWS IoT Core)                          |
 
 ---
 
@@ -141,16 +141,16 @@ sequenceDiagram
 
 ## AWS IoT Connection Parameters
 
-| Parameter | Value |
-|-----------|-------|
-| Endpoint | `a12rqfdx55bdbv-ats.iot.eu-west-1.amazonaws.com` |
-| Port | `443` |
-| Region | `eu-west-1` |
-| Protocol | MQTT over WebSocket (`wss://`) |
-| Auth | AWS STS credentials (IAM) |
-| Keep-alive | 30 seconds |
-| Clean session | `false` |
-| CA cert | `AmazonRootCA.pem` (bundled in `managers/` directory) |
+| Parameter     | Value                                                 |
+| ------------- | ----------------------------------------------------- |
+| Endpoint      | `a12rqfdx55bdbv-ats.iot.eu-west-1.amazonaws.com`      |
+| Port          | `443`                                                 |
+| Region        | `eu-west-1`                                           |
+| Protocol      | MQTT over WebSocket (`wss://`)                        |
+| Auth          | AWS STS credentials (IAM)                             |
+| Keep-alive    | 30 seconds                                            |
+| Clean session | `false`                                               |
+| CA cert       | `AmazonRootCA.pem` (bundled in `managers/` directory) |
 
 ---
 
@@ -176,10 +176,10 @@ stateDiagram-v2
 
 AWS STS credentials are cached to reduce API calls:
 
-| Setting | Value | Constant |
-|---------|-------|----------|
-| Credential TTL | 1 hour 50 minutes | `AWS_CREDENTIALS_TTL` |
-| Min fetch interval | 5 minutes | `MIN_TOKEN_FETCH_INTERVAL` |
+| Setting                | Value                   | Constant                          |
+| ---------------------- | ----------------------- | --------------------------------- |
+| Credential TTL         | 1 hour 50 minutes       | `AWS_CREDENTIALS_TTL`             |
+| Min fetch interval     | 5 minutes               | `MIN_TOKEN_FETCH_INTERVAL`        |
 | IdToken refresh window | 5 minutes before expiry | `ID_TOKEN_REFRESH_WINDOW_SECONDS` |
 
 On startup, if cached credentials are still valid (checked via `_are_cached_credentials_valid()`), the STS fetch is skipped entirely.
@@ -188,10 +188,10 @@ On startup, if cached credentials are still valid (checked via `_are_cached_cred
 
 ## Source Code
 
-| Module | Responsibility |
-|--------|---------------|
-| `managers/coordinator.py` | `initialize()` — sets up platforms, triggers `RestAPI.initialize()` |
-| `managers/rest_api.py` | `_login()` → `_ensure_id_token_valid()` → `_authenticate_user()` → `_refresh_aws_credentials()` |
-| `managers/aws_client.py` | `initialize()` — builds MQTT client, connects, subscribes |
-| `managers/config_manager.py` | Reads/writes tokens and credentials to HA storage |
-| `common/consts.py` | All endpoint URLs, timing constants, header values |
+| Module                       | Responsibility                                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------------------------------- |
+| `managers/coordinator.py`    | `initialize()` — sets up platforms, triggers `RestAPI.initialize()`                             |
+| `managers/rest_api.py`       | `_login()` → `_ensure_id_token_valid()` → `_authenticate_user()` → `_refresh_aws_credentials()` |
+| `managers/aws_client.py`     | `initialize()` — builds MQTT client, connects, subscribes                                       |
+| `managers/config_manager.py` | Reads/writes tokens and credentials to HA storage                                               |
+| `common/consts.py`           | All endpoint URLs, timing constants, header values                                              |
