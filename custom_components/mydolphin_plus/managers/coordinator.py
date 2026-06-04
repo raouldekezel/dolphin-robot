@@ -213,17 +213,15 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         await self._api.initialize()
 
     def _load_signal_handlers(self):
-        loop = self.hass.loop
-
         @callback
         def on_api_status_changed(entry_id: str, status: ConnectivityStatus):
-            loop.create_task(self._on_api_status_changed(entry_id, status)).__await__()
+            self.hass.async_create_task(self._on_api_status_changed(entry_id, status))
 
         @callback
         def on_aws_client_status_changed(entry_id: str, status: ConnectivityStatus):
-            loop.create_task(
+            self.hass.async_create_task(
                 self._on_aws_client_status_changed(entry_id, status)
-            ).__await__()
+            )
 
         self.config_entry.async_on_unload(
             async_dispatcher_connect(
