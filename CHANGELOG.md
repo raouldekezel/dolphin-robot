@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.26
+
+- Use vacuum `activity` instead of `state` for start and pause actions (Home Assistant 2026.x forward compatibility)
+- Align HACS metadata with the integration manifest: Cloud Push `iot_class` and minimum Home Assistant 2026.1.0
+- Correct `vacuum_state` return type to `VacuumActivity` in system details
+
 ## v1.0.26b3
 
 - Fix pause control so active robots send the power-off command instead of only acting while docked
