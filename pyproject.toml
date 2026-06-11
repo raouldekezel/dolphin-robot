@@ -145,6 +145,9 @@ max-line-length-suggestions = 72
 testpaths = [
     "tests",
 ]
+pythonpath = [
+    ".",
+]
 norecursedirs = [
     ".git",
     "testing_config",
