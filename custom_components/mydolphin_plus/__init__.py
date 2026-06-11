@@ -8,7 +8,7 @@ import logging
 import sys
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_USERNAME, EVENT_HOMEASSISTANT_START
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EVENT_HOMEASSISTANT_START
 from homeassistant.core import HomeAssistant
 
 from .common.consts import (
@@ -48,9 +48,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # tokens in entry.data on disk. On the next restart they were replayed
         # by this very function on top of the freshly refreshed storage, which
         # is the root cause of the recurring "lost authentication" symptom.
-        if initial_tokens is not None and INITIAL_TOKENS_KEY in entry.data:
+        #
+        # CONF_PASSWORD is also stripped here as a one-shot migration for
+        # entries created before the Cognito switch (the old code's final
+        # async_update_entry(data={CONF_USERNAME: ...}) used to wipe it as a
+        # side effect; now that the strip is targeted, we must clear it
+        # explicitly so legacy-upgraded entries don't keep a stale encrypted
+        # password forever).
+        _LEGACY_KEYS = (INITIAL_TOKENS_KEY, CONF_PASSWORD)
+        if any(k in entry.data for k in _LEGACY_KEYS):
             stripped_data = {
-                k: v for k, v in entry.data.items() if k != INITIAL_TOKENS_KEY
+                k: v for k, v in entry.data.items() if k not in _LEGACY_KEYS
             }
             hass.config_entries.async_update_entry(entry, data=stripped_data)
 

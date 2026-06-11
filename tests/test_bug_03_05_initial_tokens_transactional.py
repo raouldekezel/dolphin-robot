@@ -158,11 +158,11 @@ async def test_bug03_initial_tokens_stripped_even_if_update_tokens_raises(monkey
 
 
 @pytest.mark.asyncio
-async def test_bug03_no_strip_when_no_initial_tokens_present(monkeypatch):
-    """If entry.data has no INITIAL_TOKENS_KEY, no spurious async_update_entry call.
+async def test_bug03_no_strip_when_clean_entry_data(monkeypatch):
+    """If entry.data has neither INITIAL_TOKENS_KEY nor CONF_PASSWORD, no spurious async_update_entry.
 
     Prevents a regression where the strip would run on every setup, churning
-    .storage unnecessarily.
+    ``.storage`` unnecessarily.
     """
     from custom_components.mydolphin_plus import async_setup_entry
 
@@ -183,6 +183,50 @@ async def test_bug03_no_strip_when_no_initial_tokens_present(monkeypatch):
     await async_setup_entry(hass, entry)
 
     hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bug03_strip_clears_legacy_conf_password_on_upgrade(monkeypatch):
+    """Pre-Cognito entries carry CONF_PASSWORD; strip it as a one-shot migration.
+
+    Before this PR, the old code's final
+    ``async_update_entry(data={CONF_USERNAME: ...})`` happened to wipe
+    ``CONF_PASSWORD`` as a side effect. Now that the strip is targeted, we
+    must clear it explicitly — otherwise legacy-upgraded entries keep their
+    stale encrypted password forever.
+    """
+    from homeassistant.const import CONF_PASSWORD
+
+    from custom_components.mydolphin_plus import async_setup_entry
+
+    entry = MagicMock()
+    entry.entry_id = "test-entry"
+    entry.data = {
+        CONF_USERNAME: "user@example.com",
+        CONF_PASSWORD: "legacy-encrypted-blob",
+        # No INITIAL_TOKENS_KEY — this is the legacy-upgrade path, no fresh OTP.
+    }
+    hass = _hass_with_recording_update_entry(entry)
+
+    fake_cm = MagicMock()
+    fake_cm.initialize = AsyncMock()
+    fake_cm.update_tokens = AsyncMock()
+    fake_cm.is_initialized = False
+
+    monkeypatch.setattr(
+        "custom_components.mydolphin_plus.ConfigManager", lambda *a, **k: fake_cm
+    )
+
+    await async_setup_entry(hass, entry)
+
+    assert CONF_PASSWORD not in entry.data, (
+        "CONF_PASSWORD was not stripped on the legacy-upgrade path"
+    )
+    assert entry.data[CONF_USERNAME] == "user@example.com", (
+        "CONF_USERNAME was incorrectly wiped"
+    )
+    fake_cm.update_tokens.assert_not_called()
+    hass.config_entries.async_update_entry.assert_called_once()
 
 
 # --- Defense in depth: source-level regression ------------------------------
