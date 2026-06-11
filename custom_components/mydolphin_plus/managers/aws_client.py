@@ -165,26 +165,32 @@ class AWSClient:
         return self._data
 
     async def terminate(self):
+        # BUG-06: previously the code registered a done callback on
+        # disconnect_future, then flipped status to DISCONNECTED immediately
+        # without awaiting the future. With clean_session=False and
+        # client_id = entry_id, a fresh setup() right after unload would
+        # evict the previous AWS IoT session — the previous client's
+        # callbacks could still try to act on dead objects. We now wait
+        # (bounded) for the disconnect to actually complete before
+        # signalling DISCONNECTED.
         try:
-
-            def _on_terminate_future_completed(future):
-                future.result()
-
-                self._awsiot_client = None
-
             if self._awsiot_client is not None:
                 disconnect_future = self._awsiot_client.disconnect()
-                disconnect_future.add_done_callback(_on_terminate_future_completed)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.wrap_future(disconnect_future), timeout=10
+                    )
+                except asyncio.TimeoutError:
+                    _LOGGER.warning(
+                        "AWS IoT graceful disconnect timed out after 10s — "
+                        "forcing client closure"
+                    )
+                self._awsiot_client = None
 
-        except Exception as ex:
-            exc_type, exc_obj, tb = sys.exc_info()
-            line_number = tb.tb_lineno
-
-            _LOGGER.warning(
-                "Failed to gracefully shutdown AWS IOT Client, setting it to None, "
-                f"Error: {ex}, Line: {line_number}"
+        except Exception:
+            _LOGGER.exception(
+                "Failed to gracefully shutdown AWS IOT Client, forcing client closure"
             )
-
             self._awsiot_client = None
 
         self._set_status(ConnectivityStatus.DISCONNECTED, "terminate requested")

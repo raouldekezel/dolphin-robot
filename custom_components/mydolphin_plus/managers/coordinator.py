@@ -1,3 +1,4 @@
+import asyncio
 from asyncio import sleep
 from datetime import datetime, timedelta
 import logging
@@ -366,7 +367,16 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             f"waiting {backoff_minutes} minute(s) before retry"
         )
 
-        await sleep(backoff_interval.total_seconds())
+        # BUG-07: previously this awaited sleep(...) without any
+        # CancelledError handling. A config entry unload during the sleep
+        # would silently let the sleep finish, then _api.initialize() would
+        # fire after unload had completed, racing the next setup_entry.
+        # Re-raising CancelledError lets HA Core actually cancel this task.
+        try:
+            await sleep(backoff_interval.total_seconds())
+        except asyncio.CancelledError:
+            _LOGGER.debug("Connection-failure backoff cancelled (entry unload)")
+            raise
         await self._api.initialize()
 
     async def _async_update_data(self):
