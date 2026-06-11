@@ -164,6 +164,21 @@ class AWSClient:
     def data(self) -> dict:
         return self._data
 
+    @staticmethod
+    def _debug_log_credentials_received(aws_key, aws_secret, aws_token):
+        """Emit the post-STS credentials debug line without leaking values.
+
+        Logs only the lengths of the AWS IAM key/secret/token. Extracted from
+        ``initialize()`` so the leak-free contract can be tested directly
+        without standing up an AWS IoT mock fleet (see SEC-02).
+        """
+        _LOGGER.debug(
+            "Obtained AWS IAM credentials (key=%s chars, secret=%s chars, token=%s chars)",
+            len(aws_key or ""),
+            len(aws_secret or ""),
+            len(aws_token or ""),
+        )
+
     async def terminate(self):
         try:
 
@@ -199,9 +214,7 @@ class AWSClient:
             aws_key = self._api_data.get(API_RESPONSE_DATA_ACCESS_KEY_ID)
             aws_secret = self._api_data.get(API_RESPONSE_DATA_SECRET_ACCESS_KEY)
 
-            _LOGGER.debug(
-                f"AWS IAM Credentials, Key: {aws_key}, Secret: {aws_secret}, Token: {aws_token}"
-            )
+            self._debug_log_credentials_received(aws_key, aws_secret, aws_token)
 
             self._topic_data = TopicData(self._config_manager.motor_unit_serial)
 

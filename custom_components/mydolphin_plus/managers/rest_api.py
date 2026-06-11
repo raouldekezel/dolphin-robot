@@ -13,6 +13,7 @@ from aiohttp.hdrs import METH_GET, METH_POST
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.dispatcher import dispatcher_send
+from homeassistant.helpers.redact import async_redact_data
 
 from ..common.connectivity_status import ConnectivityStatus
 from ..common.consts import (
@@ -38,6 +39,7 @@ from ..common.consts import (
     RECONNECT_BACKOFF_MAX,
     SIGNAL_API_STATUS,
     SIGNAL_DEVICE_NEW,
+    TO_REDACT,
 )
 from ..common.integration_info import IntegrationInfo
 from ..models.config_data import ConfigData
@@ -314,7 +316,21 @@ class RestAPI:
 
         self._async_dispatcher_send(SIGNAL_DEVICE_NEW, self._config_manager.entry_id)
 
-        _LOGGER.debug(f"API Data updated: {self.data}")
+        self._debug_log_api_data_updated()
+
+    def _debug_log_api_data_updated(self):
+        """Emit the post-login data summary, with secrets redacted.
+
+        ``self.data`` contains AWS Token/AccessKeyId/SecretAccessKey returned by
+        the Maytronics STS endpoint (see ``API_TOKEN_FIELDS``). Extracted from
+        ``update()`` so the redaction contract can be tested directly without
+        a full login pipeline (see SEC-03). The ``isEnabledFor`` guard avoids
+        the eager deep-copy done by ``async_redact_data`` when DEBUG is off.
+        """
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug(
+                "API Data updated: %s", async_redact_data(self.data, TO_REDACT)
+            )
 
     async def _login(self):
         if self._config_manager.refresh_token is None:
