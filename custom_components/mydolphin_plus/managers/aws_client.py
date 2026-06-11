@@ -287,6 +287,13 @@ class AWSClient:
                 )
                 next_subscribe_future.add_done_callback(_on_subscribe_future_completed)
 
+        # HARD-07: guard against an empty subscribe list. If the topic data
+        # builder yields no subscriptions (e.g. unknown robot family), the
+        # previous code raised IndexError on topics_to_subscribe[0].
+        if not topics_to_subscribe:
+            _LOGGER.warning("No AWS IoT topics to subscribe to; skipping subscribe step")
+            return
+
         first_topic = topics_to_subscribe[0]
 
         topics_to_subscribe.remove(first_topic)
@@ -411,8 +418,11 @@ class AWSClient:
                 version = payload_data.get(DATA_ROOT_VERSION)
                 server_timestamp = payload_data.get(DATA_ROOT_TIMESTAMP)
 
+                # HARD-06: guard against payloads that omit the timestamp.
+                # Previously int(now) - None raised TypeError, swallowed by
+                # the outer except, leaving WS_DATA_DIFF unset for that cycle.
                 now = datetime.now().timestamp()
-                diff = int(now) - server_timestamp
+                diff = int(now) - server_timestamp if server_timestamp else None
 
                 self.data[WS_DATA_VERSION] = version
                 self.data[WS_DATA_TIMESTAMP] = server_timestamp
@@ -534,14 +544,16 @@ class AWSClient:
         self._messages_published[message_id] = {"topic": topic, "payload": payload}
 
     def _post_message_published(self, message_id: int):
-        published_data = self._messages_published.get(message_id, {})
+        # HARD-05: previously `published_data = self._messages_published.get(...)`
+        # followed by `del self._messages_published[message_id]` raised
+        # KeyError if the id was not in the dict (e.g. a duplicate publish
+        # completion callback or a callback firing after teardown).
+        published_data = self._messages_published.pop(message_id, {})
 
         topic = published_data.get("topic")
         payload = published_data.get("payload")
 
         _LOGGER.info(f"Published message #{message_id} to {topic}, Data: {payload}")
-
-        del self._messages_published[message_id]
 
     def _on_publish_completed(self, publish_future):
         publish_results = publish_future.result()
@@ -669,7 +681,10 @@ class AWSClient:
             DATA_LED_MODE: LED_MODE_BLINKING,
         }
 
-        request_data = self.data.get(DATA_SECTION_LED, default_data)
+        # HARD-03: previously this reused the same dict reference held inside
+        # self.data — mutating it propagated the change to HA-visible state
+        # before the robot confirmed via update_accepted. Copy first.
+        request_data = dict(self.data.get(DATA_SECTION_LED, default_data))
         request_data[key] = value
 
         data = {DATA_SECTION_LED: request_data}

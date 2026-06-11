@@ -7,7 +7,7 @@ import sys
 import time
 from typing import Any
 
-from aiohttp import ClientResponseError, ClientSession
+from aiohttp import ClientResponseError, ClientSession, ClientTimeout
 from aiohttp.hdrs import METH_GET, METH_POST
 
 from homeassistant.core import HomeAssistant
@@ -282,10 +282,18 @@ class RestAPI:
 
     async def _initialize_session(self):
         try:
+            # HARD-02: enforce sensible timeouts on every Maytronics call.
+            # Previously the aiohttp ClientSession used the library default
+            # (no timeout), so any blip on the Maytronics side could pin a
+            # coordinator update for ~5 minutes.
+            timeout = ClientTimeout(total=30, sock_connect=5, sock_read=10)
+
             if self._is_home_assistant:
-                self._session = async_create_clientsession(hass=self._hass)
+                self._session = async_create_clientsession(
+                    hass=self._hass, timeout=timeout
+                )
             else:
-                self._session = ClientSession()
+                self._session = ClientSession(timeout=timeout)
 
         except Exception as ex:
             exc_type, exc_obj, tb = sys.exc_info()

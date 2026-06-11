@@ -495,9 +495,15 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         iot_response = dynamic.get(DYNAMIC_TYPE_IOT_RESPONSE, {})
         temperature_int = iot_response.get(DYNAMIC_DESCRIPTION_TEMPERATURE, 0)
 
-        state_str = str(temperature_int)
-        state_str_fixed = f"{state_str[:2]}.{state_str[2:].ljust(2, '0')}"
-        state = float(state_str_fixed)
+        # HARD-08: previous decode by string slicing produced wrong values
+        # for any input not exactly 4 digits long (e.g. "100" became 10.0
+        # instead of 1.00, "12345" became 12.345). The robot reports a
+        # centi-degree integer (e.g. 2545 = 25.45 °C), so dividing by 100
+        # is the actual decode.
+        try:
+            state = float(temperature_int) / 100
+        except (TypeError, ValueError):
+            state = None
 
         result = {ATTR_STATE: state}
 
@@ -521,15 +527,17 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         return result
 
     def _get_power_supply_status_data(self, _entity_description) -> dict | None:
-        state = self._system_details.power_unit_state.lower()
-
+        # HARD-01: previously .lower() was called BEFORE the None guard,
+        # raising AttributeError if the attribute was None — silently
+        # swallowed by the outer except, returning nothing to the sensor.
+        state = self._system_details.power_unit_state
         result = {ATTR_STATE: None if state is None else state.lower()}
 
         return result
 
     def _get_robot_status_data(self, _entity_description) -> dict | None:
-        state = self._system_details.robot_state.lower()
-
+        # HARD-01: same pattern as _get_power_supply_status_data.
+        state = self._system_details.robot_state
         result = {ATTR_STATE: None if state is None else state.lower()}
 
         return result
@@ -880,7 +888,11 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     async def _vacuum_locate(self, entity_description: EntityDescription):
         led_light_entity = self._get_led_data(None)
 
-        led_light_state = led_light_entity.get(CONF_STATE)
+        # HARD-04: _get_led_data writes ATTR_IS_ON. The previous code read
+        # a different attribute that the dict never carried, so the "skip
+        # locate if LED already on" guard was always falsy and locate
+        # always ran.
+        led_light_state = led_light_entity.get(ATTR_IS_ON)
 
         if led_light_state:
             _LOGGER.warning(
