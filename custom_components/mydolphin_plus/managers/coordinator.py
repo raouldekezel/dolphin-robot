@@ -150,7 +150,6 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._last_update_api = 0
         self._last_update_ws = 0
         self._reconnection_attempts = 0
-        self._reauth_in_progress = False
 
         # MQTT debouncing
         self._mqtt_debouncer = Debouncer(
@@ -277,7 +276,6 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         if status == ConnectivityStatus.CONNECTED:
             self._reconnection_attempts = 0  # Reset backoff counter on success
-            self._reauth_in_progress = False
 
             await self._api.update()
 
@@ -295,19 +293,26 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             await self._handle_connection_failure()
 
     async def _start_reauth_if_needed(self):
-        if self._reauth_in_progress:
-            return
+        """Start a HA reauthentication flow.
 
+        ``ConfigEntry.async_start_reauth`` is synchronous in HA Core and is
+        idempotent: calling it while a reauth flow is already in progress
+        re-focuses the existing flow rather than creating a duplicate. There
+        is therefore no need for our own ``_reauth_in_progress`` guard, which
+        used to stick to ``True`` after a dismissed flow and lock the
+        integration in a retry loop (BUG-02). The previous ``await`` on the
+        synchronous call also raised ``TypeError`` swallowed by the surrounding
+        except, masking failures (BUG-01).
+        """
         entry = self.config_manager.entry
         if entry is None:
             return
 
         try:
-            await entry.async_start_reauth(self.hass)
-            self._reauth_in_progress = True
+            entry.async_start_reauth(self.hass)
             _LOGGER.warning("Started Home Assistant reauthentication flow")
-        except Exception as ex:
-            _LOGGER.error(f"Failed to start Home Assistant reauthentication flow: {ex}")
+        except Exception:
+            _LOGGER.exception("Failed to start Home Assistant reauthentication flow")
 
     async def _on_aws_client_status_changed(
         self, entry_id: str, status: ConnectivityStatus
