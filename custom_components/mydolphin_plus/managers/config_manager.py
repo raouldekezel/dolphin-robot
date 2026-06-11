@@ -251,11 +251,23 @@ class ConfigManager:
 
         return value
 
+    # BUG-04: identifiers we MUST keep across a credentials reset. Wiping
+    # serial_number to None would change DeviceInfo.identifiers from
+    # (DEFAULT_NAME, "<serial>") to (DEFAULT_NAME, None) during the window
+    # between the reset and a successful reauth, orphaning every entity
+    # attached to the device if the entry happens to be reloaded in that
+    # window. serial_number is robot identity, not authentication state —
+    # Maytronics never rotates it across reauths of the same account.
+    _PRESERVED_ON_RESET = frozenset(
+        {STORAGE_DATA_MOTOR_UNIT_SERIAL, STORAGE_DATA_SERIAL_NUMBER}
+    )
+
     async def reset_login_details(self):
-        # Reset login-related tokens, but preserve motor_unit_serial
-        # so we can re-attach to the same robot after re-authentication
+        # Reset login-related tokens, but preserve robot identity
+        # (motor_unit_serial and serial_number) so the same device row is
+        # picked back up after re-authentication.
         for token_param in TOKEN_PARAMS:
-            if token_param != STORAGE_DATA_MOTOR_UNIT_SERIAL:
+            if token_param not in self._PRESERVED_ON_RESET:
                 self._data[token_param] = None
 
         await self._save()
