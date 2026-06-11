@@ -213,25 +213,37 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         await self._api.initialize()
 
     def _load_signal_handlers(self):
-        loop = self.hass.loop
+        # BUG-09: the previous code called `.__await__` on a freshly created
+        # task and discarded the resulting awaitable iterator, firing the task
+        # fire-and-forget — exceptions disappeared silently and the task was
+        # not cancelled when the config entry unloaded.
+        #
+        # `ConfigEntry.async_create_task(hass, coro)` schedules the coroutine
+        # on the HA loop, tracks it through the config entry lifecycle, and
+        # cancels it on unload. Strictly better than the `hass.async_create_task`
+        # proposed by upstream PR #287 (which would only be cancelled on full HA
+        # shutdown, not on a per-entry reload).
+        entry = self.config_entry
 
         @callback
         def on_api_status_changed(entry_id: str, status: ConnectivityStatus):
-            loop.create_task(self._on_api_status_changed(entry_id, status)).__await__()
+            entry.async_create_task(
+                self.hass, self._on_api_status_changed(entry_id, status)
+            )
 
         @callback
         def on_aws_client_status_changed(entry_id: str, status: ConnectivityStatus):
-            loop.create_task(
-                self._on_aws_client_status_changed(entry_id, status)
-            ).__await__()
+            entry.async_create_task(
+                self.hass, self._on_aws_client_status_changed(entry_id, status)
+            )
 
-        self.config_entry.async_on_unload(
+        entry.async_on_unload(
             async_dispatcher_connect(
                 self.hass, SIGNAL_API_STATUS, on_api_status_changed
             )
         )
 
-        self.config_entry.async_on_unload(
+        entry.async_on_unload(
             async_dispatcher_connect(
                 self.hass, SIGNAL_AWS_CLIENT_STATUS, on_aws_client_status_changed
             )
