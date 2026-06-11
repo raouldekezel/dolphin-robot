@@ -401,7 +401,13 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             return {}
 
         except Exception as err:
-            raise UpdateFailed(f"Error communicating with API: {err}")
+            # BUG-10: keep the full traceback. Previously we built the
+            # UpdateFailed message from str(err) only and never logged the
+            # exception, so HA's DataUpdateCoordinator just printed
+            # "Error communicating with API: <truncated message>" with no
+            # stack — making any non-trivial bug invisible.
+            _LOGGER.exception("Error communicating with API")
+            raise UpdateFailed(f"Error communicating with API: {err}") from err
 
     def _build_data_mapping(self):
         data_mapping = {
