@@ -417,8 +417,9 @@ class ConfigManager:
             entry_data = store_data.get(self._entry_id, {})
 
             _LOGGER.debug(
-                f"Storing config data: {json.dumps(self._data)}, "
-                f"Exiting: {json.dumps(entry_data)}"
+                "Storing config data, keys: %s (existing: %s)",
+                sorted(self._data.keys()),
+                sorted(entry_data.keys()) if isinstance(entry_data, dict) else type(entry_data).__name__,
             )
 
             for key in self._data:
