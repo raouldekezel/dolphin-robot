@@ -8,7 +8,7 @@ import logging
 import sys
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_USERNAME, EVENT_HOMEASSISTANT_START
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EVENT_HOMEASSISTANT_START
 from homeassistant.core import HomeAssistant
 
 from .common.consts import (
@@ -41,6 +41,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry_config = dict(entry.data)
         initial_tokens = entry_config.pop(INITIAL_TOKENS_KEY, None)
 
+        # BUG-03 / BUG-05: strip INITIAL_TOKENS_KEY from entry.data BEFORE we
+        # persist the tokens to storage. The previous order — write tokens,
+        # then strip — was non-transactional: any exception in between (slow
+        # API on the serial fetch, HA killed mid-setup, etc.) left the initial
+        # tokens in entry.data on disk. On the next restart they were replayed
+        # by this very function on top of the freshly refreshed storage, which
+        # is the root cause of the recurring "lost authentication" symptom.
+        #
+        # CONF_PASSWORD is also stripped here as a one-shot migration for
+        # entries created before the Cognito switch (the old code's final
+        # async_update_entry(data={CONF_USERNAME: ...}) used to wipe it as a
+        # side effect; now that the strip is targeted, we must clear it
+        # explicitly so legacy-upgraded entries don't keep a stale encrypted
+        # password forever).
+        _LEGACY_KEYS = (INITIAL_TOKENS_KEY, CONF_PASSWORD)
+        if any(k in entry.data for k in _LEGACY_KEYS):
+            stripped_data = {
+                k: v for k, v in entry.data.items() if k not in _LEGACY_KEYS
+            }
+            hass.config_entries.async_update_entry(entry, data=stripped_data)
+
         config_manager = ConfigManager(hass, entry)
         await config_manager.initialize(entry_config)
 
@@ -56,11 +77,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             motor_unit_serial = initial_tokens.get(STORAGE_DATA_MOTOR_UNIT_SERIAL)
             if motor_unit_serial:
                 await config_manager.update_motor_unit_serial(motor_unit_serial)
-
-            hass.config_entries.async_update_entry(
-                entry,
-                data={CONF_USERNAME: entry_config.get(CONF_USERNAME)},
-            )
 
         is_initialized = config_manager.is_initialized
 
