@@ -340,7 +340,10 @@ class ConfigManager:
 
         await self._load_config_from_file()
 
-        _LOGGER.info(f"loaded: {self._data}")
+        _LOGGER.info(
+            "loaded config data, keys: %s",
+            sorted(self._data.keys()) if isinstance(self._data, dict) else type(self._data).__name__,
+        )
         should_save = False
 
         if self._data is None:
