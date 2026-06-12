@@ -98,7 +98,12 @@ out of sync with the actual subdirectory list, `scripts/check_diag_index.py`
 fails if any `docs/diag/<date>_<topic>/` subdirectory is missing from the
 table, or if any table row points to a non-existent directory.
 
-Run it locally before opening a session PR:
+This is enforced by the **Check diag index** GitHub Actions workflow
+(`.github/workflows/check-diag-index.yaml`), which runs on every push and
+pull request that touches `docs/diag/` or the check script itself. A PR
+that adds a session without updating the table (or vice versa) fails CI.
+
+Run it locally first to fail fast:
 
 ```
 python3 scripts/check_diag_index.py
