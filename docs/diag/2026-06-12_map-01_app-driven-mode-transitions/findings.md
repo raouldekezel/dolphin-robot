@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-When the Maytronics app — not Home Assistant — initiates the mode change (start « Complet » then start « Couverture complète »), the integration silently enforces its locally-configured per-mode `cycle_time_<mode>` value on the firmware ~1.0 s after every mode delta. The `Set cleaning mode` log line is absent in this case (the integration didn't emit the mode write), but `Set cycle time` fires consistently with the BUG-08 `sleep(1)` cadence already observed in session [#43](https://github.com/raouldekezel/dolphin-robot/pull/43). Combined with #43, this isolates the BUG-08 race window to *the integration vs. the app* writing `cycleTime` competitively — last-write-wins on AWS IoT Shadow, integration always loses if the app initiated.
+When the Maytronics app — not Home Assistant — initiates the mode change (start « Complet » then start « Couverture complète »), the integration silently enforces its locally-configured per-mode `cycle_time_<mode>` value on the firmware ~1.0 s after every mode delta. The `Set cleaning mode` log line is absent in this case (the integration didn't emit the mode write), but `Set cycle time` fires consistently with the BUG-08 `sleep(1)` cadence already observed in session [#43](https://github.com/raouldekezel/dolphin-robot/pull/43). Combined with #43, this isolates the BUG-08 race window to _the integration vs. the app_ writing `cycleTime` competitively — last-write-wins on AWS IoT Shadow, integration always loses if the app initiated.
 
 ## Context
 
@@ -26,23 +26,23 @@ When the Maytronics app — not Home Assistant — initiates the mode change (st
 
 Wall-clock timestamps are local (`+02:00`).
 
-| Timestamp | Origin | Event | Effect |
-|---|---|---|---|
-| 19:45:43.832 | Firmware → Integration | `shadow/update/delta` carrying `cleaningMode.mode = "all"` | (start « Complet » initiated by app at ~19:45) |
-| 19:45:44.834 | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 60}}` | publish #67, **+1.002 s** after the delta (BUG-08 `sleep(1)`) |
-| 19:45:44.842 | **Integration** | published to `shadow/update` | firmware accepts |
-| 19:45:46.460 | Firmware → Integration | `shadow/update/delta` | echo of integration's cycleTime write being applied |
-| 19:46:17.567 | Firmware → Integration | `shadow/update/delta` carrying `cleaningMode.mode = "all"` | second mode delta (operator repeat-start, see Actions) |
-| 19:46:17.566 | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 60}}` | publish #70, near-simultaneous with the delta — fires from the previous BUG-08 sleep window |
-| 19:48:34.362 | Firmware → Integration | `shadow/update/delta` carrying `cleaningMode.mode = "stairs"` | (start « Couverture complète » initiated by app at ~19:48) |
-| 19:48:35.398 | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 180}}` | publish #79, **+1.036 s** after the delta (BUG-08 `sleep(1)`) |
-| ~19:50 | Operator | stop from app | end of experiment |
+| Timestamp    | Origin                 | Event                                                         | Effect                                                                                      |
+| ------------ | ---------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 19:45:43.832 | Firmware → Integration | `shadow/update/delta` carrying `cleaningMode.mode = "all"`    | (start « Complet » initiated by app at ~19:45)                                              |
+| 19:45:44.834 | **Integration**        | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 60}}`   | publish #67, **+1.002 s** after the delta (BUG-08 `sleep(1)`)                               |
+| 19:45:44.842 | **Integration**        | published to `shadow/update`                                  | firmware accepts                                                                            |
+| 19:45:46.460 | Firmware → Integration | `shadow/update/delta`                                         | echo of integration's cycleTime write being applied                                         |
+| 19:46:17.567 | Firmware → Integration | `shadow/update/delta` carrying `cleaningMode.mode = "all"`    | second mode delta (operator repeat-start, see Actions)                                      |
+| 19:46:17.566 | **Integration**        | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 60}}`   | publish #70, near-simultaneous with the delta — fires from the previous BUG-08 sleep window |
+| 19:48:34.362 | Firmware → Integration | `shadow/update/delta` carrying `cleaningMode.mode = "stairs"` | (start « Couverture complète » initiated by app at ~19:48)                                  |
+| 19:48:35.398 | **Integration**        | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 180}}`  | publish #79, **+1.036 s** after the delta (BUG-08 `sleep(1)`)                               |
+| ~19:50       | Operator               | stop from app                                                 | end of experiment                                                                           |
 
-Notable **absence**: no `Set cleaning mode, Desired: {'cleaningMode': {'mode': ...}}` log line anywhere. The integration only logs that string when *it* publishes the mode; here the publishes come from the app, so the integration only observes them via delta and only re-emits its own `cycleTime` policy.
+Notable **absence**: no `Set cleaning mode, Desired: {'cleaningMode': {'mode': ...}}` log line anywhere. The integration only logs that string when _it_ publishes the mode; here the publishes come from the app, so the integration only observes them via delta and only re-emits its own `cycleTime` policy.
 
 ## Findings
 
-1. **The integration's per-mode `cycle_time_<mode>` policy is applied on every observed mode delta**, regardless of the delta's origin. Session #43 already showed the path when HA is the initiator (`set_fan_speed → mode publish → cycle_time publish`); session 05 closes the contrapositive: when the *app* publishes the mode, the integration still publishes the configured cycle_time ~1 s later. The user-facing implication is non-trivial — the firmware catalog's `cleaningModes.<mode>` value (150 for `stairs`) is effectively ignored as long as the integration is running with its own value (`cycle_time_stairs = 180` in this experiment).
+1. **The integration's per-mode `cycle_time_<mode>` policy is applied on every observed mode delta**, regardless of the delta's origin. Session #43 already showed the path when HA is the initiator (`set_fan_speed → mode publish → cycle_time publish`); session 05 closes the contrapositive: when the _app_ publishes the mode, the integration still publishes the configured cycle_time ~1 s later. The user-facing implication is non-trivial — the firmware catalog's `cleaningModes.<mode>` value (150 for `stairs`) is effectively ignored as long as the integration is running with its own value (`cycle_time_stairs = 180` in this experiment).
 
 2. **BUG-08 `sleep(1)` cadence confirmed twice more.** The two observable delta → publish gaps are **+1.002 s** (`all` start) and **+1.036 s** (`stairs` start) — consistent with sessions #41 / #43.
 
@@ -53,7 +53,7 @@ Notable **absence**: no `Set cleaning mode, Desired: {'cleaningMode': {'mode': .
 ## Open questions
 
 - The second mode-`all` delta at 19:46:17 — what produced it? Could be operator (double-tap on app), could be app retransmission (some Maytronics versions re-publish on connection blip), could be firmware echo round-tripping. A follow-up session with a parallel app-side packet capture would disambiguate.
-- The trace contains a single `shadow/update/delta` at 19:45:00, ~43 s *before* the first mode delta at 19:45:43. Its payload was not investigated here. May be the user's HA-side stop from session #43 still propagating.
+- The trace contains a single `shadow/update/delta` at 19:45:00, ~43 s _before_ the first mode delta at 19:45:43. Its payload was not investigated here. May be the user's HA-side stop from session #43 still propagating.
 - The integration's behaviour of always re-applying `cycle_time_<mode>` may conflict with users who deliberately want to vary the duration via the app for a one-off cycle. Not a bug per se — but a user-visible side effect of how the integration models per-mode duration as policy. Worth flagging if anyone files "the app's cycleTime doesn't stick".
 
 ## Refs
@@ -61,4 +61,4 @@ Notable **absence**: no `Set cleaning mode, Desired: {'cleaningMode': {'mode': .
 - Session [#43 — MAP-01 stairs validation](../2026-06-12_map-01_stairs-validation/findings.md) — companion session, HA-initiated path.
 - Issue [#17 — BUG-08: time.sleep(1) blocks the awscrt event-loop thread](../../../issues/17) — two more data points added.
 - Issue [#31 — MAP-01: CleanModes enum has no 'stairs' value](../../../issues/31) — hypothesis source.
-- PR [#35 — MAP-01: CleanModes adds STAIRS + tolerant parse](../../../pull/35) — must be redesigned per session #43's *Implications* section before merge.
+- PR [#35 — MAP-01: CleanModes adds STAIRS + tolerant parse](../../../pull/35) — must be redesigned per session #43's _Implications_ section before merge.
