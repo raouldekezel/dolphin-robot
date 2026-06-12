@@ -273,6 +273,10 @@ If you cannot complete the OTP flow:
 - **"Failed to send login code"** — usually means Cognito does not recognise the email. Confirm you can sign in to the official MyDolphin Plus app with the same address; if not, register the account in the app first.
 - **Repeated failures with a known-good email** — collect debug logs (see [Troubleshooting](#troubleshooting)) and open an issue.
 
+## Diagnostic experiments
+
+Raw artifacts of timed diagnostic runs against a real robot are kept under [`docs/diag/`](docs/diag/) — one immutable subdirectory per session with redacted logs, sensor polls, and a `findings.md` summarising what the run answered.
+
 ## Contributors
 
 Thanks to everyone who has contributed to this project:
