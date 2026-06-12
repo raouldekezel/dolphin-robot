@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import sys
+import time
 from time import sleep
 from typing import Any, Callable
 
@@ -84,6 +85,37 @@ from ..models.topic_data import TopicData
 from .config_manager import ConfigManager
 
 _LOGGER = logging.getLogger(__name__)
+
+# DIAG-MQTT: dedicated child logger for raw MQTT publish / receive traces.
+# Disabled by default (parent level applies). Enable via:
+#
+#   logger:
+#     logs:
+#       custom_components.mydolphin_plus.managers.aws_client.mqtt: debug
+#
+# Each line carries monotonic_ns + direction (>> publish, << recv) + topic +
+# payload, so packet ordering and inter-publish delays (e.g. the 1 s gap
+# between set_cleaning_mode and set_cycle_time — see BUG-08) can be measured
+# from the HA log with no extra tooling.
+_MQTT_LOGGER = _LOGGER.getChild("mqtt")
+
+
+def _mqtt_trace(direction: str, topic: str, payload):
+    """Emit a one-line MQTT trace if the dedicated child logger is in DEBUG."""
+    if not _MQTT_LOGGER.isEnabledFor(logging.DEBUG):
+        return
+    if isinstance(payload, (bytes, bytearray)):
+        try:
+            payload = payload.decode("utf-8", errors="replace")
+        except Exception:  # pragma: no cover — pure paranoia
+            payload = repr(payload)
+    _MQTT_LOGGER.debug(
+        "%s t=%d topic=%s payload=%s",
+        direction,
+        time.monotonic_ns(),
+        topic,
+        payload,
+    )
 
 
 class AWSClient:
@@ -387,6 +419,7 @@ class AWSClient:
 
     def _message_callback(self, topic, payload, dup, qos, retain, **kwargs):
         message_payload = payload.decode(MQTT_MESSAGE_ENCODING)
+        _mqtt_trace("<<", topic, message_payload)
 
         try:
             has_message = len(message_payload) <= 0
@@ -505,6 +538,7 @@ class AWSClient:
             data = {}
 
         payload = json.dumps(data)
+        _mqtt_trace(">>", topic, payload)
 
         if self._status == ConnectivityStatus.CONNECTED:
             try:
