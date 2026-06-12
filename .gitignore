@@ -68,3 +68,6 @@ venv/
 __test__.py
 tokens.json
 config.json
+
+# docs/diag/ captures: override the *.log rule above for the diagnostic tree.
+!docs/diag/**/*.mqtt.log

@@ -1,0 +1,12 @@
+# interval=10s tz=+02:00
+timestamp	cycle_time	time_left	mode	robot_state
+11:42:09	150	6456.469809	stairs	scanning
+11:42:19	150	0	stairs	notconnected
+11:42:29	150	0	stairs	notconnected
+11:42:39	150	0	stairs	init
+11:42:49	150	0	stairs	init
+11:43:00	150	0	stairs	init
+11:43:10	150	0	stairs	init
+11:43:20	150	0	stairs	init
+11:43:30	150	0	stairs	init
+11:43:40	150	8928.886363	stairs	scanning
