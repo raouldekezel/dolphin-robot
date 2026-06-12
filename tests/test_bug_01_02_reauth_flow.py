@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import inspect
 import logging
-import re
 from pathlib import Path
+import re
 from unittest.mock import MagicMock
 
 import pytest

@@ -354,7 +354,11 @@ class ConfigManager:
 
         _LOGGER.info(
             "loaded config data, keys: %s",
-            sorted(self._data.keys()) if isinstance(self._data, dict) else type(self._data).__name__,
+            (
+                sorted(self._data.keys())
+                if isinstance(self._data, dict)
+                else type(self._data).__name__
+            ),
         )
         should_save = False
 
@@ -434,7 +438,11 @@ class ConfigManager:
             _LOGGER.debug(
                 "Storing config data, keys: %s (existing: %s)",
                 sorted(self._data.keys()),
-                sorted(entry_data.keys()) if isinstance(entry_data, dict) else type(entry_data).__name__,
+                (
+                    sorted(entry_data.keys())
+                    if isinstance(entry_data, dict)
+                    else type(entry_data).__name__
+                ),
             )
 
             for key in self._data:

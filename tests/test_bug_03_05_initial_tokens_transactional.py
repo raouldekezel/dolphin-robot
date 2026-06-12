@@ -21,14 +21,13 @@ replayed.
 from __future__ import annotations
 
 import inspect
-import re
 from pathlib import Path
+import re
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from homeassistant.const import CONF_USERNAME
-
 
 # Realistic-looking fake initial tokens payload.
 FAKE_INITIAL_TOKENS = {
@@ -80,7 +79,6 @@ async def test_bug03_initial_tokens_stripped_before_update_tokens(monkeypatch):
     """
     from custom_components.mydolphin_plus import async_setup_entry
     from custom_components.mydolphin_plus.common.consts import INITIAL_TOKENS_KEY
-    from custom_components.mydolphin_plus.managers import config_manager as cm_module
 
     entry = _build_entry_with_initial_tokens()
     hass = _hass_with_recording_update_entry(entry)
@@ -195,9 +193,8 @@ async def test_bug03_strip_clears_legacy_conf_password_on_upgrade(monkeypatch):
     must clear it explicitly — otherwise legacy-upgraded entries keep their
     stale encrypted password forever.
     """
-    from homeassistant.const import CONF_PASSWORD
-
     from custom_components.mydolphin_plus import async_setup_entry
+    from homeassistant.const import CONF_PASSWORD
 
     entry = MagicMock()
     entry.entry_id = "test-entry"

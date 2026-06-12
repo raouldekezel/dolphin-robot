@@ -1,6 +1,9 @@
+default_language_version:
+  python: python3.12
+
 repos:
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.15.2
+    rev: v3.17.0
     hooks:
       - id: pyupgrade
         args: [--py39-plus]
