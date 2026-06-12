@@ -8,7 +8,7 @@ import logging
 import sys
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EVENT_HOMEASSISTANT_START
+from homeassistant.const import CONF_PASSWORD, EVENT_HOMEASSISTANT_START
 from homeassistant.core import HomeAssistant
 
 from .common.consts import (

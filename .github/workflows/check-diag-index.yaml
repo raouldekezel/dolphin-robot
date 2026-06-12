@@ -10,14 +10,14 @@ name: Check diag index
 on:
   push:
     paths:
-      - 'docs/diag/**'
-      - 'scripts/check_diag_index.py'
-      - '.github/workflows/check-diag-index.yaml'
+      - "docs/diag/**"
+      - "scripts/check_diag_index.py"
+      - ".github/workflows/check-diag-index.yaml"
   pull_request:
     paths:
-      - 'docs/diag/**'
-      - 'scripts/check_diag_index.py'
-      - '.github/workflows/check-diag-index.yaml'
+      - "docs/diag/**"
+      - "scripts/check_diag_index.py"
+      - ".github/workflows/check-diag-index.yaml"
 
 jobs:
   check:
@@ -26,5 +26,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - run: python3 scripts/check_diag_index.py

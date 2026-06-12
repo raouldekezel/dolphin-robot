@@ -6,17 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from custom_components.mydolphin_plus.common.connectivity_status import (
-    ConnectivityStatus,
-)
 from custom_components.mydolphin_plus.common.consts import (
     CONF_OTP,
     INITIAL_TOKENS_KEY,
     STORAGE_DATA_ID_TOKEN,
     STORAGE_DATA_REFRESH_TOKEN,
-)
-from custom_components.mydolphin_plus.managers.coordinator import (
-    MyDolphinPlusCoordinator,
 )
 import custom_components.mydolphin_plus.managers.flow_manager as flow_manager_module
 from custom_components.mydolphin_plus.managers.flow_manager import (
@@ -91,28 +85,10 @@ async def test_flow_manager_reauth_otp_updates_existing_entry(monkeypatch):
     assert updates[INITIAL_TOKENS_KEY][STORAGE_DATA_REFRESH_TOKEN] == "refresh-token"
 
 
-@pytest.mark.asyncio
-async def test_coordinator_reauth_is_started_once_for_expired_token():
-    """EXPIRED_TOKEN status should trigger reauth only once."""
-    calls = {"reauth": 0, "failure": 0}
-
-    async def fake_start_reauth(_hass):
-        calls["reauth"] += 1
-
-    async def fake_handle_failure():
-        calls["failure"] += 1
-
-    coordinator = MyDolphinPlusCoordinator.__new__(MyDolphinPlusCoordinator)
-    coordinator._reauth_in_progress = False
-    coordinator.hass = object()
-    coordinator._handle_connection_failure = fake_handle_failure
-    coordinator._config_manager = SimpleNamespace(
-        entry_id="entry-id",
-        entry=SimpleNamespace(async_start_reauth=fake_start_reauth),
-    )
-
-    await coordinator._on_api_status_changed("entry-id", ConnectivityStatus.EXPIRED_TOKEN)
-    await coordinator._on_api_status_changed("entry-id", ConnectivityStatus.EXPIRED_TOKEN)
-
-    assert calls["reauth"] == 1
-    assert calls["failure"] == 2
+# BUG-02 removed the inbound test
+# `test_coordinator_reauth_is_started_once_for_expired_token` because its
+# premise — the internal ``_reauth_in_progress`` flag guarding a second
+# call — no longer exists. The replacement
+# ``tests/test_bug_01_02_reauth_flow.py::test_bug02_repeated_calls_each_trigger_async_start_reauth``
+# asserts the opposite (correct) semantic: every EXPIRED_TOKEN cycle now
+# reaches ``entry.async_start_reauth``, with HA Core handling idempotency.

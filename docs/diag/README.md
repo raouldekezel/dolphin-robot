@@ -7,12 +7,12 @@ sessions supersede rather than rewrite. Not installed by HACS.
 ## Sessions
 
 One row per session, kept in sync with the subdirectory list by the
-`scripts/check_diag_index.py` test (see *Drift-proof index* below). The
+`scripts/check_diag_index.py` test (see _Drift-proof index_ below). The
 PR that adds the session updates this table in the same commit.
 
-| Date | Bug | Question | Answer (TL;DR) | Link |
-|---|---|---|---|---|
-| _none yet_ | | | | |
+| Date       | Bug | Question | Answer (TL;DR) | Link |
+| ---------- | --- | -------- | -------------- | ---- |
+| _none yet_ |     |          |                |      |
 
 ## Layout
 
@@ -67,21 +67,21 @@ neither column names nor sampling rate is unreadable evidence.
 
 ## PII to redact
 
-| Real value | Redacted form |
-|---|---|
-| Motor unit serial (~8 chars) | `REDACTED-MUSN` |
-| Robot serial (~10 chars) | `REDACTED-ROBOT-SERIAL` |
-| Wi-Fi SSID | `REDACTED-WIFI-SSID` |
-| Wi-Fi BSSID / MAC addresses | `REDACTED-MAC` |
-| Timezone **name** (e.g. `Europe/Brussels`) | `Europe/[REDACTED]` |
-| AWS IoT endpoint hostname (`<prefix>-ats.iot.<region>.amazonaws.com`) | `REDACTED-IOT-ENDPOINT` |
-| MQTT client id (= HA config entry id, hex UUID) | `REDACTED-MQTT-CLIENT-ID` |
-| Cognito tokens (`eyJ…`) | `REDACTED-JWT` |
-| AWS access key id (`AKIA…`) | `REDACTED-AWS-KEY` |
-| AWS secret access key | `REDACTED-AWS-SECRET` |
-| AWS session token | `REDACTED-AWS-SESSION-TOKEN` |
-| Email address | `REDACTED-EMAIL` |
-| Account / device UUIDs | `REDACTED-UUID-<purpose>` |
+| Real value                                                            | Redacted form                |
+| --------------------------------------------------------------------- | ---------------------------- |
+| Motor unit serial (~8 chars)                                          | `REDACTED-MUSN`              |
+| Robot serial (~10 chars)                                              | `REDACTED-ROBOT-SERIAL`      |
+| Wi-Fi SSID                                                            | `REDACTED-WIFI-SSID`         |
+| Wi-Fi BSSID / MAC addresses                                           | `REDACTED-MAC`               |
+| Timezone **name** (e.g. `Europe/Brussels`)                            | `Europe/[REDACTED]`          |
+| AWS IoT endpoint hostname (`<prefix>-ats.iot.<region>.amazonaws.com`) | `REDACTED-IOT-ENDPOINT`      |
+| MQTT client id (= HA config entry id, hex UUID)                       | `REDACTED-MQTT-CLIENT-ID`    |
+| Cognito tokens (`eyJ…`)                                               | `REDACTED-JWT`               |
+| AWS access key id (`AKIA…`)                                           | `REDACTED-AWS-KEY`           |
+| AWS secret access key                                                 | `REDACTED-AWS-SECRET`        |
+| AWS session token                                                     | `REDACTED-AWS-SESSION-TOKEN` |
+| Email address                                                         | `REDACTED-EMAIL`             |
+| Account / device UUIDs                                                | `REDACTED-UUID-<purpose>`    |
 
 **Keep** numeric UTC offsets (`+02:00` is shared by ~40 countries, not
 PII), timestamps, log levels, thread names, module names, generic robot
