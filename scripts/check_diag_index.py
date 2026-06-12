@@ -8,10 +8,9 @@ Run before opening a session PR; see ``docs/diag/README.md``.
 
 from __future__ import annotations
 
+from pathlib import Path
 import re
 import sys
-from pathlib import Path
-
 
 DIAG_DIR = Path(__file__).resolve().parent.parent / "docs" / "diag"
 README = DIAG_DIR / "README.md"
