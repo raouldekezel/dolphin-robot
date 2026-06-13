@@ -164,3 +164,31 @@ The control also surfaces one operational note worth carrying forward: **an HA-i
 ### Integration bug noticed in passing
 
 `vacuum.stop` returns HTTP 500 for this entity (likely the long-running HA vacuum `STATE_*` deprecation issue [#240](../../../issues/240) showing up on `stop` as well as `start`). The working stop path is `vacuum.pause`, which the integration maps to `Set power state, Desired: {'systemState': {'pwsState': 'off'}}`. Out of MAP-03's scope; flag for a separate issue if not already covered.
+
+## Appendix B: app-side use of the `cleaningModes` catalog — refined hypothesis
+
+The TL;DR initially carried a naive hypothesis: the Maytronics app would display the per-mode shadow value as the default duration in its cycle picker. A short operator test on 2026-06-13 (timestamps in PR [#46](../../../pull/46) comment thread, ~12:48 local) refines this and surfaces a separate same-mode-start gotcha.
+
+### Setup of the operator test
+
+- Shadow's `cleaningModes.all` at the start of the test = `60` (a leftover from an earlier HA-side experiment, persisted across sessions).
+- HA-side `number.<robot>_cycle_time_all = 60`.
+- Robot docked, `pwsState=holdWeekly`.
+
+### Observations
+
+1. Operator opens the Maytronics app and picks Complete mode. The app's duration picker exposes **a fixed preset list `[2h, 2h30, 3h]` (i.e. 120, 150, 180 min)**. All three buttons render greyed-out — none is highlighted as the current selection.
+2. Operator picks `2h30`; the cycle runs 2h30; firmware updates `cycleInfo.cleaningMode.cycleTime` to `150` (and, by the catalog-mutation mechanism documented above, `cleaningModes.all` to `150`).
+3. Operator stops the robot.
+4. Operator starts a Complete cycle from HA. Despite `number.<robot>_cycle_time_all = 60`, the Maytronics app displays the cycle running **2h30**.
+
+### Refined hypothesis 1
+
+The Maytronics app exposes only the fixed preset list per mode, and uses the shadow's catalog value to highlight whichever preset matches. An off-grid catalog value (e.g. an HA-written `60`, which doesn't match any of `120 / 150 / 180`) leaves no preset selected → all greyed. This is consistent with everything we have observed, supersedes the naive "the app shows the catalog value as-is" reading from the TL;DR, and matches the asymmetry between firmware capability (any cycleTime accepted) and operator UX surface (3 presets per mode).
+
+### Gotchas surfaced — tracked as separate issues
+
+- **BUG-13** ([#47](../../../issues/47)): `vacuum.set_fan_speed` on a docked robot is interpreted by the firmware as a combined "set mode + start" command — operator scripts that toggle `fan_speed` with no intent to clean will start a full cycle.
+- **BUG-14** ([#48](../../../issues/48)): `vacuum.start` in an already-current mode does not emit `Set cleaning mode → Set cycle time`; the firmware resumes on its persisted `cycleInfo.cleaningMode.cycleTime`, which is often the value the Maytronics app wrote last. The HA-side `number.<robot>_cycle_time_<mode>` is therefore silently bypassed on same-mode restarts.
+
+Both are out of MAP-03's scope (no `CleanModes` enum surgery would fix them); their resolution is tracked under their own issues.
