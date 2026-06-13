@@ -28,13 +28,13 @@ A follow-up **negative control** (see [Appendix](#appendix-negative-control--inv
 
 ## Actions taken
 
-| Slug                                    | Trigger                                                                                            | Outcome           |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------- |
-| `01_cove`  ([log](./01_cove.mqtt.log))  | HA UI: `vacuum.set_fan_speed(entity_id=vacuum.<robot>, fan_speed=cove)` from `holdWeekly`           | Cycle started     |
-| `02_spot`  ([log](./02_spot.mqtt.log))  | HA UI: `vacuum.set_fan_speed(entity_id=vacuum.<robot>, fan_speed=spot)` while previous cycle running | Mode swap honored |
-| `03_wall`  ([log](./03_wall.mqtt.log))  | HA UI: `vacuum.set_fan_speed(entity_id=vacuum.<robot>, fan_speed=wall)`, twice (10 s probe then 2 min run) | Cycle started both times, both stops clean |
-| _(skipped)_ `ticTac`                    | not run — known service mode (DolphinTech Plus), out of scope for an end-user enum                  | n/a               |
-| _(skipped)_ `custom`                    | not run — semantically a parameterized mode, a bare write would not characterize it                 | n/a               |
+| Slug                                  | Trigger                                                                                                    | Outcome                                    |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `01_cove` ([log](./01_cove.mqtt.log)) | HA UI: `vacuum.set_fan_speed(entity_id=vacuum.<robot>, fan_speed=cove)` from `holdWeekly`                  | Cycle started                              |
+| `02_spot` ([log](./02_spot.mqtt.log)) | HA UI: `vacuum.set_fan_speed(entity_id=vacuum.<robot>, fan_speed=spot)` while previous cycle running       | Mode swap honored                          |
+| `03_wall` ([log](./03_wall.mqtt.log)) | HA UI: `vacuum.set_fan_speed(entity_id=vacuum.<robot>, fan_speed=wall)`, twice (10 s probe then 2 min run) | Cycle started both times, both stops clean |
+| _(skipped)_ `ticTac`                  | not run — known service mode (DolphinTech Plus), out of scope for an end-user enum                         | n/a                                        |
+| _(skipped)_ `custom`                  | not run — semantically a parameterized mode, a bare write would not characterize it                        | n/a                                        |
 
 The operator observed the Maytronics app for each run and reported back the displayed label and that the robot was visibly working.
 
@@ -44,39 +44,39 @@ Wall-clock timestamps are local (`+02:00`). All `Set cleaning mode` / `Set cycle
 
 ### `01_cove`
 
-| Timestamp    | Actor           | Payload                                                                                      | Effect                                                                |
-| ------------ | --------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| 11:05:42.943 | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'cove'}}`                              | publish #25 from `vacuum.set_fan_speed`                                |
-| 11:05:44.029 | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}`                                  | **+1.086 s** after #25 — BUG-08 `sleep(1)` data point                 |
-| 11:05:45.503 | Firmware        | `reported.systemState.pwsState = "on", robotState = "init"`; `cycleInfo.cleaningMode = {"cove", 120}`; `cycleStartTime` set | **+2.560 s** after #25 — mode write interpreted as start |
-| 11:08:11.012 | Integration     | `desired.systemState.pwsState = "off"` (operator stop)                                       | shadow version 287                                                    |
-| 11:08:15–17  | Firmware        | back to `pwsState=holdWeekly`, `robotState=notConnected`                                     | clean stop                                                            |
-| Maytronics app | Operator       | « cleaning_mode_cove_title » (unresolved i18n placeholder)                                   | mode known to app, no human-facing label, not selectable from app UI  |
+| Timestamp      | Actor           | Payload                                                                                                                     | Effect                                                               |
+| -------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 11:05:42.943   | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'cove'}}`                                                            | publish #25 from `vacuum.set_fan_speed`                              |
+| 11:05:44.029   | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}`                                                                | **+1.086 s** after #25 — BUG-08 `sleep(1)` data point                |
+| 11:05:45.503   | Firmware        | `reported.systemState.pwsState = "on", robotState = "init"`; `cycleInfo.cleaningMode = {"cove", 120}`; `cycleStartTime` set | **+2.560 s** after #25 — mode write interpreted as start             |
+| 11:08:11.012   | Integration     | `desired.systemState.pwsState = "off"` (operator stop)                                                                      | shadow version 287                                                   |
+| 11:08:15–17    | Firmware        | back to `pwsState=holdWeekly`, `robotState=notConnected`                                                                    | clean stop                                                           |
+| Maytronics app | Operator        | « cleaning_mode_cove_title » (unresolved i18n placeholder)                                                                  | mode known to app, no human-facing label, not selectable from app UI |
 
 ### `02_spot`
 
-| Timestamp    | Actor           | Payload                                                                                      | Effect                                                                |
-| ------------ | --------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| 11:08:31.566 | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'spot'}}`                              | publish from `vacuum.set_fan_speed`                                    |
-| 11:08:32.664 | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}`                                  | **+1.098 s** — BUG-08 data point                                       |
-| 11:08:33.208 | Firmware        | `reported.nextCycleInfo.cleaningMode.mode = "spot"`                                          | scheduler side-effect                                                  |
-| 11:08:33.988 | Firmware        | `reported.systemState.pwsState = "on", robotState = "init"`; `cycleInfo.cleaningMode = {"spot", 120}` | **+2.422 s** — mode write interpreted as start                  |
-| Maytronics app | Operator       | « cleaning_mode_spot_title » (unresolved i18n placeholder)                                   | same shape as `cove`                                                  |
+| Timestamp      | Actor           | Payload                                                                                               | Effect                                         |
+| -------------- | --------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| 11:08:31.566   | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'spot'}}`                                      | publish from `vacuum.set_fan_speed`            |
+| 11:08:32.664   | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}`                                          | **+1.098 s** — BUG-08 data point               |
+| 11:08:33.208   | Firmware        | `reported.nextCycleInfo.cleaningMode.mode = "spot"`                                                   | scheduler side-effect                          |
+| 11:08:33.988   | Firmware        | `reported.systemState.pwsState = "on", robotState = "init"`; `cycleInfo.cleaningMode = {"spot", 120}` | **+2.422 s** — mode write interpreted as start |
+| Maytronics app | Operator        | « cleaning_mode_spot_title » (unresolved i18n placeholder)                                            | same shape as `cove`                           |
 
 ### `03_wall` (two runs)
 
-| Timestamp    | Actor           | Payload                                                                                      | Effect                                                                |
-| ------------ | --------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| 11:11:44.778 | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'wall'}}`                              | publish from `vacuum.set_fan_speed`                                    |
-| 11:11:46.466 | Firmware        | `reported.nextCycleInfo.cleaningMode.mode = "wall"`                                          | scheduler side-effect                                                  |
-| 11:11:47.205 | Firmware        | `reported.systemState.pwsState = "on", robotState = "init"`; `cycleInfo.cleaningMode = {"wall", 120}` | **+2.427 s** — mode write interpreted as start                  |
-| 11:11:54.108 | Integration     | `desired.systemState.pwsState = "off"` (operator probe stop)                                  | shadow version 308                                                    |
-| 11:11:58.399 | Firmware        | back to `pwsState=holdWeekly`                                                                | clean stop                                                            |
-| 11:12:03.834 | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'wall'}}` (2nd run)                    | publish from `vacuum.set_fan_speed`                                    |
-| 11:12:05.002 | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}`                                  | **+1.168 s** — BUG-08 data point                                       |
-| 11:14:49.919 | Integration     | `desired.systemState.pwsState = "off"` (operator final stop)                                  | shadow version 322                                                    |
-| 11:14:53.331 | Firmware        | back to `pwsState=holdWeekly`                                                                | clean stop after ~2 min 46 s of cycle                                 |
-| Maytronics app | Operator       | « cleaning_mode_wall_title » (unresolved i18n placeholder)                                   | same shape as `cove`/`spot`                                           |
+| Timestamp      | Actor           | Payload                                                                                               | Effect                                         |
+| -------------- | --------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| 11:11:44.778   | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'wall'}}`                                      | publish from `vacuum.set_fan_speed`            |
+| 11:11:46.466   | Firmware        | `reported.nextCycleInfo.cleaningMode.mode = "wall"`                                                   | scheduler side-effect                          |
+| 11:11:47.205   | Firmware        | `reported.systemState.pwsState = "on", robotState = "init"`; `cycleInfo.cleaningMode = {"wall", 120}` | **+2.427 s** — mode write interpreted as start |
+| 11:11:54.108   | Integration     | `desired.systemState.pwsState = "off"` (operator probe stop)                                          | shadow version 308                             |
+| 11:11:58.399   | Firmware        | back to `pwsState=holdWeekly`                                                                         | clean stop                                     |
+| 11:12:03.834   | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'wall'}}` (2nd run)                            | publish from `vacuum.set_fan_speed`            |
+| 11:12:05.002   | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}`                                          | **+1.168 s** — BUG-08 data point               |
+| 11:14:49.919   | Integration     | `desired.systemState.pwsState = "off"` (operator final stop)                                          | shadow version 322                             |
+| 11:14:53.331   | Firmware        | back to `pwsState=holdWeekly`                                                                         | clean stop after ~2 min 46 s of cycle          |
+| Maytronics app | Operator        | « cleaning_mode_wall_title » (unresolved i18n placeholder)                                            | same shape as `cove`/`spot`                    |
 
 ## Findings
 
@@ -100,13 +100,13 @@ The Maytronics consumer app exposes a « Custom mode » dialog where the operato
 
 The integration's enum surface is the user contract; everything in `fan_speed_list` and accepted by `vol.In(list(CleanModes))` is implicitly endorsed as something a Home Assistant user can select safely. The five modes investigated here do not meet that bar:
 
-| Mode      | Firmware-pilotable | Public-app exposure | Decision    | Reason                                                                                         |
-| --------- | ------------------ | ------------------- | ----------- | ---------------------------------------------------------------------------------------------- |
-| `cove`    | ✅                 | i18n unresolved      | **skip**    | Maytronics explicitly does not surface it to operators; unknown semantic ("alcove"?)            |
-| `spot`    | ✅                 | i18n unresolved      | **skip**    | Same; "spot cleaning" via manual drive is the app's documented spot-mode story                  |
-| `wall`    | ✅                 | i18n unresolved      | **skip**    | Same; the regular `water` (waterline) mode is the operator-facing wall-side program             |
-| `ticTac`  | not tested         | DolphinTech only     | **skip**    | Documented elsewhere as a technician/diagnostic mode — must not be selectable from HA           |
-| `custom`  | not tested         | App dialog           | **skip**    | Requires a parameter payload `vacuum.set_fan_speed` cannot transport                            |
+| Mode     | Firmware-pilotable | Public-app exposure | Decision | Reason                                                                                |
+| -------- | ------------------ | ------------------- | -------- | ------------------------------------------------------------------------------------- |
+| `cove`   | ✅                 | i18n unresolved     | **skip** | Maytronics explicitly does not surface it to operators; unknown semantic ("alcove"?)  |
+| `spot`   | ✅                 | i18n unresolved     | **skip** | Same; "spot cleaning" via manual drive is the app's documented spot-mode story        |
+| `wall`   | ✅                 | i18n unresolved     | **skip** | Same; the regular `water` (waterline) mode is the operator-facing wall-side program   |
+| `ticTac` | not tested         | DolphinTech only    | **skip** | Documented elsewhere as a technician/diagnostic mode — must not be selectable from HA |
+| `custom` | not tested         | App dialog          | **skip** | Requires a parameter payload `vacuum.set_fan_speed` cannot transport                  |
 
 The `CleanModes` enum stays at 7 entries (`all`, `short`, `floor`, `water`, `ultra`, `pickup`, `stairs`). Users who need to drive a non-enum mode for testing can publish directly on the AWS shadow; that remains an out-of-warranty path, deliberately.
 
@@ -137,14 +137,14 @@ A one-off addition `ZZZZ = "zzzz"` to `CleanModes` in the deployed install, rest
 
 Wall-clock timestamps are local (`+02:00`). Robot in `docked` / `pwsState=holdWeekly`. The `weeklySettings` daily schedule had drifted from `"stairs"` (sessions earlier) to `"all"` between this control and the cove/spot/wall runs — this is the firmware-side scheduler echoing the most recent app-driven schedule reconfiguration, unrelated to the test.
 
-| Timestamp    | Actor           | Payload                                                                                                                | Effect                                                                              |
-| ------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 11:50:46.445 | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'zzzz'}}`                                                        | publish #7 — payload sent as-is to AWS shadow                                       |
-| 11:50:47.524 | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}`                                                            | +1.079 s — BUG-08 sleep, irrelevant to the control                                  |
-| 11:50:47.676 | Firmware        | `reported.cycleInfo.cleaningMode = {"mode": "all", "cycleTime": 120}`; `cycleStartTime` reset                          | **+1.231 s — the firmware did NOT echo `zzzz`. It silently substituted `all`.**     |
-| 11:50:48.523 | Firmware        | `reported.systemState.pwsState = "on"`, `robotState = "init"`; `cleaningMode = {"mode": "all", "cycleTime": 120}`      | +2.078 s — cycle started in `all` (not in `zzzz`), interpreted as "default start"   |
-| 11:55:07.035 | Integration     | Operator stop via `vacuum.pause`: `Set power state, Desired: {'systemState': {'pwsState': 'off'}}`                       | publish #9                                                                          |
-| 11:55:11.442 | Firmware        | `reported.pwsState = "holdWeekly"`, `robotState = "notConnected"`                                                       | clean stop                                                                          |
+| Timestamp    | Actor           | Payload                                                                                                           | Effect                                                                            |
+| ------------ | --------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| 11:50:46.445 | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'zzzz'}}`                                                  | publish #7 — payload sent as-is to AWS shadow                                     |
+| 11:50:47.524 | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}`                                                      | +1.079 s — BUG-08 sleep, irrelevant to the control                                |
+| 11:50:47.676 | Firmware        | `reported.cycleInfo.cleaningMode = {"mode": "all", "cycleTime": 120}`; `cycleStartTime` reset                     | **+1.231 s — the firmware did NOT echo `zzzz`. It silently substituted `all`.**   |
+| 11:50:48.523 | Firmware        | `reported.systemState.pwsState = "on"`, `robotState = "init"`; `cleaningMode = {"mode": "all", "cycleTime": 120}` | +2.078 s — cycle started in `all` (not in `zzzz`), interpreted as "default start" |
+| 11:55:07.035 | Integration     | Operator stop via `vacuum.pause`: `Set power state, Desired: {'systemState': {'pwsState': 'off'}}`                | publish #9                                                                        |
+| 11:55:11.442 | Firmware        | `reported.pwsState = "holdWeekly"`, `robotState = "notConnected"`                                                 | clean stop                                                                        |
 
 Throughout the window: `cleaningModes` catalog (the firmware's reported mode list) **never grew** a `zzzz` entry — the firmware does not learn arbitrary mode names from `desired` writes.
 
