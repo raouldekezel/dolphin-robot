@@ -6,6 +6,8 @@ The S4-family firmware advertises 12 entries in its `cleaningModes` catalog. Six
 
 This session experimentally verified that **`cove`, `spot` and `wall` are first-class firmware-driven cleaning modes** — each accepted by the shadow, each transitioning the robot from `holdWeekly` to `on / init` within ~2.5 s of an HA-initiated mode write, each surviving without error. The Maytronics app reflects them with **unresolved i18n placeholders** (`cleaning_mode_<mode>_title`), meaning the operator-facing UX deliberately does not expose them.
 
+A follow-up **negative control** (see [Appendix](#appendix-negative-control--invalid-mode-write) and [`04_zzzz_invalid-mode-negative-control.mqtt.log`](./04_zzzz_invalid-mode-negative-control.mqtt.log)) writing the deliberately-invalid mode name `zzzz` confirmed that the firmware **does not simply mirror whatever it receives**: the catalog-unknown name was silently remapped to `all` (Regular). This strengthens the cove/spot/wall result — those names survived as themselves through the firmware's catalog lookup, whereas `zzzz` did not. The mirror is a real acceptance signal, not a passive sync.
+
 `ticTac` was independently identified upstream of this session as a **service/diagnostic mode** documented only in DolphinTech Plus, Maytronics' technician-facing app — not a user-facing cleaning mode. Out of an abundance of caution it was excluded from the experiment.
 
 `custom` was not exercised; its semantics (almost certainly a parameterized mode wired to the Maytronics app's « Custom » dialog) cannot be characterized by a bare mode write.
@@ -122,3 +124,43 @@ The `CleanModes` enum stays at 7 entries (`all`, `short`, `floor`, `water`, `ult
 - PR [#44 — docs(diag): MAP-01 app-driven mode transitions](../../../pull/44) — origin of the `nextCycleInfo.cleaningMode` scheduler side-effect note.
 - Issue [#17 — BUG-08: time.sleep(1) blocks the awscrt event-loop thread](../../../issues/17) — three new data points added here.
 - DolphinTech Plus (Maytronics-for-Technicians), App Store id1406110365 — source for `ticTac` being a service/diagnostic mode.
+
+## Appendix: Negative control — invalid mode write
+
+Initial worry after the cove/spot/wall runs: the `reported.cleaningMode.mode` mirror could be passive — the firmware echoing whatever it received from `desired` regardless of whether the name was recognized. If so, the "acceptance" of cove/spot/wall would be meaningless and we would not actually have evidence they are catalog entries. The control test directly falsifies this concern.
+
+### Setup
+
+A one-off addition `ZZZZ = "zzzz"` to `CleanModes` in the deployed install, restart, single HA-initiated mode write to a deliberately-invalid name `"zzzz"`, then revert. Slice in [`04_zzzz_invalid-mode-negative-control.mqtt.log`](./04_zzzz_invalid-mode-negative-control.mqtt.log).
+
+### Timeline
+
+Wall-clock timestamps are local (`+02:00`). Robot in `docked` / `pwsState=holdWeekly`. The `weeklySettings` daily schedule had drifted from `"stairs"` (sessions earlier) to `"all"` between this control and the cove/spot/wall runs — this is the firmware-side scheduler echoing the most recent app-driven schedule reconfiguration, unrelated to the test.
+
+| Timestamp    | Actor           | Payload                                                                                                                | Effect                                                                              |
+| ------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 11:50:46.445 | **Integration** | `Set cleaning mode, Desired: {'cleaningMode': {'mode': 'zzzz'}}`                                                        | publish #7 — payload sent as-is to AWS shadow                                       |
+| 11:50:47.524 | **Integration** | `Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}`                                                            | +1.079 s — BUG-08 sleep, irrelevant to the control                                  |
+| 11:50:47.676 | Firmware        | `reported.cycleInfo.cleaningMode = {"mode": "all", "cycleTime": 120}`; `cycleStartTime` reset                          | **+1.231 s — the firmware did NOT echo `zzzz`. It silently substituted `all`.**     |
+| 11:50:48.523 | Firmware        | `reported.systemState.pwsState = "on"`, `robotState = "init"`; `cleaningMode = {"mode": "all", "cycleTime": 120}`      | +2.078 s — cycle started in `all` (not in `zzzz`), interpreted as "default start"   |
+| 11:55:07.035 | Integration     | Operator stop via `vacuum.pause`: `Set power state, Desired: {'systemState': {'pwsState': 'off'}}`                       | publish #9                                                                          |
+| 11:55:11.442 | Firmware        | `reported.pwsState = "holdWeekly"`, `robotState = "notConnected"`                                                       | clean stop                                                                          |
+
+Throughout the window: `cleaningModes` catalog (the firmware's reported mode list) **never grew** a `zzzz` entry — the firmware does not learn arbitrary mode names from `desired` writes.
+
+### Findings
+
+1. **The firmware performs a catalog lookup on `desired.cleaningMode.mode` and substitutes a fallback for unknown names.** The fallback observed here is `all` (Regular, 120 min). This refutes the "passive mirror" hypothesis and demonstrates that the mirror seen in cove/spot/wall payloads is the result of a successful catalog hit, not passive sync.
+2. **An unknown-mode write still starts a cycle.** `pwsState: holdWeekly → on` and `robotState: notConnected → init` transitions still fire — the firmware treats "mode write while docked" as an implicit start command, even when the mode name is unrecognized. Practical consequence: typo-protection is non-trivial; the worst-case effect of a malformed mode write from HA is "robot starts a Regular cycle", not "nothing happens".
+3. **No error / no rejection is surfaced.** No fault code, no `rejected` shadow topic, no `robotError`. The operator-facing visibility of a remapping is zero — only the discrepancy between `desired.mode` (what we wrote) and `reported.mode` (what the firmware actually adopted) is observable, and only if you're inspecting the shadow.
+4. **The remap fallback is deterministic to `all`.** Not random, not last-applied (would have been `stairs` carried over from earlier in the session if it were); the fallback target is explicitly the Regular mode. This is what we should expect from a firmware that picks a "safe default" for invalid input.
+
+### Implication for the MAP-03 decision
+
+Reinforces the decision unchanged. The reading of cove/spot/wall as "firmware-pilotable, catalog-recognized" is empirically stronger now: they passed the catalog lookup whereas `zzzz` did not. The skip-them decision continues to rest on the i18n unresolved label (= Maytronics intentionally not in operator UX), not on any doubt about firmware acceptance.
+
+The control also surfaces one operational note worth carrying forward: **an HA-initiated mode write on a docked robot can start an unintended cycle even when the mode name is malformed**, because the firmware falls back to `all`. The integration's `vol.In(list(CleanModes))` validation is therefore a real safety surface, not a paperwork formality.
+
+### Integration bug noticed in passing
+
+`vacuum.stop` returns HTTP 500 for this entity (likely the long-running HA vacuum `STATE_*` deprecation issue [#240](../../../issues/240) showing up on `stop` as well as `start`). The working stop path is `vacuum.pause`, which the integration maps to `Set power state, Desired: {'systemState': {'pwsState': 'off'}}`. Out of MAP-03's scope; flag for a separate issue if not already covered.
