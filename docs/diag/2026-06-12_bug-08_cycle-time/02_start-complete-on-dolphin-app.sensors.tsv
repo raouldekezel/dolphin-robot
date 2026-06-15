@@ -1,0 +1,23 @@
+# interval=6s tz=+02:00
+timestamp	cycle_time	time_left	mode	robot_state
+11:55:39	150	0	stairs	notconnected
+11:55:45	150	0	stairs	notconnected
+11:55:52	150	0	stairs	notconnected
+11:55:58	150	0	all	init
+11:56:04	150	0	all	init
+11:56:10	150	0	all	init
+11:56:16	150	0	all	init
+11:56:22	150	0	all	init
+11:56:28	150	0	all	init
+11:56:34	150	0	all	init
+11:56:40	150	0	all	init
+11:56:46	150	0	all	init
+11:56:53	150	0	all	init
+11:56:59	150	0	all	init
+11:57:05	150	0	all	init
+11:57:11	150	0	all	init
+11:57:17	150	0	all	init
+11:57:23	150	0	all	init
+11:57:29	150	0	all	init
+11:57:35	150	8859.443422	all	scanning
+11:57:42	150	8859.443422	all	scanning
