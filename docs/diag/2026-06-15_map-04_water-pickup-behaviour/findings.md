@@ -44,25 +44,25 @@ as a first-class "Récupérez-moi" screen and whose duration is firmware-fixed a
 
 ## Timeline
 
-| Local time | Event | Evidence |
-|---|---|---|
-| 15:45:30 | Capture window opens; robot in `docked + holdWeekly`, `cleaningMode.mode = all`, `cycleTime = 60` (residue from prior session) | `01_ha-fan-speed-water.mqtt.log` (head) |
-| 15:45:49.253 | **`Set cleaning mode {mode: water}` from HA picker (BUG-13)** — operator's selection auto-starts the cycle | `01_ha-fan-speed-water.mqtt.log` |
-| 15:45:50.374 | **`Set cycle time {cycleTime: 120}`** chained ~1.12 s later (BUG-08); 120 = `number.<robot>_duree_du_cycle_ligne_d_eau` | `01_ha-fan-speed-water.mqtt.log` |
-| 15:45:51.448 | Firmware reports `pwsState = on`, `cleaningMode.mode = water`, **`cycleTime = 120`** — the firmware accepted both writes (real mode delta `all → water`, unlike the same-mode case examined in the FEAT-01 session) | `01_ha-fan-speed-water.mqtt.log` |
-| 15:46:47.638 | `nombre_de_cycles` → 28 (water cycle counted on start, with the firmware's usual delay) | `01_ha-fan-speed-water.mqtt.log` |
-| 15:47:16.157 | Firmware reports `robotState = scanning` (delay ~87 s after HA emit, longer than the 61 s seen for the same-mode stairs case — firmware nav warmup) | `01_ha-fan-speed-water.mqtt.log` (tail) |
-| ~15:47–15:58 | Robot operates: heads to a pool wall, surfaces briefly at the waterline, dives back, traverses underwater, surfaces again elsewhere. **Not** a continuous wall-follow. Operator confirms the pattern in real time. | physical observation |
-| 15:58:55.025 | Firmware reports `pwsState = off`. **No corresponding HA-side `Set power state` write in the capture** — the stop came from elsewhere (Findings #3). | `02_water-stop-transition.mqtt.log` |
-| 15:58:57.467 | Firmware → `pwsState = holdWeekly`, `vacuum.<robot> = docked` | `02_water-stop-transition.mqtt.log` |
-| 15:59:31.589 | **`Set cleaning mode {mode: pickup}` from HA picker (BUG-13)** | `03_ha-fan-speed-pickup.mqtt.log` |
-| 15:59:32.659 | **`Set cycle time {cycleTime: 5}`** chained ~1.07 s later (BUG-08); 5 = `number.<robot>_duree_du_cycle_ramassage` | `03_ha-fan-speed-pickup.mqtt.log` |
-| 15:59:33.209 | Firmware reports `pwsState = on`, `cleaningMode.mode = pickup`. **Reported `cycleTime = 12`, not 5** — the firmware overrides the HA-supplied value with its own fixed pickup duration of 12 min. The fast propagation (~2 s vs. ~6 s for water) is also notable. | `03_ha-fan-speed-pickup.mqtt.log` |
-| 15:59:33.986 | `cleaningModes.pickup` catalog stays at 12 — the firmware never let HA's 5 enter the catalog either | `03_ha-fan-speed-pickup.mqtt.log` |
-| 16:00:13.761 | `nombre_de_cycles` → 29 (pickup counted on start) | `03_ha-fan-speed-pickup.mqtt.log` |
-| ~16:00 | Robot heads directly to a pool edge, surfaces, becomes motionless on the waterline. App switches to a dedicated "Récupérez-moi" screen (operator confirms). | physical observation |
-| 16:00:45.168 | Firmware **auto-ends** the cycle: reports `pwsState = off` ~72 s after the start, *much* shorter than the catalog 12 min cycleTime. **`cycleTime = 12` is therefore a maximum / wait-time, not an active-duration** for pickup. No HA-side stop was emitted in this window. | `03_ha-fan-speed-pickup.mqtt.log` |
-| 16:00:47.783 | Firmware → `pwsState = holdWeekly`, `vacuum.<robot> = docked` | `03_ha-fan-speed-pickup.mqtt.log` (tail) |
+| Local time   | Event                                                                                                                                                                                                                                                                       | Evidence                                 |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| 15:45:30     | Capture window opens; robot in `docked + holdWeekly`, `cleaningMode.mode = all`, `cycleTime = 60` (residue from prior session)                                                                                                                                              | `01_ha-fan-speed-water.mqtt.log` (head)  |
+| 15:45:49.253 | **`Set cleaning mode {mode: water}` from HA picker (BUG-13)** — operator's selection auto-starts the cycle                                                                                                                                                                  | `01_ha-fan-speed-water.mqtt.log`         |
+| 15:45:50.374 | **`Set cycle time {cycleTime: 120}`** chained ~1.12 s later (BUG-08); 120 = `number.<robot>_duree_du_cycle_ligne_d_eau`                                                                                                                                                     | `01_ha-fan-speed-water.mqtt.log`         |
+| 15:45:51.448 | Firmware reports `pwsState = on`, `cleaningMode.mode = water`, **`cycleTime = 120`** — the firmware accepted both writes (real mode delta `all → water`, unlike the same-mode case examined in the FEAT-01 session)                                                         | `01_ha-fan-speed-water.mqtt.log`         |
+| 15:46:47.638 | `nombre_de_cycles` → 28 (water cycle counted on start, with the firmware's usual delay)                                                                                                                                                                                     | `01_ha-fan-speed-water.mqtt.log`         |
+| 15:47:16.157 | Firmware reports `robotState = scanning` (delay ~87 s after HA emit, longer than the 61 s seen for the same-mode stairs case — firmware nav warmup)                                                                                                                         | `01_ha-fan-speed-water.mqtt.log` (tail)  |
+| ~15:47–15:58 | Robot operates: heads to a pool wall, surfaces briefly at the waterline, dives back, traverses underwater, surfaces again elsewhere. **Not** a continuous wall-follow. Operator confirms the pattern in real time.                                                          | physical observation                     |
+| 15:58:55.025 | Firmware reports `pwsState = off`. **No corresponding HA-side `Set power state` write in the capture** — the stop came from elsewhere (Findings #3).                                                                                                                        | `02_water-stop-transition.mqtt.log`      |
+| 15:58:57.467 | Firmware → `pwsState = holdWeekly`, `vacuum.<robot> = docked`                                                                                                                                                                                                               | `02_water-stop-transition.mqtt.log`      |
+| 15:59:31.589 | **`Set cleaning mode {mode: pickup}` from HA picker (BUG-13)**                                                                                                                                                                                                              | `03_ha-fan-speed-pickup.mqtt.log`        |
+| 15:59:32.659 | **`Set cycle time {cycleTime: 5}`** chained ~1.07 s later (BUG-08); 5 = `number.<robot>_duree_du_cycle_ramassage`                                                                                                                                                           | `03_ha-fan-speed-pickup.mqtt.log`        |
+| 15:59:33.209 | Firmware reports `pwsState = on`, `cleaningMode.mode = pickup`. **Reported `cycleTime = 12`, not 5** — the firmware overrides the HA-supplied value with its own fixed pickup duration of 12 min. The fast propagation (~2 s vs. ~6 s for water) is also notable.           | `03_ha-fan-speed-pickup.mqtt.log`        |
+| 15:59:33.986 | `cleaningModes.pickup` catalog stays at 12 — the firmware never let HA's 5 enter the catalog either                                                                                                                                                                         | `03_ha-fan-speed-pickup.mqtt.log`        |
+| 16:00:13.761 | `nombre_de_cycles` → 29 (pickup counted on start)                                                                                                                                                                                                                           | `03_ha-fan-speed-pickup.mqtt.log`        |
+| ~16:00       | Robot heads directly to a pool edge, surfaces, becomes motionless on the waterline. App switches to a dedicated "Récupérez-moi" screen (operator confirms).                                                                                                                 | physical observation                     |
+| 16:00:45.168 | Firmware **auto-ends** the cycle: reports `pwsState = off` ~72 s after the start, _much_ shorter than the catalog 12 min cycleTime. **`cycleTime = 12` is therefore a maximum / wait-time, not an active-duration** for pickup. No HA-side stop was emitted in this window. | `03_ha-fan-speed-pickup.mqtt.log`        |
+| 16:00:47.783 | Firmware → `pwsState = holdWeekly`, `vacuum.<robot> = docked`                                                                                                                                                                                                               | `03_ha-fan-speed-pickup.mqtt.log` (tail) |
 
 ## Findings
 
@@ -108,11 +108,12 @@ as a first-class "Récupérez-moi" screen and whose duration is firmware-fixed a
 4. **`pickup` is a first-class firmware mode with hard-coded duration.**
    Three behavioural signatures distinguish `pickup` from every other mode
    tested in this corpus to date:
+
    - The Maytronics S2000 app switches to a **dedicated "Récupérez-moi"
      screen** when the firmware reports `cleaningMode.mode = pickup`
      (vs. just updating a label, as `water` does).
    - The firmware **silently overrides** the integration's `Set cycle
-     time {cycleTime: 5}` write and applies `cycleTime = 12` instead.
+time {cycleTime: 5}` write and applies `cycleTime = 12` instead.
      This is firmware-side filtering (the catalog entry `cleaningModes.pickup`
      stayed at 12 as well), not an integration bug.
    - The firmware **auto-ends** the cycle ~72 s into it, without any
@@ -133,6 +134,7 @@ as a first-class "Récupérez-moi" screen and whose duration is firmware-fixed a
 
 6. **Mode-change propagation latency varies a lot by mode.** From HA emit
    to firmware reported `pwsState = on`:
+
    - water (mode delta `all → water`): ~2 s reported (`on`), ~87 s to `scanning`
    - pickup (mode delta `water → pickup`): ~2 s reported (`on`), no
      `scanning` substate (pickup skips scanning, goes straight to the
