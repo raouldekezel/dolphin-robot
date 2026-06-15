@@ -167,7 +167,8 @@
           "floor": "Floor only",
           "water": "Water line",
           "ultra": "Ultra clean",
-          "pickup": "Pickup"
+          "pickup": "Pickup",
+          "stairs": "Full Coverage"
         }
       },
       "robot_error": {
@@ -275,7 +276,8 @@
               "floor": "Floor only",
               "water": "Water line",
               "ultra": "Ultra clean",
-              "pickup": "Pickup"
+              "pickup": "Pickup",
+              "stairs": "Full Coverage"
             }
           }
         }
