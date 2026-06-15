@@ -10,7 +10,6 @@ class CleanModes(StrEnum):
     WATER_LINE = "water"
     ULTRA_CLEAN = "ultra"
     PICKUP = "pickup"
-    STAIRS = "stairs"
 
 
 CLEAN_MODES_CYCLE_TIME = {
@@ -20,7 +19,6 @@ CLEAN_MODES_CYCLE_TIME = {
     CleanModes.WATER_LINE: 120,
     CleanModes.ULTRA_CLEAN: 120,
     CleanModes.PICKUP: 5,
-    CleanModes.STAIRS: 150,
 }
 
 
