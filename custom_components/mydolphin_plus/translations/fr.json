@@ -85,6 +85,9 @@
       "cycle_time_short": {
         "name": "Durée du cycle Rapide"
       },
+      "cycle_time_stairs": {
+        "name": "Durée du cycle Couverture complète"
+      },
       "cycle_time_ultra": {
         "name": "Durée du cycle Ultra propre"
       },

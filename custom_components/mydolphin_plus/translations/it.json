@@ -59,6 +59,9 @@
       "cycle_time_short": {
         "name": "Cycle Time Fast Mode"
       },
+      "cycle_time_stairs": {
+        "name": "Tempo di ciclo Copertura completa"
+      },
       "cycle_time_ultra": {
         "name": "Cycle Time Ultra Clean"
       },
