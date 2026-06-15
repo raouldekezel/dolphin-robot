@@ -88,7 +88,8 @@
           "pickup": "Raccolta",
           "short": "Modalit\u00e0 veloce",
           "ultra": "Ultra pulito",
-          "water": "Linea di galleggiamento"
+          "water": "Linea di galleggiamento",
+          "stairs": "Copertura completa"
         }
       },
       "cycle_count": {
@@ -249,7 +250,8 @@
               "pickup": "Raccolta",
               "short": "Modalit\u00e0 veloce",
               "ultra": "Ultra pulito",
-              "water": "Linea di galleggiamento"
+              "water": "Linea di galleggiamento",
+              "stairs": "Copertura completa"
             }
           }
         }
