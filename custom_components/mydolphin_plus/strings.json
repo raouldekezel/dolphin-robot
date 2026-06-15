@@ -93,6 +93,9 @@
       },
       "cycle_time_pickup": {
         "name": "Cycle Time Pickup"
+      },
+      "cycle_time_stairs": {
+        "name": "Cycle Time Full Coverage"
       }
     },
     "sensor": {

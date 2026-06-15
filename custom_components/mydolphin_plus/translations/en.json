@@ -59,6 +59,9 @@
       "cycle_time_short": {
         "name": "Cycle Time Fast mode"
       },
+      "cycle_time_stairs": {
+        "name": "Cycle Time Full Coverage"
+      },
       "cycle_time_ultra": {
         "name": "Cycle Time Ultra clean"
       },
