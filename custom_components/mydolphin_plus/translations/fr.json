@@ -114,8 +114,7 @@
           "pickup": "Ramassage",
           "short": "Rapide",
           "ultra": "Ultra propre",
-          "water": "Ligne d'eau",
-          "stairs": "Couverture complète"
+          "water": "Ligne d'eau"
         }
       },
       "cycle_count": {
@@ -276,8 +275,7 @@
               "pickup": "Ramassage",
               "short": "Rapide",
               "ultra": "Ultra propre",
-              "water": "Ligne d'eau",
-              "stairs": "Couverture complète"
+              "water": "Ligne d'eau"
             }
           }
         }

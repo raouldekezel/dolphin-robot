@@ -88,8 +88,7 @@
           "pickup": "Pickup",
           "short": "Fast mode",
           "ultra": "Ultra clean",
-          "water": "Water line",
-          "stairs": "Full Coverage"
+          "water": "Water line"
         }
       },
       "cycle_count": {
@@ -250,8 +249,7 @@
               "pickup": "Pickup",
               "short": "Fast mode",
               "ultra": "Ultra clean",
-              "water": "Water line",
-              "stairs": "Full Coverage"
+              "water": "Water line"
             }
           }
         }
