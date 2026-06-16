@@ -83,6 +83,9 @@
       }
     },
     "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
       "clean_mode": {
         "name": "Clean Mode",
         "state": {
@@ -97,6 +100,9 @@
       },
       "cycle_count": {
         "name": "Cycle Count"
+      },
+      "cycle_time": {
+        "name": "Cycle Time"
       },
       "cycle_time_left": {
         "name": "Cycle Time Left"
@@ -245,6 +251,9 @@
           "on": "On",
           "programming": "Programming"
         }
+      },
+      "temperature": {
+        "name": "Temperature"
       }
     },
     "vacuum": {

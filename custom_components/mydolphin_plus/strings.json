@@ -111,11 +111,20 @@
       "robot_type": {
         "name": "Robot Type"
       },
+      "battery": {
+        "name": "Battery"
+      },
       "cycle_count": {
         "name": "Cycle Count"
       },
+      "cycle_time": {
+        "name": "Cycle Time"
+      },
       "cycle_time_left": {
         "name": "Cycle Time Left"
+      },
+      "temperature": {
+        "name": "Temperature"
       },
       "filter_status": {
         "name": "Filter Status",

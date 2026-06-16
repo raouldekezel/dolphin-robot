@@ -83,6 +83,9 @@
       }
     },
     "sensor": {
+      "battery": {
+        "name": "Batteria"
+      },
       "clean_mode": {
         "name": "Modalit\u00e0 pulita",
         "state": {
@@ -97,6 +100,9 @@
       },
       "cycle_count": {
         "name": "Conteggio dei cicli"
+      },
+      "cycle_time": {
+        "name": "Durata del ciclo"
       },
       "cycle_time_left": {
         "name": "Tempo di ciclo rimasto"
@@ -245,6 +251,9 @@
           "on": "Acceso",
           "programming": "Programmazione"
         }
+      },
+      "temperature": {
+        "name": "Temperatura"
       }
     },
     "vacuum": {
