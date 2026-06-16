@@ -137,8 +137,8 @@
           "fault": "Fault",
           "notconnected": "Disconnected",
           "programming": "Programming",
-          "init": "Initialized",
-          "scanning": "Scanning"
+          "init": "Starting",
+          "scanning": "Cleaning"
         }
       },
       "power_supply_status": {
@@ -161,6 +161,7 @@
           "holddelay": "Idle (Delay)",
           "holdweekly": "Idle (Weekly)",
           "programming": "Programming",
+          "error": "Error",
           "cleaning": "Cleaning",
           "init": "Checking Environment"
         }
