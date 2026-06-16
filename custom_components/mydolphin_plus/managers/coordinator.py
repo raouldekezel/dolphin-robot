@@ -29,6 +29,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import slugify
+import homeassistant.util.dt as dt_util
 
 from ..common.calculated_state import CalculatedState
 from ..common.clean_modes import CleanModes, get_clean_mode_cycle_time_key
@@ -64,6 +65,7 @@ from ..common.consts import (
     DATA_KEY_LED_INTENSITY,
     DATA_KEY_LED_MODE,
     DATA_KEY_NETWORK_NAME,
+    DATA_KEY_NEXT_SCHEDULED_RUN,
     DATA_KEY_POWER_SUPPLY_STATUS,
     DATA_KEY_PWS_ERROR,
     DATA_KEY_REMOTE,
@@ -79,13 +81,17 @@ from ..common.consts import (
     DATA_ROBOT_NAME,
     DATA_SECTION_CYCLE_INFO,
     DATA_SECTION_DEBUG,
+    DATA_SECTION_DELAY,
     DATA_SECTION_DYNAMIC,
     DATA_SECTION_FILTER_BAG_INDICATION,
     DATA_SECTION_LED,
     DATA_SECTION_PWS_ERROR,
     DATA_SECTION_ROBOT_ERROR,
     DATA_SECTION_SYSTEM_STATE,
+    DATA_SECTION_WEEKLY_SETTINGS,
     DATA_SECTION_WIFI,
+    DATA_SYSTEM_STATE_TIME_ZONE,
+    DATA_SYSTEM_STATE_TIME_ZONE_NAME,
     DATA_SYSTEM_STATE_TURN_ON_COUNT,
     DATA_WIFI_NETWORK_NAME,
     DEFAULT_ENABLE,
@@ -109,6 +115,13 @@ from ..common.consts import (
     UPDATE_WS_INTERVAL,
 )
 from ..common.joystick_direction import JoystickDirection
+from ..common.next_scheduled_run import (
+    ATTR_NSR_CLEANING_MODE,
+    ATTR_NSR_DAY_OF_WEEK,
+    ATTR_NSR_SOURCE,
+    ATTR_NSR_STATE,
+    compute_next_scheduled_run,
+)
 from ..models.system_details import SystemDetails
 from .aws_client import AWSClient
 from .config_manager import ConfigManager
@@ -431,6 +444,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             slugify(DATA_KEY_ROBOT_ERROR): self._get_robot_error_data,
             slugify(DATA_KEY_PWS_ERROR): self._get_pws_error_data,
             slugify(DATA_KEY_BATTERY): self._get_battery_data,
+            slugify(DATA_KEY_NEXT_SCHEDULED_RUN): self._get_next_scheduled_run_data,
             slugify(DYNAMIC_DESCRIPTION_TEMPERATURE): self._get_temperature_data,
         }
 
@@ -793,6 +807,33 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         result = {ATTR_STATE: state}
 
         return result
+
+    def _get_next_scheduled_run_data(self, _entity_description) -> dict | None:
+        data = self.aws_data
+
+        system_state = data.get(DATA_SECTION_SYSTEM_STATE, {})
+        tz_name = system_state.get(DATA_SYSTEM_STATE_TIME_ZONE_NAME)
+        tz_offset_min = system_state.get(DATA_SYSTEM_STATE_TIME_ZONE)
+
+        computed = compute_next_scheduled_run(
+            data.get(DATA_SECTION_WEEKLY_SETTINGS),
+            data.get(DATA_SECTION_DELAY),
+            tz_name,
+            tz_offset_min,
+            dt_util.utcnow(),
+        )
+
+        if computed is None:
+            return {ATTR_STATE: None, ATTR_ATTRIBUTES: {}}
+
+        return {
+            ATTR_STATE: computed[ATTR_NSR_STATE],
+            ATTR_ATTRIBUTES: {
+                ATTR_NSR_CLEANING_MODE: computed[ATTR_NSR_CLEANING_MODE],
+                ATTR_NSR_SOURCE: computed[ATTR_NSR_SOURCE],
+                ATTR_NSR_DAY_OF_WEEK: computed[ATTR_NSR_DAY_OF_WEEK],
+            },
+        }
 
     def _get_error_code(self, entity_description, data_section_key) -> dict | None:
         data = self.aws_data
