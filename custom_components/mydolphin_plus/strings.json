@@ -105,6 +105,9 @@
       "network_name": {
         "name": "Network Name"
       },
+      "next_scheduled_run": {
+        "name": "Next Scheduled Run"
+      },
       "robot_type": {
         "name": "Robot Type"
       },

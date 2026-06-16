@@ -44,6 +44,7 @@ from .consts import (
     DATA_KEY_LED_INTENSITY,
     DATA_KEY_LED_MODE,
     DATA_KEY_NETWORK_NAME,
+    DATA_KEY_NEXT_SCHEDULED_RUN,
     DATA_KEY_POWER_SUPPLY_STATUS,
     DATA_KEY_PWS_ERROR,
     DATA_KEY_REMOTE,
@@ -264,6 +265,13 @@ ENTITY_DESCRIPTIONS: list[MyDolphinPlusEntityDescription] = [
         native_unit_of_measurement="%",
         state_class=SensorStateClass.MEASUREMENT,
         translation_key=slugify(DATA_KEY_BATTERY),
+    ),
+    MyDolphinPlusSensorEntityDescription(
+        key=slugify(DATA_KEY_NEXT_SCHEDULED_RUN),
+        name=DATA_KEY_NEXT_SCHEDULED_RUN,
+        icon="mdi:calendar-clock",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        translation_key=slugify(DATA_KEY_NEXT_SCHEDULED_RUN),
     ),
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DYNAMIC_DESCRIPTION_TEMPERATURE),

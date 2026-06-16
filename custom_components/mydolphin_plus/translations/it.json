@@ -117,6 +117,9 @@
       "network_name": {
         "name": "Nome della rete"
       },
+      "next_scheduled_run": {
+        "name": "Prossimo avvio programmato"
+      },
       "power_supply_error": {
         "name": "Errore di alimentazione",
         "state": {
