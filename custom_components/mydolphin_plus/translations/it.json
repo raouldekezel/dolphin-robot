@@ -168,9 +168,9 @@
           "cleaning": "Pulizia",
           "error": "Errore",
           "holddelay": "Inattivo (ritardo)",
-          "holdweekly": "Idle (settimanale)",
+          "holdweekly": "Inattivo (settimanale)",
           "off": "Spento",
-          "on": "SU",
+          "on": "Acceso",
           "programming": "Programmazione"
         }
       },
@@ -219,12 +219,12 @@
       "robot_status": {
         "name": "Stato robot",
         "state": {
-          "fault": "Colpa",
-          "finished": "Finita Finito",
-          "init": "Inizializzato",
-          "notconnected": "Disconnessa Disconnesso",
+          "fault": "Guasto",
+          "finished": "Completato",
+          "init": "Avvio",
+          "notconnected": "Disconnesso",
           "programming": "Programmazione",
-          "scanning": "Scansione"
+          "scanning": "Pulizia"
         }
       },
       "robot_type": {
@@ -237,11 +237,12 @@
         "name": "Stato",
         "state": {
           "cleaning": "Pulizia",
+          "error": "Errore",
           "holddelay": "Inattivo (ritardo)",
-          "holdweekly": "Idle (settimanale)",
+          "holdweekly": "Inattivo (settimanale)",
           "init": "Verifica dell'ambiente",
           "off": "Spento",
-          "on": "SU",
+          "on": "Acceso",
           "programming": "Programmazione"
         }
       }

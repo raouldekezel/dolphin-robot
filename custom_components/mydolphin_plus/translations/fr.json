@@ -194,7 +194,7 @@
           "cleaning": "Nettoyage",
           "error": "Erreur",
           "holddelay": "En attente (différé)",
-          "holdweekly": "En attente (programmation)",
+          "holdweekly": "En attente (hebdomadaire)",
           "off": "Éteint",
           "on": "Allumé",
           "programming": "Programmation"
@@ -245,12 +245,12 @@
       "robot_status": {
         "name": "État du robot",
         "state": {
-          "fault": "Défaut",
+          "fault": "Anomalie",
           "finished": "Terminé",
-          "init": "Initialisé",
+          "init": "Démarrage",
           "notconnected": "Déconnecté",
           "programming": "Programmation",
-          "scanning": "Analyse en cours"
+          "scanning": "Nettoyage"
         }
       },
       "robot_type": {
@@ -262,9 +262,10 @@
       "status": {
         "name": "Statut",
         "state": {
-          "cleaning": "Nettoyage en cours",
+          "cleaning": "Nettoyage",
+          "error": "Erreur",
           "holddelay": "En attente (différé)",
-          "holdweekly": "En attente (programmation)",
+          "holdweekly": "En attente (hebdomadaire)",
           "init": "Vérification de l'environnement",
           "off": "Éteint",
           "on": "Allumé",
