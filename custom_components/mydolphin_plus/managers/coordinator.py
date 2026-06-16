@@ -540,14 +540,14 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         return result
 
     def _get_power_supply_status_data(self, _entity_description) -> dict | None:
-        state = self._system_details.power_unit_state.lower()
+        state = self._system_details.power_unit_state
 
         result = {ATTR_STATE: None if state is None else state.lower()}
 
         return result
 
     def _get_robot_status_data(self, _entity_description) -> dict | None:
-        state = self._system_details.robot_state.lower()
+        state = self._system_details.robot_state
 
         result = {ATTR_STATE: None if state is None else state.lower()}
 
