@@ -36,8 +36,6 @@ import pytest
 from custom_components.mydolphin_plus.common.calculated_state import CalculatedState
 from custom_components.mydolphin_plus.common.clean_modes import CleanModes
 from custom_components.mydolphin_plus.common.consts import (
-    ATTR_ACTIONS,
-    ATTR_ACTIVITY,
     ATTR_ATTRIBUTES,
     ATTR_CALCULATED_STATUS,
     ATTR_POWER_SUPPLY_STATE,
@@ -55,7 +53,6 @@ from custom_components.mydolphin_plus.common.robot_state import RobotState
 from custom_components.mydolphin_plus.models.system_details import SystemDetails
 from homeassistant.components.vacuum import VacuumActivity
 from homeassistant.const import ATTR_MODE, ATTR_STATE
-
 
 COMPONENT_ROOT = (
     Path(__file__).resolve().parent.parent / "custom_components" / "mydolphin_plus"
