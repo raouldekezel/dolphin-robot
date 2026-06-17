@@ -57,6 +57,12 @@ class MyDolphinPlusVacuumEntity(MyDolphinPlusBaseEntity, StateVacuumEntity, ABC)
 
         self._attr_supported_features = entity_description.features
         self._attr_fan_speed_list = entity_description.fan_speed_list
+        # BUG-16: do not bake DOCKED in. Until the first systemState shadow
+        # arrives, the base entity's `available` override keeps the entity
+        # unavailable. The explicit `None` here makes the `activity`
+        # property safe regardless of whether the HA base class provides a
+        # class-level default.
+        self._attr_activity = None
 
     @property
     def activity(self) -> VacuumActivity | None:

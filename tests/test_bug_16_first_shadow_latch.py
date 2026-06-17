@@ -100,7 +100,9 @@ def _make_base_entity(*, last_update_success: bool, has_real_data: bool):
 
 def _make_vacuum_entity(*, last_update_success=True, has_real_data=True):
     """Return a minimal ``MyDolphinPlusVacuumEntity`` instance with just
-    the attributes ``update_component`` and ``available`` touch."""
+    the attributes ``update_component`` and ``available`` touch. Mirrors
+    the post-fix ctor by setting ``_attr_activity = None`` explicitly so
+    direct attribute access on the property does not raise."""
     from custom_components.mydolphin_plus.vacuum import MyDolphinPlusVacuumEntity
 
     entity = object.__new__(MyDolphinPlusVacuumEntity)
@@ -109,6 +111,7 @@ def _make_vacuum_entity(*, last_update_success=True, has_real_data=True):
         has_real_data=has_real_data,
     )
     entity._attr_available = True
+    entity._attr_activity = None
     entity._attr_extra_state_attributes = None
     entity._attr_fan_speed = None
     return entity
@@ -418,15 +421,18 @@ def test_vacuum_update_component_with_real_data_sets_activity():
 
 
 def test_initial_add_publishes_unavailable_not_docked():
-    """At the moment ``async_add_entities(entities, update_before_add=True)``
-    writes the first state, the coordinator has no real data yet. The
-    entity must read ``unavailable`` so HA does not publish ``docked``
-    from a stale ctor default. This is the BUG-16 acceptance test
-    (replaces the original #22, which drove the wrong path)."""
+    """Pin the two preconditions that, together, guarantee
+    ``async_add_entities(..., update_before_add=True)`` cannot publish a
+    stale ``docked`` as the entity's initial state: (a) the entity reads
+    ``unavailable`` because the latch has not flipped, and (b) the ctor
+    does not pre-set ``_attr_activity`` to a concrete activity. Each is
+    individually sufficient — the conjunction is belt-and-braces."""
     entity = _make_vacuum_entity(last_update_success=True, has_real_data=False)
-    # State the entity exposes right before the initial HA write.
+    # Direct attribute access — must succeed (not raise ``AttributeError``)
+    # so the ``activity`` property remains safe; must equal ``None`` so
+    # nothing concrete is published while ``available`` is ``False``.
     assert entity.available is False
-    assert getattr(entity, "_attr_activity", None) is None
+    assert entity._attr_activity is None
 
 
 def test_bootstrap_no_shadow_then_off_shadow_publishes_docked_legitimately():
