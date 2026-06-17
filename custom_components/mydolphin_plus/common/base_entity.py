@@ -99,6 +99,16 @@ class MyDolphinPlusBaseEntity(CoordinatorEntity):
     def data(self) -> dict | None:
         return self._data
 
+    @property
+    def available(self) -> bool:
+        """BUG-16: gate availability on the coordinator's ``has_real_data``
+        latch. Until the first AWS shadow carrying ``systemState`` has been
+        applied, every entity stays ``unavailable`` so the initial
+        ``async_add_entities(..., update_before_add=True)`` state write
+        cannot publish stale defaults (notably ``docked`` from the
+        vacuum's old ctor)."""
+        return super().available and self._local_coordinator.has_real_data
+
     async def async_execute_device_action(self, key: str, *kwargs: Any):
         async_device_action = self._local_coordinator.get_device_action(
             self.entity_description, key

@@ -57,9 +57,12 @@ class MyDolphinPlusVacuumEntity(MyDolphinPlusBaseEntity, StateVacuumEntity, ABC)
 
         self._attr_supported_features = entity_description.features
         self._attr_fan_speed_list = entity_description.fan_speed_list
-
-        # Battery level is now handled by a dedicated battery sensor
-        self._attr_activity = VacuumActivity.DOCKED
+        # BUG-16: do not bake DOCKED in. Until the first systemState shadow
+        # arrives, the base entity's `available` override keeps the entity
+        # unavailable. The explicit `None` here makes the `activity`
+        # property safe regardless of whether the HA base class provides a
+        # class-level default.
+        self._attr_activity = None
 
     @property
     def activity(self) -> VacuumActivity | None:
@@ -85,21 +88,25 @@ class MyDolphinPlusVacuumEntity(MyDolphinPlusBaseEntity, StateVacuumEntity, ABC)
 
     def update_component(self, data):
         """Fetch new state parameters for the sensor."""
-        if data is not None:
-            state = data.get(ATTR_STATE)
-            attributes = data.get(ATTR_ATTRIBUTES)
+        if data is None:
+            # BUG-16: do not fake a DOCKED state when the coordinator has
+            # no data — the ``available`` override on the base entity
+            # already keeps the entity ``unavailable`` until the first
+            # systemState shadow arrives, so HA will render
+            # ``unavailable`` rather than a stale activity.
+            return
 
-            fan_speed = attributes.get(ATTR_MODE)
+        state = data.get(ATTR_STATE)
+        attributes = data.get(ATTR_ATTRIBUTES)
 
-            # State is already a VacuumActivity enum from SystemDetails
-            if isinstance(state, VacuumActivity):
-                self._attr_activity = state
-            else:
-                # Fallback for string states (shouldn't happen with current implementation)
-                self._attr_activity = VacuumActivity.DOCKED
+        fan_speed = attributes.get(ATTR_MODE)
 
-            self._attr_extra_state_attributes = attributes
-            self._attr_fan_speed = fan_speed
-
+        # State is already a VacuumActivity enum from SystemDetails
+        if isinstance(state, VacuumActivity):
+            self._attr_activity = state
         else:
+            # Fallback for string states (shouldn't happen with current implementation)
             self._attr_activity = VacuumActivity.DOCKED
+
+        self._attr_extra_state_attributes = attributes
+        self._attr_fan_speed = fan_speed
