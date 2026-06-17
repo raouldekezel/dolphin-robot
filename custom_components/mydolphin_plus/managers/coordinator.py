@@ -159,6 +159,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         self._data_mapping = None
         self._system_details = SystemDetails()
+        self._has_real_data = False
 
         self._last_update_api = 0
         self._last_update_ws = 0
@@ -970,17 +971,28 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             )
 
     def _set_system_status_details(self):
-        updated = self._system_details.update(self.aws_data)
+        aws_data = self.aws_data
+        if not aws_data.get(DATA_SECTION_SYSTEM_STATE):
+            return
+
+        self._has_real_data = True
+        updated = self._system_details.update(aws_data)
 
         if updated:
-            self._can_load_components = True
-
             _LOGGER.debug(
                 f"System status recalculated, "
                 f"Calculated State: {self._system_details.calculated_state}, "
                 f"Main Unit State: {self._system_details.power_unit_state}, "
                 f"Robot State: {self._system_details.robot_state}"
             )
+
+    @property
+    def has_real_data(self) -> bool:
+        """Return ``True`` once a payload carrying ``systemState`` has been
+        applied. BUG-16: until then, every entity's ``available`` stays
+        ``False`` so the initial ``async_add_entities`` state write cannot
+        publish stale defaults (e.g. ``docked``)."""
+        return self._has_real_data
 
     @staticmethod
     def _get_date_time_from_timestamp(timestamp):
