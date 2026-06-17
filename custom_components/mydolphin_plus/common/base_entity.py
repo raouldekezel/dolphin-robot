@@ -133,6 +133,17 @@ class MyDolphinPlusBaseEntity(CoordinatorEntity):
         try:
             new_data = self._local_coordinator.get_data(self.entity_description)
 
+            if new_data is None:
+                # HARD-10: no data yet (pre-first-shadow window). The
+                # `available` override already keeps the entity
+                # unavailable via the BUG-16 latch; do not feed `None`
+                # into the debug-log dict comprehension below — it would
+                # raise `TypeError: 'NoneType' object is not iterable`,
+                # be swallowed by the `except` clause, and surface as a
+                # misleading "Failed to update <entity>" ERROR log on
+                # every integration startup.
+                return
+
             if self._data != new_data:
                 data_for_log = {
                     key: new_data[key] for key in new_data if key != ATTR_ACTIONS
