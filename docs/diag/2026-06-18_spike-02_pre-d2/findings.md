@@ -287,8 +287,7 @@ directory.
   `aws_client.py:456-465` (BUG-08) must gate on
   `accepted.clientToken ∈ in_flight` (resp. `rejected.clientToken ∈ in_flight`).
   E1 + E4 are the empirical foundation. The exact predicate is
-  `if (event.clientToken is not None and event.clientToken == self._our_token):
-     do_not_react()`.
+  `if event.clientToken is not None and event.clientToken == self._our_token: do_not_react()`.
 - **Atomic combined writes — the new primitive for mode+cycleTime.** Once the
   reactive branch is gated, the integration should write `mode` + `cycleTime`
   in ONE `desired` document (sibling subtrees) on every mode change instead of
