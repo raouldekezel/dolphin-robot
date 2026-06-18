@@ -18,10 +18,10 @@ pattern surveyed in D1 is viable on this deployment.**
   (`raouldekezel/dolphin-robot`), cut from `deploy@a01f0b5`. The probe
   stamps a UUID4 hex `clientToken` on every `_send_desired_command`
   write and logs it via `_LOGGER.info("[SPIKE-02 D4] desired write
-  clientToken=%s, payload=%s", token, payload)`. Throwaway — reverted
+clientToken=%s, payload=%s", token, payload)`. Throwaway — reverted
   immediately after the session via the rollback script.
 - **HA:** 2026.1.3 (container `hass` on intel-nuc, `network_mode:
-  privileged`).
+privileged`).
 - **Pre-experiment state:** `v1.0.26b3-raoul.7` was running. Robot in
   `holdWeekly`/`notConnected` at session start.
 - **Debug logging:** persistent
@@ -30,7 +30,7 @@ pattern surveyed in D1 is viable on this deployment.**
 
 ## Actions taken
 
-01. `01_ha-initiated-mode-change.mqtt.log` — `vacuum.set_fan_speed`
+1.  `01_ha-initiated-mode-change.mqtt.log` — `vacuum.set_fan_speed`
     via HA REST API (`POST /api/services/vacuum/set_fan_speed`,
     `fan_speed=short` on `vacuum.nono_2`; current mode was `all`).
     BUG-13 incidentally fired (mode change triggered a cycle on the
@@ -39,7 +39,7 @@ pattern surveyed in D1 is viable on this deployment.**
     capture: the user's `cleaningMode.mode=short`, the integration's
     reactive `cycleInfo.cycleTime=60` (BUG-08 chain, +1.087 s later),
     and the pause's `systemState.pwsState=off`.
-02. `02_app-initiated-mode-change.mqtt.log` — from the Maytronics
+2.  `02_app-initiated-mode-change.mqtt.log` — from the Maytronics
     MyDolphin Plus app on the phone: "Nettoyage Fond" started (the
     user's app does not separate mode-pick from start), then stopped.
     Two app-initiated `desired` writes hit the wire:
@@ -55,33 +55,33 @@ directory.
 
 ### Action 1 — HA-initiated mode change
 
-| t (CEST) | Shadow v | Event | Payload key fields |
-|---|---|---|---|
-| 12:46:23.868 | — | `[SPIKE-02 D4]` publish (us) | `desired.cleaningMode.mode=short`, **`clientToken=f70efdfc…04ea`** |
-| 12:46:23.954 | 857 | `/update/accepted` | `desired.cleaningMode.mode=short`, **`clientToken=f70efdfc…04ea`** ← our token echoed |
-| 12:46:24.955 | — | `[SPIKE-02 D4]` publish (us, BUG-08 reactive +1.001 s) | `desired.cycleInfo.cycleTime=60`, **`clientToken=7a73c858…cee2`** |
-| 12:46:24.962 | 858 | `/update/accepted` | `desired:null` (ACK-driven cleanup of v857), no token |
-| 12:46:25.066 | 859 | `/update/accepted` | `desired.cycleInfo.cycleTime=60`, **`clientToken=7a73c858…cee2`** ← our token echoed |
-| 12:46:25.122 | 860 | `/update/accepted` | `desired:null` (ACK-driven cleanup of v859), no token |
-| 12:46:26.681 | 861 | `/update/accepted` | `reported.systemState.pwsState=on, robotState=init, cleaningMode.mode=short, cycleTime=60`, no token (device) |
-| 12:47:10.118 | — | `[SPIKE-02 D4]` publish (us, `vacuum.pause`) | `desired.systemState.pwsState=off`, **`clientToken=61862fce…6956`** |
-| 12:47:10.206 | 862 | `/update/accepted` | `desired.systemState.pwsState=off`, **`clientToken=61862fce…6956`** ← our token echoed |
-| 12:47:14.484 | 864 | `/update/accepted` | `reported.systemState.pwsState=holdWeekly, robotState=notConnected`, no token (device) |
+| t (CEST)     | Shadow v | Event                                                  | Payload key fields                                                                                            |
+| ------------ | -------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| 12:46:23.868 | —        | `[SPIKE-02 D4]` publish (us)                           | `desired.cleaningMode.mode=short`, **`clientToken=f70efdfc…04ea`**                                            |
+| 12:46:23.954 | 857      | `/update/accepted`                                     | `desired.cleaningMode.mode=short`, **`clientToken=f70efdfc…04ea`** ← our token echoed                         |
+| 12:46:24.955 | —        | `[SPIKE-02 D4]` publish (us, BUG-08 reactive +1.001 s) | `desired.cycleInfo.cycleTime=60`, **`clientToken=7a73c858…cee2`**                                             |
+| 12:46:24.962 | 858      | `/update/accepted`                                     | `desired:null` (ACK-driven cleanup of v857), no token                                                         |
+| 12:46:25.066 | 859      | `/update/accepted`                                     | `desired.cycleInfo.cycleTime=60`, **`clientToken=7a73c858…cee2`** ← our token echoed                          |
+| 12:46:25.122 | 860      | `/update/accepted`                                     | `desired:null` (ACK-driven cleanup of v859), no token                                                         |
+| 12:46:26.681 | 861      | `/update/accepted`                                     | `reported.systemState.pwsState=on, robotState=init, cleaningMode.mode=short, cycleTime=60`, no token (device) |
+| 12:47:10.118 | —        | `[SPIKE-02 D4]` publish (us, `vacuum.pause`)           | `desired.systemState.pwsState=off`, **`clientToken=61862fce…6956`**                                           |
+| 12:47:10.206 | 862      | `/update/accepted`                                     | `desired.systemState.pwsState=off`, **`clientToken=61862fce…6956`** ← our token echoed                        |
+| 12:47:14.484 | 864      | `/update/accepted`                                     | `reported.systemState.pwsState=holdWeekly, robotState=notConnected`, no token (device)                        |
 
 ### Action 2 — app-initiated mode change + stop
 
-| t (CEST) | Shadow v | Event | Payload key fields |
-|---|---|---|---|
-| 12:49:51.991 | 866 | `/update/accepted` | `desired.cleaningMode.mode=floor`, **no token** ← app |
-| 12:49:52.992 | — | `[SPIKE-02 D4]` publish (us, BUG-08 reactive +1.001 s) | `desired.cycleInfo.cycleTime=120`, **`clientToken=a4a54719…12be3`** |
-| 12:49:52.995 | 867 | `/update/accepted` | `desired:null` (ACK-driven cleanup of v866), no token |
-| 12:49:53.090 | 868 | `/update/accepted` | `desired.cycleInfo.cycleTime=120`, **`clientToken=a4a54719…12be3`** ← our token echoed |
-| 12:49:53.400 | 869 | `/update/accepted` | `desired:null` (ACK-driven cleanup of v868), no token |
-| 12:49:53.769 | 870 | `/update/accepted` | `reported.pwsState=on, robotState=init, cleaningMode.mode=floor, cycleTime=120`, no token (device) |
-| 12:49:54.525 | 871 | `/update/accepted` | `reported` continuation, no token (device) |
-| 12:50:25.810 | 872 | `/update/accepted` | `desired.systemState.pwsState=off`, **no token** ← app (stop) |
-| 12:50:25.897 | 873 | `/update/accepted` | `desired:null` (ACK-driven cleanup of v872), no token |
-| 12:50:27.789 | 874 | `/update/accepted` | `reported.pwsState=holdWeekly, robotState=notConnected`, no token (device) |
+| t (CEST)     | Shadow v | Event                                                  | Payload key fields                                                                                 |
+| ------------ | -------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| 12:49:51.991 | 866      | `/update/accepted`                                     | `desired.cleaningMode.mode=floor`, **no token** ← app                                              |
+| 12:49:52.992 | —        | `[SPIKE-02 D4]` publish (us, BUG-08 reactive +1.001 s) | `desired.cycleInfo.cycleTime=120`, **`clientToken=a4a54719…12be3`**                                |
+| 12:49:52.995 | 867      | `/update/accepted`                                     | `desired:null` (ACK-driven cleanup of v866), no token                                              |
+| 12:49:53.090 | 868      | `/update/accepted`                                     | `desired.cycleInfo.cycleTime=120`, **`clientToken=a4a54719…12be3`** ← our token echoed             |
+| 12:49:53.400 | 869      | `/update/accepted`                                     | `desired:null` (ACK-driven cleanup of v868), no token                                              |
+| 12:49:53.769 | 870      | `/update/accepted`                                     | `reported.pwsState=on, robotState=init, cleaningMode.mode=floor, cycleTime=120`, no token (device) |
+| 12:49:54.525 | 871      | `/update/accepted`                                     | `reported` continuation, no token (device)                                                         |
+| 12:50:25.810 | 872      | `/update/accepted`                                     | `desired.systemState.pwsState=off`, **no token** ← app (stop)                                      |
+| 12:50:25.897 | 873      | `/update/accepted`                                     | `desired:null` (ACK-driven cleanup of v872), no token                                              |
+| 12:50:27.789 | 874      | `/update/accepted`                                     | `reported.pwsState=holdWeekly, robotState=notConnected`, no token (device)                         |
 
 ## Findings
 
