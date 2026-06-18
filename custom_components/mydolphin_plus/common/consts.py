@@ -87,6 +87,13 @@ DATA_SECTION_ACTIVITY = "activity"
 DATA_STATE_REPORTED = "reported"
 DATA_STATE_DESIRED = "desired"
 
+# AWS IoT Device Shadow built-in correlation field. Echoed unchanged on
+# /update/accepted, /update/rejected, /update/delta and /update/documents
+# when present on the publish. SPIKE-02 confirmed AWS echoes opaquely on
+# this account; the integration stamps a per-process UUID4 to discriminate
+# its own events from those produced by the device or the Maytronics app.
+DATA_CLIENT_TOKEN = "clientToken"
+
 DATA_SYSTEM_STATE_PWS_STATE = "pwsState"
 DATA_SYSTEM_STATE_ROBOT_STATE = "robotState"
 DATA_SYSTEM_STATE_ROBOT_TYPE = "robotType"
