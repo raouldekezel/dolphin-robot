@@ -2,16 +2,24 @@
 
 ## TL;DR
 
-**Six PASS, one mostly-PASS-one-caveat (E2 device-side slot inconclusive), one
-unexpected sub-finding (BUG-08's reactive chain breaks the E1 atomic-write
-unlock unless D2 also gates the reactive branches on the new
-provenance signal).** `desired:null` is empirically PWS-firmware-authored
-(E3b: zero of them appeared during a 102-second PWS-offline window;
+**Six PASS at AWS level, plus a clean atomic isolation re-test (E7) that
+flips the D2 architecture: the firmware does NOT honor a `cycleTime` field
+bundled with a `cleaningMode.mode` field in the same shadow update — even
+with the integration's reactive chain removed. End-to-end, the device
+silently kept its previous cycleTime (150) instead of our requested
+T=75.** Sequenced mode-then-cycleTime writes are therefore mandatory; the
+"remove BUG-08 + atomic combined" hand-off from the [pre-D2 results
+comment](https://github.com/raouldekezel/dolphin-robot/issues/70#issuecomment-4742855181)
+and its [E7 charter follow-up](https://github.com/raouldekezel/dolphin-robot/issues/70#issuecomment-4743131266)
+are both retracted by E7's empirical outcome — see the **D2 hand-off
+(corrected by E7)** section below.
+
+The other six experiments stand: `desired:null` is empirically
+PWS-firmware-authored (E3b: zero events during a 102 s PWS-offline window;
 one arrived ~3 s after the SPS-04 plug came back on). AWS echoes our
 injected `clientToken` opaquely on `/update/accepted` and on
-`/update/rejected`, and treats every well-formed update as a new
-event (no no-op deduplication). The `clientToken` pattern surveyed
-in D1 is viable — and the per-session UUID variant is viable too.
+`/update/rejected`, treats every well-formed update as a new event
+(no no-op dedup), and the per-session UUID variant is viable (E5).
 
 ## Context
 
@@ -72,6 +80,17 @@ top_level_version)` publishes the literal
     `desired.cleaningMode.mode=short`. Provokes the `409 Version
 conflict` AWS rejection on a write that carries our token. Robot
     in `holdWeekly/notConnected`.
+7.  `E7_atomic-combined-write.mqtt.log` — `e7_run` on the stacked
+    branch `patches/spike-02-atomic` (probe v2 + **removal** of the
+    BUG-08 reactive `Set cycle time` chain at `aws_client.py:456-465`,
+    `sleep(1)` included). Single combined `spike_publish` of
+    `desired = {cleaningMode:{mode:"all"}, cycleInfo:{cycleTime:75}}`.
+    Robot is in the pool, umbilical connected; cycle was paused
+    afterwards via `vacuum.pause`. T=75 distinct from both the
+    previous active cycle's cycleTime (150, residual from E1) and
+    every value in `cleaningModes` at the moment of publish, so any
+    "75" in the device's reported output would be unambiguously ours.
+    Arguments: `E7_MODE=all E7_TIME=75`.
 
 (E1b and E3a from the original test plan were skipped: E1 PASSed at the
 AWS-atomic level — no need for the back-to-back fallback ordering test;
@@ -149,6 +168,17 @@ directory.
 | 16:08:26.084 | —        | `[SPIKE-02 spike_publish]` token `e678257b…6a71`, `top_level_version=1`, `mode=short`                  | current shadow at v961, version=1 is far-stale                                                                       |
 | 16:08:26.132 | —        | `/update/rejected` with body `{"code":409,"message":"Version conflict","clientToken":"e678257b…6a71"}` | RTT **48 ms** — **our token is echoed on the reject path**                                                           |
 | 16:08:26.132 | —        | integration's `WARNING` line fires (pathological HARD-09 #66 path)                                     | with a gate on `rejected.clientToken ∈ in_flight` this would stay `WARNING`; foreign 429s would downgrade to `debug` |
+
+### E7 — atomic combined `{mode:all, cycleTime:75}` on the BUG-08-removed branch
+
+| t (CEST)     | Shadow v | Event                                                                                                             | Notes                                                                                                                                                                                                                   |
+| ------------ | -------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 16:51:01.375 | —        | `[SPIKE-02 spike_publish]` token `f2f7ba2d…ff5c`, payload `{cleaningMode:{mode:"all"}, cycleInfo:{cycleTime:75}}` | one combined publish, BUG-08 chain absent from this build                                                                                                                                                               |
+| 16:51:01.435 | **964**  | `/update/accepted` echoes our combined `desired` (both fields), our token                                         | RTT **60 ms** — AWS makes it atomic                                                                                                                                                                                     |
+| 16:51:01.597 | 965      | `/update/accepted` `desired:null`                                                                                 | PWS firmware cleared after applying                                                                                                                                                                                     |
+| 16:51:03.151 | 966      | first device `reported`: `cycleInfo.cleaningMode = {mode:"all", cycleTime:150}`                                   | **cycleTime is 150, NOT our 75** — see Findings                                                                                                                                                                         |
+| 16:52:11     | 973      | `cleaningModes.all` settles at 150, `floor/water/ultra` also at 150                                               | operator-confirmed: 150 is the user's last HA-stored value for "Complet"; the integration's number entities pushed those values into the shadow on HA boot (so `cleaningModes.all = 150` at the moment of our E7 write) |
+| 16:52:09.936 | —        | `[SPIKE-02]` from `vacuum.pause` (`pwsState=off`) — only other SPIKE-02 line in window                            | confirms NO reactive write fired between E7 and pause — branch is correctly removed                                                                                                                                     |
 
 ## Findings
 
@@ -276,37 +306,104 @@ directory.
   - foreign rejected (the device's boot-time 429 from HARD-09 #66) carries no
     token, falls through to `debug`. HARD-09 dissolves.
 
-## Open questions for D2
+### E7 — atomic combined `{mode, cycleTime}` write isolation — **FAIL on (c): firmware ignores `cycleTime` bundled with a `mode` change**
 
-- **Token shape — per-session UUID.** E5 demonstrates AWS echoes K opaquely;
-  use **one UUID4 minted at integration start, reused across all writes for the
-  process lifetime**, instead of per-call UUIDs. Simpler `in_flight` set
-  (effectively boolean: "did we write recently?"), one less moving part. Keep
-  the `∈ our set` framing rather than "token present" for safety.
-- **Reactive-branch gates.** Both `aws_client.py:413-416` (HARD-09) and
-  `aws_client.py:456-465` (BUG-08) must gate on
-  `accepted.clientToken ∈ in_flight` (resp. `rejected.clientToken ∈ in_flight`).
-  E1 + E4 are the empirical foundation. The exact predicate is
-  `if event.clientToken is not None and event.clientToken == self._our_token: do_not_react()`.
-- **Atomic combined writes — the new primitive for mode+cycleTime.** Once the
-  reactive branch is gated, the integration should write `mode` + `cycleTime`
-  in ONE `desired` document (sibling subtrees) on every mode change instead of
-  the current "mode then `sleep(1)` then cycleTime" sequence. E1 proves the
-  combined shape is honoured by AWS atomically. Side benefits: no awscrt-thread
-  `time.sleep(1)` (closes BUG-08's dangling thread concern too), correct
-  behaviour with the robot disconnected (the buffered combined desired is
-  applied as one on reconnect — E3b shape), one accepted to dedupe on instead
-  of two.
-- **Dedup at the call site (hygiene, not blocker).** Skip the write if the
-  desired value already matches the current `reported.<...>` value. Reduces
-  AWS throttle pressure and avoids spurious `version` increments.
+The E7 charter (issue #70 comment 4743131266) predicted PASS would unlock
+removing the BUG-08 reactive chain. The empirical outcome is the
+explicitly anticipated FAIL: **the firmware applied `mode=all` from the
+combined `desired` but ignored the `cycleTime=75` field that travelled
+with it.**
+
+- **(a) AWS atomic accepted: ✅** — `/update/accepted` v964 echoes the full
+  combined `desired` (both `cleaningMode.mode=all` and
+  `cycleInfo.cycleTime=75`) with our token (RTT 60 ms). The shadow service
+  treats the combined write atomically.
+- **(b) Reactive branch absent: ✅** — the probe removed the `:456-465`
+  `Set cycle time` chain; the captured log shows no `Set cycle time` /
+  `[SPIKE-02] desired write` line between our publish at 16:51:01.375 and
+  the `vacuum.pause` at 16:52:09.936. The integration emitted **zero**
+  reactive writes — confirmed clean.
+- **(c) End-to-end cycleTime delivered: ❌** — first device `reported` at
+  16:51:03.151 (v966) shows `cycleInfo.cleaningMode = {mode:"all",
+cycleTime:150}`. The device started a fresh cycle on `mode=all` with
+  `cycleTime = 150`, NOT our 75.
+
+**Where does the 150 come from? — operator-confirmed mechanical
+explanation.** 150 is the user's HA-stored value for the "Cycle Complet"
+duration (= `cycle_time_all`). The integration's `number` entity for that
+mode pushed 150 into the shadow's `cleaningModes.all` slot on HA startup
+(our deploy restart at 16:50:05); by the time E7 fired at 16:51:01,
+`cleaningModes.all` was already 150, and the firmware used that value as
+the per-mode default when starting the new `mode=all` cycle.
+
+The combined-`desired` `cycleInfo.cycleTime=75` field was acked
+(`desired:null` cleared it) but **silently discarded by the firmware
+during mode-change application**. The firmware's contract appears to be:
+
+> **`cycleTime` in `cycleInfo` is treated as an active-cycle override
+> applied to an already-running mode. When `cleaningMode.mode` is changed
+> in the same `desired` document, the firmware processes the mode change
+> first, starts a new cycle using `cleaningModes.<new_mode>` as the
+> duration, and ignores any sibling `cycleInfo.cycleTime` field for that
+> cycle.** The flat `cycleTime` field of E2 hits the same "no anchor"
+> rule.
+
+This is consistent with D4 action 2's observation: there, the integration
+sent `cycleTime=120` as a **separate write 1 s AFTER** the app's
+`mode=floor` write, and that one **did** land in
+`reported.cycleInfo.cleaningMode.cycleTime` (60 → 120). Sequencing works;
+bundling does not.
+
+**Implication for D2: the BUG-08 reactive chain MUST be kept, not
+removed.** Its mode-then-`sleep(1)`-then-`cycleTime` shape is the
+sequenced write the firmware requires. The "atomic combined as the new
+primitive" plank of the [E7 charter](https://github.com/raouldekezel/dolphin-robot/issues/70#issuecomment-4743131266)
+and of the [pre-D2 hand-off](https://github.com/raouldekezel/dolphin-robot/issues/70#issuecomment-4742855181)
+is retracted. The only legitimate fix to the BUG-08 chain is replacing
+the blocking `time.sleep(1)` on the awscrt thread with a non-blocking
+wait (e.g. `hass.loop.call_later` / `asyncio.sleep` on the HA event loop,
+or — better — a one-shot subscriber on the next `accepted` with
+`desired.cleaningMode.mode` cleared, since that signals the firmware
+applied the mode and is ready for the cycleTime write).
+
+## Open questions for D2 (corrected by E7)
+
+- **Token shape — per-session UUID.** E5 demonstrates AWS echoes K
+  opaquely; mint **one UUID4 at integration start, reuse it on every
+  write for the process lifetime**. The `_in_flight` predicate is
+  effectively `event.clientToken == self._our_token` — boolean, no TTL
+  needed for provenance (TTL matters separately for the dropped-publish
+  hygiene, but not for the gate's correctness).
+- **HARD-09 — gate `WARNING` on `rejected.clientToken == self._our_token`**
+  at `aws_client.py:413-416`. Foreign rejected (the device's boot-time
+  429 from #66) carries no token → falls through to `debug`. E4 PASS is
+  the empirical foundation.
+- **BUG-08 — keep the reactive chain at `:456-465`; replace `sleep(1)`
+  with a non-blocking wait.** The chain's logic was already aligned with
+  the operator-decided "launcher picks the duration" semantics
+  ([memory `feedback_dolphin_bug08_launcher_pick_semantics`](https://github.com/raouldekezel/dolphin-robot/issues/17)) —
+  E7 now also makes it _technically_ required (no atomic substitute
+  exists). The remaining concern is purely the awscrt-thread sleep.
+  Replace it with:
+  - `hass.loop.call_later(1.0, self._set_cycle_time, mode)` from the
+    callback thread (simplest), OR
+  - a one-shot subscriber on the next `/update/accepted` where the
+    device's `reported.cleaningMode.mode == mode` (event-driven, no
+    fixed delay), OR
+  - keep firing immediately and accept that ~50% of bursts may need a
+    retry (riskier — the device sometimes needs the gap).
+- **No atomic combined-write primitive.** E7 retracts this option.
+  Mode and cycleTime must be sent as two sequential desired writes; the
+  combined shape is silently lossy at the firmware level for cycleTime.
+- **Dedup at the call site (hygiene, not blocker).** Skip the write if
+  the desired value already matches `reported.<...>`. Reduces AWS
+  throttle pressure and avoids spurious `version` increments.
 - **Out of scope of D2, follow-up sessions:**
   - **E2 re-test** with a mode change immediately preceding the flat
-    `cycleTime` write — settles the "mode-relative vs queued vs discarded"
-    interpretation. Not blocking — combined writes (E1 shape) sidestep the
-    flat-cycleTime path anyway.
-  - **Narrow the `shadow/#` wildcard subscription** to the explicit reserved
-    topics (D1 §3). Hygiene, separate ticket.
+    `cycleTime` write to confirm the "active-cycle override" reading
+    above. Not blocking — D2's design uses sequenced writes anyway.
+  - **Narrow the `shadow/#` wildcard subscription** to the explicit
+    reserved topics (D1 §3). Hygiene, separate ticket.
 
 ## D4 attribution correction _(follow-up to PR #71)_
 
