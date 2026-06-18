@@ -8,6 +8,7 @@ import os
 import sys
 from time import sleep
 from typing import Any, Callable
+import uuid
 
 import aiofiles
 from awscrt import auth, mqtt
@@ -29,6 +30,7 @@ from ..common.consts import (
     AWS_IOT_URL,
     AWS_REGION,
     CA_FILE_NAME,
+    DATA_CLIENT_TOKEN,
     DATA_CYCLE_INFO_CLEANING_MODE_DURATION,
     DATA_FILTER_BAG_INDICATION_RESET_FBI_COMMAND,
     DATA_LED_ENABLE,
@@ -116,6 +118,13 @@ class AWSClient:
             self._topic_data = None
             self._awsiot_client = None
             self._messages_published: dict[int, dict[str, str]] = {}
+
+            # SPIKE-02 — per-process clientToken minted once and stamped on
+            # every outbound desired write. Reused for the integration's
+            # lifetime: AWS echoes the token opaquely on accepted/rejected,
+            # so the predicate `event.clientToken == self._our_token` is
+            # boolean — no TTL needed for provenance. Set in initialize().
+            self._our_token: str | None = None
 
             self._status = None
 
@@ -215,6 +224,12 @@ class AWSClient:
             aws_secret = self._api_data.get(API_RESPONSE_DATA_SECRET_ACCESS_KEY)
 
             self._debug_log_credentials_received(aws_key, aws_secret, aws_token)
+
+            # SPIKE-02 — mint our per-process clientToken. Set on every
+            # connect-cycle (so a reauth + reconnect gets a fresh token;
+            # any in-flight foreign echoes of the previous token then read
+            # as "not ours" and don't trip the reactive branches).
+            self._our_token = uuid.uuid4().hex
 
             self._topic_data = TopicData(self._config_manager.motor_unit_serial)
 
@@ -411,9 +426,20 @@ class AWSClient:
             )
 
             if topic.endswith(TOPIC_CALLBACK_REJECTED):
-                _LOGGER.warning(
-                    f"Rejected message for {topic}, Message: {message_payload}"
-                )
+                # SPIKE-02 / HARD-09 — only WARN when the rejection is OURS.
+                # Foreign rejections (the device's boot-time `429 Too Many
+                # Requests`, the app's stale-version writes, …) carry a
+                # different clientToken or none at all and fall through to
+                # debug. Empirically validated by E4 (#70).
+                if self._event_is_ours(payload_data):
+                    _LOGGER.warning(
+                        f"Rejected message for {topic}, Message: {message_payload}"
+                    )
+                else:
+                    _LOGGER.debug(
+                        f"Rejected message for {topic} (not ours), "
+                        f"Message: {message_payload}"
+                    )
 
             elif topic == self._topic_data.dynamic:
                 self._on_dynamic_content_received(payload_data)
@@ -454,9 +480,17 @@ class AWSClient:
                         self._read_temperature_and_in_water_details()
 
                 elif topic == self._topic_data.update_accepted:
+                    # SPIKE-02 / BUG-08 — chain the `cycleTime` write only
+                    # when the mode change is OURS. App-initiated mode
+                    # changes (no token) are left alone; the app handles
+                    # its own duration and the "launcher picks the
+                    # duration" semantics become an invariant, not a race
+                    # outcome. SPIKE-02 E7 ruled out replacing this chain
+                    # with a combined `{mode, cycleTime}` write — the
+                    # firmware silently ignores the sibling cycleTime.
                     desired = state.get(DATA_STATE_DESIRED)
 
-                    if desired is not None:
+                    if desired is not None and self._event_is_ours(payload_data):
                         cleaning_mode = desired.get(DATA_SCHEDULE_CLEANING_MODE, {})
                         mode = cleaning_mode.get(CONF_MODE)
 
@@ -502,8 +536,27 @@ class AWSClient:
         if remote_control_mode == ATTR_REMOTE_CONTROL_MODE_EXIT:
             self.data[DATA_SECTION_ACTIVITY] = None
 
+    def _event_is_ours(self, payload_data: dict) -> bool:
+        """SPIKE-02 — provenance predicate.
+
+        ``True`` iff the shadow event carries the clientToken we minted in
+        :py:meth:`initialize`. Pre-initialize (``self._our_token is None``)
+        the predicate is conservative-False so any event arriving in that
+        window is treated as foreign.
+        """
+        if self._our_token is None:
+            return False
+        return payload_data.get(DATA_CLIENT_TOKEN) == self._our_token
+
     def _send_desired_command(self, payload: dict | None):
-        data = {DATA_ROOT_STATE: {DATA_STATE_DESIRED: payload}}
+        # SPIKE-02 — stamp the per-process clientToken on every outbound
+        # desired write so the integration's own echoes can be told apart
+        # from those produced by the device firmware or the Maytronics app
+        # (cf. `_event_is_ours`).
+        data = {
+            DATA_ROOT_STATE: {DATA_STATE_DESIRED: payload},
+            DATA_CLIENT_TOKEN: self._our_token,
+        }
 
         self._publish(self._topic_data.update, data)
 
