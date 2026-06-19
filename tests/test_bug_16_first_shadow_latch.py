@@ -50,7 +50,6 @@ from custom_components.mydolphin_plus.models.system_details import SystemDetails
 from homeassistant.components.vacuum import VacuumActivity
 from homeassistant.const import ATTR_MODE, ATTR_STATE
 
-
 # ---------------------------------------------------------------------------
 # Helpers — minimal stubs that bypass __init__ for the units under test.
 # ---------------------------------------------------------------------------
