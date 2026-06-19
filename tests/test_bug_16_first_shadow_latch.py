@@ -29,8 +29,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from custom_components.mydolphin_plus.common.calculated_state import CalculatedState
 from custom_components.mydolphin_plus.common.clean_modes import CleanModes
 from custom_components.mydolphin_plus.common.consts import (
