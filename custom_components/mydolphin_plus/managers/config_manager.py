@@ -145,20 +145,6 @@ class ConfigManager:
         return expiry
 
     @property
-    def _token_details(self):
-        token_details = {
-            token_param: self._data.get(token_param) for token_param in TOKEN_PARAMS
-        }
-
-        return token_details
-
-    @property
-    def should_login(self) -> bool:
-        should_login = None in self._token_details.values()
-
-        return should_login
-
-    @property
     def config_data(self) -> ConfigData:
         config_data = self._config_data
 
