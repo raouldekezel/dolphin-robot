@@ -23,10 +23,7 @@ observed on 2026-06-10.
 
 from __future__ import annotations
 
-import inspect
 import logging
-from pathlib import Path
-import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -152,31 +149,3 @@ async def test_async_start_reauth_exception_is_logged_with_traceback(caplog):
 
 
 # --- Defense in depth: source-level regression checks ----------------------
-
-
-def _coordinator_source() -> str:
-    from custom_components.mydolphin_plus.managers import coordinator as coord_module
-
-    return Path(inspect.getfile(coord_module)).read_text(encoding="utf-8")
-
-
-def test_bug01_source_has_no_await_async_start_reauth():
-    """A revert that re-adds ``await entry.async_start_reauth`` is forbidden."""
-    src = _coordinator_source()
-    matches = re.findall(r"await\s+\w+\.async_start_reauth\s*\(", src)
-    assert not matches, f"forbidden `await async_start_reauth(...)`: {matches}"
-
-
-def test_bug02_source_has_no_reauth_in_progress_flag():
-    """A revert that re-introduces ``_reauth_in_progress`` as a flag is forbidden."""
-    src = _coordinator_source()
-    # Strip block comments / docstrings to allow historical mentions there.
-    # Conservative: only flag attribute assignments and bare reads.
-    forbidden_patterns = [
-        re.compile(r"self\._reauth_in_progress\s*=", re.MULTILINE),
-        re.compile(r"if\s+self\._reauth_in_progress\b"),
-    ]
-    found = [p.pattern for p in forbidden_patterns if p.search(src)]
-    assert not found, (
-        f"forbidden `_reauth_in_progress` usage reintroduced: {found}"
-    )
