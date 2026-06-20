@@ -9,7 +9,7 @@ import sys
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, EVENT_HOMEASSISTANT_START
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 
 from .common.consts import (
     DEFAULT_NAME,
@@ -94,6 +94,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             _LOGGER.info("Finished loading integration")
 
+            _register_bug13_services(hass)
+
         initialized = is_initialized
 
     except LoginError:
@@ -140,3 +142,31 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
     config_manager = ConfigManager(hass, entry)
 
     await config_manager.remove(entry_id)
+
+
+# ---------------------------------------------------------------------------
+# BUG-13 decoupling probe — throwaway HA service to drive E-A1 / E-A2 / E-B
+# from Developer Tools. Reverted by /tmp/bug-13/rollback.sh. Do NOT merge.
+# ---------------------------------------------------------------------------
+
+
+def _register_bug13_services(hass: HomeAssistant) -> None:
+    if hass.services.has_service(DOMAIN, "spike_publish"):
+        return
+
+    async def _async_spike_publish(call: ServiceCall) -> None:
+        payload = call.data.get("payload") or {}
+        client_token = call.data.get("client_token") or None
+        coordinators = list(hass.data.get(DOMAIN, {}).values())
+        if not coordinators:
+            _LOGGER.warning("[BUG-13 spike_publish] no coordinator registered")
+            return
+        coordinator = coordinators[0]
+        aws_client = getattr(coordinator, "_aws_client", None)
+        if aws_client is None:
+            _LOGGER.warning("[BUG-13 spike_publish] coordinator has no _aws_client")
+            return
+        aws_client.spike_publish(payload, client_token)
+
+    hass.services.async_register(DOMAIN, "spike_publish", _async_spike_publish)
+    _LOGGER.info("[BUG-13] spike_publish service registered")

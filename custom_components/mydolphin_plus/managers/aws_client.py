@@ -560,6 +560,35 @@ class AWSClient:
 
         self._publish(self._topic_data.update, data)
 
+    def spike_publish(
+        self,
+        payload: dict,
+        client_token: str | None = None,
+    ) -> str:
+        """BUG-13 throwaway: publish a raw ``state.desired`` payload.
+
+        Bypasses every helper (no ``_send_desired_command``, no per-mode
+        BUG-08 reactive chain) and emits a single ``shadow/update`` with
+        the explicit shape::
+
+            {"state": {"desired": <payload>}, "clientToken": <token>}
+
+        Used to drive issue #47's E-A1 (nested-path mode write) and E-A2
+        (direct ``pwsState=on`` start) from HA Developer Tools.
+
+        Token resolution: explicit ``client_token`` arg > ``self._our_token``
+        (per-process token from SPIKE-02) > fresh ``uuid4().hex``.
+        Returns the token used.
+        """
+        token = client_token or self._our_token or uuid.uuid4().hex
+        data: dict = {
+            DATA_ROOT_STATE: {DATA_STATE_DESIRED: payload},
+            DATA_CLIENT_TOKEN: token,
+        }
+        _LOGGER.info("[BUG-13 spike_publish] clientToken=%s payload=%s", token, payload)
+        self._publish(self._topic_data.update, data)
+        return token
+
     def _send_dynamic_command(self, description: str, payload: dict | None):
         payload[DYNAMIC_TYPE] = DYNAMIC_TYPE_PWS_REQUEST
         payload[DYNAMIC_DESCRIPTION] = description
