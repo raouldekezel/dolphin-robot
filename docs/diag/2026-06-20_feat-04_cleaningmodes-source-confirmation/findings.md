@@ -63,9 +63,14 @@ In chronological order (all times CEST):
    Maytronics app (operator starts an ad-hoc cycle in `Complete`
    mode).
 2. **11:44:14** — `desired.cycleInfo.cycleTime = 180` pushed via the
-   Maytronics app (the app's own "duration for the cycle being
-   started" sync — `180` is the then-current Maytronics-side
-   `Complete` slider value).
+   Maytronics app. The operator confirms this came from picking
+   `180 min` in the app's start-cycle duration picker when launching
+   the ad-hoc `Complete` cycle in step 1 — the picker value rides
+   along on the next `desired.cycleInfo.cycleTime` write the app
+   issues. (Later, outside the captured window, the operator started
+   another `Complete` cycle at `120 min` and the shadow's
+   `cleaningModes.all` went from `180` to `120` — same mechanic,
+   second observation.)
 3. **11:44:21** — `desired.systemState.pwsState = off` pushed via the
    Maytronics app (operator aborts the ad-hoc cycle). Robot returns
    to `holdWeekly` at 11:44:24.
