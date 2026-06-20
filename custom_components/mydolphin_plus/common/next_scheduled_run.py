@@ -93,9 +93,7 @@ def _localize(target_date: date, hh: int, mm: int, tz: tzinfo) -> datetime:
     return datetime.combine(target_date, time(hh, mm), tzinfo=tz)
 
 
-def _resolve_cycle_time_minutes(
-    cleaning_modes: object, mode: str | None
-) -> int | None:
+def _resolve_cycle_time_minutes(cleaning_modes: object, mode: str | None) -> int | None:
     """Return ``cleaning_modes[mode]`` if it is a positive int, else ``None``.
 
     ``cleaningModes`` is the firmware's per-mode duration catalogue (e.g.

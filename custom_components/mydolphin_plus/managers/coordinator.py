@@ -459,9 +459,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             slugify(DATA_KEY_PWS_ERROR): self._get_pws_error_data,
             slugify(DATA_KEY_BATTERY): self._get_battery_data,
             slugify(DATA_KEY_NEXT_SCHEDULED_RUN): self._get_next_scheduled_run_data,
-            slugify(
-                DATA_KEY_NEXT_SCHEDULED_MODE
-            ): self._get_next_scheduled_mode_data,
+            slugify(DATA_KEY_NEXT_SCHEDULED_MODE): self._get_next_scheduled_mode_data,
             slugify(
                 DATA_KEY_NEXT_SCHEDULED_CYCLE_TIME
             ): self._get_next_scheduled_cycle_time_data,
@@ -871,9 +869,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         return {ATTR_STATE: computed[ATTR_NSR_CLEANING_MODE]}
 
-    def _get_next_scheduled_cycle_time_data(
-        self, _entity_description
-    ) -> dict | None:
+    def _get_next_scheduled_cycle_time_data(self, _entity_description) -> dict | None:
         computed = self._next_scheduled_data
 
         if computed is None:
