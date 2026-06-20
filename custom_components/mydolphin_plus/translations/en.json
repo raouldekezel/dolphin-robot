@@ -120,6 +120,21 @@
       "next_scheduled_run": {
         "name": "Next Scheduled Run"
       },
+      "next_scheduled_mode": {
+        "name": "Next Scheduled Mode",
+        "state": {
+          "all": "Regular",
+          "floor": "Floor only",
+          "pickup": "Pickup",
+          "short": "Fast mode",
+          "ultra": "Ultra clean",
+          "water": "Water line",
+          "stairs": "Full Coverage"
+        }
+      },
+      "next_scheduled_cycle_time": {
+        "name": "Next Scheduled Cycle Time"
+      },
       "power_supply_error": {
         "name": "Power Supply Error",
         "state": {

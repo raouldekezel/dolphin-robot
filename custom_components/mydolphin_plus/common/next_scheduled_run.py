@@ -31,6 +31,7 @@ ATTR_NSR_STATE = "state"
 ATTR_NSR_CLEANING_MODE = "cleaning_mode"
 ATTR_NSR_SOURCE = "source"
 ATTR_NSR_DAY_OF_WEEK = "day_of_week"
+ATTR_NSR_CYCLE_TIME_MINUTES = "cycle_time_minutes"
 
 SOURCE_WEEKLY = "weekly"
 SOURCE_DELAY = "delay"
@@ -92,12 +93,31 @@ def _localize(target_date: date, hh: int, mm: int, tz: tzinfo) -> datetime:
     return datetime.combine(target_date, time(hh, mm), tzinfo=tz)
 
 
+def _resolve_cycle_time_minutes(cleaning_modes: object, mode: str | None) -> int | None:
+    """Return ``cleaning_modes[mode]`` if it is a positive int, else ``None``.
+
+    ``cleaningModes`` is the firmware's per-mode duration catalogue (e.g.
+    ``{"all": 180, "stairs": 150, "pickup": 12, ...}``). When the scheduler
+    fires, the firmware adopts ``cleaningModes[mode]`` as the cycle's
+    duration; see ``docs/diag/2026-06-20_feat-04_cleaningmodes-source-confirmation/``.
+    """
+    if not isinstance(cleaning_modes, dict) or not isinstance(mode, str):
+        return None
+    value = cleaning_modes.get(mode)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value <= 0:
+        return None
+    return value
+
+
 def compute_next_scheduled_run(
     weekly_settings: dict | None,
     delay: dict | None,
     time_zone_name: str | None,
     time_zone_offset_min: int | None,
     now_utc: datetime,
+    cleaning_modes: dict | None = None,
 ) -> dict | None:
     tz = _resolve_tz(time_zone_name, time_zone_offset_min)
 
@@ -156,4 +176,7 @@ def compute_next_scheduled_run(
         ATTR_NSR_CLEANING_MODE: cleaning_mode,
         ATTR_NSR_SOURCE: source,
         ATTR_NSR_DAY_OF_WEEK: day_of_week,
+        ATTR_NSR_CYCLE_TIME_MINUTES: _resolve_cycle_time_minutes(
+            cleaning_modes, cleaning_mode
+        ),
     }
