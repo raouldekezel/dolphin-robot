@@ -1,3 +1,21 @@
+> [!NOTE]
+> **Experimental fork — Maytronics Dolphin S2000.**
+> A fork of [`sh00t2kill/dolphin-robot`](https://github.com/sh00t2kill/dolphin-robot)
+> dedicated to the Dolphin S2000. It also explores human/AIs collaboration within a
+> conventional software-development methodology: exhaustive design and code review,
+> unit tests, and on-hardware validation.
+
+## What this fork changes (vs. upstream)
+
+- Redacts sensitive tokens and credentials from logs.
+- Uses upstream's beta OTP authentication.
+- Supports the new Full Coverage cleaning mode of the S2000.
+- Adds read-only sensors for the next scheduled run, mode and cycle time.
+- Reacts only to the commands the integration itself sent, fixing spurious behaviors.
+- Fixes French labels for the cleaning modes and the robot state.
+- Adds a documented library of real-device traces with their interpretation (`docs/diag/`).
+- Miscellaneous bug fixes (see the [fork changelog](CHANGELOG-fork.md)).
+
 # MyDolphin Plus
 
 ## Description
