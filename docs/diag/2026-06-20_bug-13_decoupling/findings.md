@@ -17,7 +17,7 @@ avenues to decouple "set cleaning mode" from "start cycle".
   state transition**.
 
 E-A2 (direct `pwsState=on` start) was tested independently of E-A1 and **PASSES**
-as a *trigger*: `pwsState=on` starts the robot in whatever mode and cycleTime the
+as a _trigger_: `pwsState=on` starts the robot in whatever mode and cycleTime the
 firmware currently holds (see § E-A2). The fix direction is therefore E-B (silent
 set), scoped to the `set_fan_speed` path only — see § Fix direction.
 
@@ -141,7 +141,7 @@ sleep-based.
 | Test                                  | Issue #47 prediction                     | Observed                                                                  |
 | ------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------- |
 | E-A1 (nested-path silent set)         | "long shot" — silent-ignore branch noted | **FAIL** (silent ignore, firmware ACK without adoption)                   |
-| E-A2 (`pwsState=on` standalone start) | conditional on E-A1 PASS                 | **PASS** as a trigger — independent of E-A1; starts the current firmware mode/cycleTime. Carries no cycleTime, so **not** a BUG-14 fix.                       |
+| E-A2 (`pwsState=on` standalone start) | conditional on E-A1 PASS                 | **PASS** as a trigger — not a BUG-14 fix (see § E-A2)                     |
 | E-B (set + immediate stop)            | partial workaround                       | **PASS** — full mode + cycleTime adoption with no observable side effects |
 
 **Fix direction for the integration:**
@@ -154,7 +154,7 @@ sleep-based.
 - Gate the pause on the **AWS `/update/accepted`** of the BUG-08 cycleTime write
   (~+1.17 s), not the firmware `desired:null` ACK (~+2.4 s — too close to the
   ~+2.5 s `pwsState=on` reaction). Event-driven, not a fixed sleep.
-- A mode-independent Start *trigger* is available: `pwsState=on` (E-A2) launches
+- A mode-independent Start _trigger_ is available: `pwsState=on` (E-A2) launches
   whatever mode and cycleTime the firmware currently holds. It carries **no**
   cycleTime, so it does **not** address BUG-14 — it starts at the firmware's
   persisted duration, with no guarantee that this equals HA's configured value.
