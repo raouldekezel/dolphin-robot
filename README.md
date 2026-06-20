@@ -9,6 +9,7 @@ methodology: exhaustive design and code review, unit tests, and on-hardware vali
 
 - Redacts sensitive tokens and credentials from logs.
 - Uses upstream's beta OTP authentication.
+- fixes the recurring "lost authentication" problem and keeps the robot's identity across a re-auth.
 - Supports the new Full Coverage cleaning mode of the S2000.
 - Adds read-only sensors for the next scheduled run, mode and cycle time.
 - Reacts only to the commands the integration itself sent, fixing spurious behaviors.
