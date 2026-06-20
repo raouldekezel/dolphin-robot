@@ -1,6 +1,6 @@
-> [!NOTE]
-> **Experimental fork — Maytronics Dolphin S2000.**
-> A fork of [`sh00t2kill/dolphin-robot`](https://github.com/sh00t2kill/dolphin-robot)
+## Experimental fork — Maytronics Dolphin S2000.
+
+> A fork of [`sh00t2kill/dolphin-robot`](https://github.com/sh00t2kill/dolphin-robot) 
 > dedicated to the Dolphin S2000. It also explores human/AIs collaboration within a
 > conventional software-development methodology: exhaustive design and code review,
 > unit tests, and on-hardware validation.
