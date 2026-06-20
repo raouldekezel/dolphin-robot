@@ -146,6 +146,21 @@
       "next_scheduled_run": {
         "name": "Prochain démarrage planifié"
       },
+      "next_scheduled_mode": {
+        "name": "Prochain mode planifié",
+        "state": {
+          "all": "Complet",
+          "floor": "Sol uniquement",
+          "pickup": "Ramassage",
+          "short": "Rapide",
+          "ultra": "Ultra propre",
+          "water": "Ligne d'eau",
+          "stairs": "Couverture complète"
+        }
+      },
+      "next_scheduled_cycle_time": {
+        "name": "Durée du prochain cycle planifié"
+      },
       "power_supply_error": {
         "name": "Erreur d'alimentation",
         "state": {

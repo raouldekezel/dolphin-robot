@@ -120,6 +120,21 @@
       "next_scheduled_run": {
         "name": "Prossimo avvio programmato"
       },
+      "next_scheduled_mode": {
+        "name": "Prossima modalità programmata",
+        "state": {
+          "all": "Regolare",
+          "floor": "Solo piano",
+          "pickup": "Raccolta",
+          "short": "Modalità veloce",
+          "ultra": "Ultra pulito",
+          "water": "Linea di galleggiamento",
+          "stairs": "Copertura completa"
+        }
+      },
+      "next_scheduled_cycle_time": {
+        "name": "Durata del prossimo ciclo programmato"
+      },
       "power_supply_error": {
         "name": "Errore di alimentazione",
         "state": {

@@ -65,6 +65,8 @@ from ..common.consts import (
     DATA_KEY_LED_INTENSITY,
     DATA_KEY_LED_MODE,
     DATA_KEY_NETWORK_NAME,
+    DATA_KEY_NEXT_SCHEDULED_CYCLE_TIME,
+    DATA_KEY_NEXT_SCHEDULED_MODE,
     DATA_KEY_NEXT_SCHEDULED_RUN,
     DATA_KEY_POWER_SUPPLY_STATUS,
     DATA_KEY_PWS_ERROR,
@@ -79,6 +81,7 @@ from ..common.consts import (
     DATA_LED_INTENSITY,
     DATA_LED_MODE,
     DATA_ROBOT_NAME,
+    DATA_SECTION_CLEANING_MODES,
     DATA_SECTION_CYCLE_INFO,
     DATA_SECTION_DEBUG,
     DATA_SECTION_DELAY,
@@ -117,6 +120,7 @@ from ..common.consts import (
 from ..common.joystick_direction import JoystickDirection
 from ..common.next_scheduled_run import (
     ATTR_NSR_CLEANING_MODE,
+    ATTR_NSR_CYCLE_TIME_MINUTES,
     ATTR_NSR_DAY_OF_WEEK,
     ATTR_NSR_SOURCE,
     ATTR_NSR_STATE,
@@ -177,6 +181,13 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         # Safety net for maximum MQTT delay
         self._last_mqtt_refresh = 0
         self._max_mqtt_delay = 5.0
+
+        # FEAT-04 — atomic per-tick memo so the three next-scheduled sensors
+        # (run / mode / cycle time) read the same computed dict and cannot
+        # disagree on which slot won when the wall clock crosses a slot
+        # boundary between two getters. Recomputed at the end of every
+        # `_async_update_data` cycle.
+        self._next_scheduled_data: dict | None = None
 
         self._load_signal_handlers()
 
@@ -417,6 +428,8 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
                 self._set_system_status_details()
 
+            self._refresh_next_scheduled_data()
+
             return {}
 
         except Exception as err:
@@ -446,6 +459,12 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             slugify(DATA_KEY_PWS_ERROR): self._get_pws_error_data,
             slugify(DATA_KEY_BATTERY): self._get_battery_data,
             slugify(DATA_KEY_NEXT_SCHEDULED_RUN): self._get_next_scheduled_run_data,
+            slugify(
+                DATA_KEY_NEXT_SCHEDULED_MODE
+            ): self._get_next_scheduled_mode_data,
+            slugify(
+                DATA_KEY_NEXT_SCHEDULED_CYCLE_TIME
+            ): self._get_next_scheduled_cycle_time_data,
             slugify(DYNAMIC_DESCRIPTION_TEMPERATURE): self._get_temperature_data,
         }
 
@@ -809,20 +828,28 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         return result
 
-    def _get_next_scheduled_run_data(self, _entity_description) -> dict | None:
+    def _refresh_next_scheduled_data(self) -> None:
+        """Recompute the next-scheduled-run dict once per update tick.
+
+        Stored in ``self._next_scheduled_data`` so the three next-scheduled
+        sensors (run / mode / cycle time) read the same value and stay
+        atomically consistent at slot boundaries (FEAT-04).
+        """
         data = self.aws_data
 
         system_state = data.get(DATA_SECTION_SYSTEM_STATE, {})
-        tz_name = system_state.get(DATA_SYSTEM_STATE_TIME_ZONE_NAME)
-        tz_offset_min = system_state.get(DATA_SYSTEM_STATE_TIME_ZONE)
 
-        computed = compute_next_scheduled_run(
+        self._next_scheduled_data = compute_next_scheduled_run(
             data.get(DATA_SECTION_WEEKLY_SETTINGS),
             data.get(DATA_SECTION_DELAY),
-            tz_name,
-            tz_offset_min,
+            system_state.get(DATA_SYSTEM_STATE_TIME_ZONE_NAME),
+            system_state.get(DATA_SYSTEM_STATE_TIME_ZONE),
             dt_util.utcnow(),
+            data.get(DATA_SECTION_CLEANING_MODES),
         )
+
+    def _get_next_scheduled_run_data(self, _entity_description) -> dict | None:
+        computed = self._next_scheduled_data
 
         if computed is None:
             return {ATTR_STATE: None, ATTR_ATTRIBUTES: {}}
@@ -835,6 +862,24 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
                 ATTR_NSR_DAY_OF_WEEK: computed[ATTR_NSR_DAY_OF_WEEK],
             },
         }
+
+    def _get_next_scheduled_mode_data(self, _entity_description) -> dict | None:
+        computed = self._next_scheduled_data
+
+        if computed is None:
+            return {ATTR_STATE: None}
+
+        return {ATTR_STATE: computed[ATTR_NSR_CLEANING_MODE]}
+
+    def _get_next_scheduled_cycle_time_data(
+        self, _entity_description
+    ) -> dict | None:
+        computed = self._next_scheduled_data
+
+        if computed is None:
+            return {ATTR_STATE: None}
+
+        return {ATTR_STATE: computed[ATTR_NSR_CYCLE_TIME_MINUTES]}
 
     def _get_error_code(self, entity_description, data_section_key) -> dict | None:
         data = self.aws_data
