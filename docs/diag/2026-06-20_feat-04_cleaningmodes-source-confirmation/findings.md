@@ -68,9 +68,11 @@ In chronological order (all times CEST):
    the ad-hoc `Complete` cycle in step 1 — the picker value rides
    along on the next `desired.cycleInfo.cycleTime` write the app
    issues. (Later, outside the captured window, the operator started
-   another `Complete` cycle at `120 min` and the shadow's
-   `cleaningModes.all` went from `180` to `120` — same mechanic,
-   second observation.)
+   another `Complete` cycle at `120 min`. The shadow's long-mode
+   `cleaningModes` entries — `all`, `floor`, `water`, `ultra` — all
+   moved together from `180` to `120`; **`stairs` stayed at `150`**,
+   unchanged. Same shape as the propagation captured in this
+   session's 11:44:17 reported event.)
 3. **11:44:21** — `desired.systemState.pwsState = off` pushed via the
    Maytronics app (operator aborts the ad-hoc cycle). Robot returns
    to `holdWeekly` at 11:44:24.
