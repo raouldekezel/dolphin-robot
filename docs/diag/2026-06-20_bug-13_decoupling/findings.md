@@ -16,9 +16,10 @@ avenues to decouple "set cleaning mode" from "start cycle".
   **no `pwsState=on` reported, no cycle-counter increment, no HA `cleaning`
   state transition**.
 
-E-A2 (direct `pwsState=on` start) was unreachable as a follow-up of E-A1 — see
-issue body. The fix direction is therefore E-B: chain mode → cycleTime → stop
-inside `set_cleaning_mode` when the robot was docked at the time of the call.
+E-A2 (direct `pwsState=on` start) was tested independently of E-A1 and **PASSES**
+as a *trigger*: `pwsState=on` starts the robot in whatever mode and cycleTime the
+firmware currently holds (see § E-A2). The fix direction is therefore E-B (silent
+set), scoped to the `set_fan_speed` path only — see § Fix direction.
 
 ## Context
 
@@ -75,7 +76,15 @@ ignore le path imbriqué"), with the ACK quirk noted (AWS Shadow's
 device-side TTL clearance is visible even when the value is not actually
 adopted). E-A is dead as a decoupling primitive.
 
-E-A2 was conditional on E-A1 PASS — see #47. Not run.
+## E-A2 — pwsState=on standalone start
+
+`systemState.pwsState = on` published while docked starts the robot in the mode and
+cycleTime currently held by the firmware, with no `cleaningMode.mode` write.
+Operator-confirmed in-vivo on the S2000. This is the explicit-start primitive the
+issue body anticipated. It carries no cycleTime, so it does not by itself address
+BUG-14 (it starts at the firmware's persisted duration, not necessarily HA's
+configured value). Not wired into any code path yet — recorded as an available
+primitive.
 
 ## E-B — set + immediate stop
 
@@ -123,8 +132,8 @@ Note on variance: the +1.624 s spike timing is tuned to land the stop
 between the BUG-08 chain completion (~+1.07 s) and the firmware's
 `pwsState=on` reaction (~+2.5 s observed in BUG-13 reconfirmation runs).
 Faster WAN latency widens the window; slower latency narrows it. A
-production-grade fix should be event-driven (await the AWS `desired:null`
-ACK of the cycleTime write before publishing the stop) rather than
+production-grade fix should be event-driven (await the AWS `/update/accepted`
+of the cycleTime write before publishing the stop) rather than
 sleep-based.
 
 ## Outcome matrix for #47
@@ -132,11 +141,24 @@ sleep-based.
 | Test                                  | Issue #47 prediction                     | Observed                                                                  |
 | ------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------- |
 | E-A1 (nested-path silent set)         | "long shot" — silent-ignore branch noted | **FAIL** (silent ignore, firmware ACK without adoption)                   |
-| E-A2 (`pwsState=on` standalone start) | conditional on E-A1 PASS                 | **n/a** (E-A1 failed, E-A2 unreachable as designed)                       |
+| E-A2 (`pwsState=on` standalone start) | conditional on E-A1 PASS                 | **PASS** as a trigger — independent of E-A1; starts the current firmware mode/cycleTime. Carries no cycleTime, so **not** a BUG-14 fix.                       |
 | E-B (set + immediate stop)            | partial workaround                       | **PASS** — full mode + cycleTime adoption with no observable side effects |
 
-**Fix direction for the integration:** in `set_cleaning_mode`, when the
-robot was `holdWeekly` at the time of the call, append a `pause()` call
-gated on the firmware's `desired:null` ACK of the BUG-08 cycleTime write
-(not a fixed sleep). The select then writes to the firmware cleanly:
-mode and cycleTime adopted, no auto-start.
+**Fix direction for the integration:**
+
+- Scope the silent-set `pause()` to the **`set_fan_speed` / mode-selection path
+  only** (`_set_cleaning_mode` in the coordinator). It must **not** go inside the
+  shared `AWSClient.set_cleaning_mode` — `_vacuum_start` and `_pickup` also call it,
+  so a pause there would make the Start button set-then-stop (never run) and break
+  return-to-base.
+- Gate the pause on the **AWS `/update/accepted`** of the BUG-08 cycleTime write
+  (~+1.17 s), not the firmware `desired:null` ACK (~+2.4 s — too close to the
+  ~+2.5 s `pwsState=on` reaction). Event-driven, not a fixed sleep.
+- A mode-independent Start *trigger* is available: `pwsState=on` (E-A2) launches
+  whatever mode and cycleTime the firmware currently holds. It carries **no**
+  cycleTime, so it does **not** address BUG-14 — it starts at the firmware's
+  persisted duration, with no guarantee that this equals HA's configured value.
+  Recorded as an available primitive; out of scope for the BUG-13 fix.
+- Co-design with SPIKE-02 D2: if D2 replaces the mode→cycleTime sequence with a
+  combined `{mode, cycleTime}` write, the pause gate must be redefined against the
+  new start sequence.
