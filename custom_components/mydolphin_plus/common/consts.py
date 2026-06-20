@@ -110,6 +110,7 @@ DATA_SCHEDULE_TIME_MINUTES = "minutes"
 
 DATA_SECTION_WEEKLY_SETTINGS = "weeklySettings"
 DATA_SECTION_DELAY = "delay"
+DATA_SECTION_CLEANING_MODES = "cleaningModes"
 DATA_WEEKLY_IS_IN_REPEAT_MODE = "isInRepeatMode"
 DATA_DELAY_START_TIME = "startTime"
 
@@ -338,6 +339,8 @@ DATA_KEY_ROBOT_ERROR = "Robot Error"
 DATA_KEY_PWS_ERROR = "Power Supply Error"
 DATA_KEY_BATTERY = "Battery"
 DATA_KEY_NEXT_SCHEDULED_RUN = "Next Scheduled Run"
+DATA_KEY_NEXT_SCHEDULED_MODE = "Next Scheduled Mode"
+DATA_KEY_NEXT_SCHEDULED_CYCLE_TIME = "Next Scheduled Cycle Time"
 
 TRANSLATION_KEY_ERROR_INSTRUCTIONS = "state_attributes.instructions.state"
 ERROR_CLEAN_CODES = [0, 255]
