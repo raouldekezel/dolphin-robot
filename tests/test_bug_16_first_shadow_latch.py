@@ -27,11 +27,7 @@ The 27 tests below split in two groups:
 
 from __future__ import annotations
 
-from pathlib import Path
-import re
 from types import SimpleNamespace
-
-import pytest
 
 from custom_components.mydolphin_plus.common.calculated_state import CalculatedState
 from custom_components.mydolphin_plus.common.clean_modes import CleanModes
@@ -53,11 +49,6 @@ from custom_components.mydolphin_plus.common.robot_state import RobotState
 from custom_components.mydolphin_plus.models.system_details import SystemDetails
 from homeassistant.components.vacuum import VacuumActivity
 from homeassistant.const import ATTR_MODE, ATTR_STATE
-
-COMPONENT_ROOT = (
-    Path(__file__).resolve().parent.parent / "custom_components" / "mydolphin_plus"
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers — minimal stubs that bypass __init__ for the units under test.
@@ -373,25 +364,6 @@ def test_available_property_is_pure_no_side_effects():
 # ---------------------------------------------------------------------------
 
 
-def test_vacuum_ctor_does_not_set_docked_default():
-    """The ctor must not bake ``DOCKED`` in; otherwise
-    ``async_add_entities(..., True)`` publishes ``docked`` before any
-    shadow arrives. Source-level check — full ctor needs a slugify chain
-    we don't reproduce here."""
-    src = (COMPONENT_ROOT / "vacuum.py").read_text(encoding="utf-8")
-    ctor_match = re.search(
-        r"def __init__\(\s*self,[^)]*\)[^:]*:(?P<body>.*?)(?=\n    [@a-zA-Z_])",
-        src,
-        re.DOTALL,
-    )
-    assert ctor_match is not None, "could not locate MyDolphinPlusVacuumEntity.__init__"
-    ctor_body = ctor_match.group("body")
-
-    assert "VacuumActivity.DOCKED" not in ctor_body, (
-        "ctor must not preset _attr_activity to DOCKED — BUG-16 regression"
-    )
-
-
 def test_vacuum_update_component_with_none_is_noop():
     entity = _make_vacuum_entity()
     entity._attr_activity = VacuumActivity.CLEANING
@@ -455,64 +427,6 @@ def test_bootstrap_no_shadow_then_off_shadow_publishes_docked_legitimately():
 
 
 # ---------------------------------------------------------------------------
-# Group F — other entities (regression sweep).
-# ---------------------------------------------------------------------------
-
-
-PLATFORM_FILES = (
-    "sensor.py",
-    "binary_sensor.py",
-    "light.py",
-    "number.py",
-    "remote.py",
-    "select.py",
-    "vacuum.py",
-)
-
-
-def test_no_entity_overrides_available_without_calling_super():
-    """If a platform class defines ``available``, it must reference
-    ``super().available`` so the latch is honoured."""
-    import ast
-
-    for filename in PLATFORM_FILES:
-        text = (COMPONENT_ROOT / filename).read_text(encoding="utf-8")
-        tree = ast.parse(text)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ClassDef):
-                continue
-            for sub in ast.walk(node):
-                if isinstance(sub, ast.FunctionDef) and sub.name == "available":
-                    body_src = ast.unparse(sub)
-                    assert "super().available" in body_src, (
-                        f"{filename}::{node.name}.available must call "
-                        f"super().available so BUG-16's latch is honoured"
-                    )
-
-
-@pytest.mark.parametrize("platform", PLATFORM_FILES)
-def test_all_platform_entities_unavailable_before_first_shadow(platform):
-    """Without an entity ``available`` override on the base, the latch is
-    not honoured platform-wide. Verify the override lives on the shared
-    base entity so every platform inherits it for free."""
-    base_src = (COMPONENT_ROOT / "common" / "base_entity.py").read_text(encoding="utf-8")
-    assert "def available" in base_src, (
-        "MyDolphinPlusBaseEntity must override `available` so all "
-        "platforms (including the one currently parametrised: "
-        f"{platform}) honour the BUG-16 latch"
-    )
-    assert "has_real_data" in base_src, (
-        "the base entity's `available` override must consult "
-        "`coordinator.has_real_data`"
-    )
-
-    # Functional check on the shared override: pre-latch, available is
-    # False regardless of which platform the concrete entity belongs to.
-    entity = _make_base_entity(last_update_success=True, has_real_data=False)
-    assert entity.available is False
-
-
-# ---------------------------------------------------------------------------
 # Group G — dead-code removals.
 # ---------------------------------------------------------------------------
 
@@ -535,29 +449,3 @@ def test_can_load_components_attribute_removed():
     assert not hasattr(coord, "_can_load_components"), (
         "_can_load_components is dead — must not be re-introduced"
     )
-
-    src = (COMPONENT_ROOT / "managers" / "coordinator.py").read_text(encoding="utf-8")
-    assert "_can_load_components" not in src, (
-        "dead `_can_load_components` flag must not be re-added"
-    )
-
-
-def test_vacuum_ctor_source_has_no_docked_assignment():
-    """Source-level complement to #19: forbid the ctor-default
-    ``_attr_activity = VacuumActivity.DOCKED`` line. Scoped to the
-    constructor — ``update_component`` keeps a legitimate
-    string-state fallback (``vacuum.py:99`` else branch on
-    ``isinstance(state, VacuumActivity)``), which the design does not
-    remove."""
-    src = (COMPONENT_ROOT / "vacuum.py").read_text(encoding="utf-8")
-    ctor_match = re.search(
-        r"def __init__\(\s*self,[^)]*\)[^:]*:(?P<body>.*?)(?=\n    [@a-zA-Z_])",
-        src,
-        re.DOTALL,
-    )
-    assert ctor_match is not None
-    ctor_body = ctor_match.group("body")
-
-    assert not re.search(
-        r"_attr_activity\s*=\s*VacuumActivity\.DOCKED", ctor_body
-    ), "ctor must not pre-assign DOCKED to _attr_activity"

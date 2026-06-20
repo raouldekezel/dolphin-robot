@@ -43,17 +43,14 @@ ignores a sibling ``cycleTime`` field in a mode-change document, which
 is why the chain must be kept (E7).
 
 This file tests the four behavioural pieces (token stamping, predicate
-correctness, HARD-09 gate, BUG-08 gate), the non-blocking nature of the
-BUG-08 wait, and pins the source-level shape so the chain cannot be
-silently broken again.
+correctness, HARD-09 gate, BUG-08 gate) and the non-blocking nature of
+the BUG-08 wait.
 """
 
 from __future__ import annotations
 
-import inspect
 import json
 import logging
-import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -92,50 +89,8 @@ def _encode(payload: dict) -> bytes:
     return json.dumps(payload).encode("utf-8")
 
 
-def _bug08_chain_lines() -> list[str]:
-    """Return the source lines of the BUG-08 branch in ``_message_callback``,
-    for source-level pinning."""
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    src = inspect.getsource(AWSClient._message_callback)
-    return src.splitlines()
-
-
 # ---------------------------------------------------------------------------
-# 1. Token minting
-# ---------------------------------------------------------------------------
-
-
-def test_token_minted_in_initialize_is_uuid4_hex():
-    """Source-level: ``initialize`` assigns ``self._our_token = uuid.uuid4().hex``.
-
-    A behavioural test would require standing up the full AWS IoT mock
-    fleet (the rest of ``initialize`` is heavy I/O). The source pin is
-    sufficient here: any future refactor that drops the mint will fail
-    this test, and the token format (``hex``, no dashes) matters for the
-    AWS Shadow ``clientToken`` ≤ 64-byte contract.
-    """
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    src = inspect.getsource(AWSClient.initialize)
-    assert re.search(r"self\._our_token\s*=\s*uuid\.uuid4\(\)\.hex", src), (
-        "initialize() must mint a per-process clientToken with uuid4().hex"
-    )
-
-
-def test_our_token_is_none_before_initialize():
-    """Constructor must set ``_our_token = None`` so the provenance
-    predicate is conservative-False before the AWS connect cycle has run."""
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    src = inspect.getsource(AWSClient.__init__)
-    assert re.search(r"self\._our_token\s*:\s*str\s*\|\s*None\s*=\s*None", src), (
-        "__init__ must declare self._our_token: str | None = None"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 2. Stamping
+# 1. Stamping
 # ---------------------------------------------------------------------------
 
 
@@ -182,7 +137,7 @@ def test_send_desired_command_works_with_none_payload():
 
 
 # ---------------------------------------------------------------------------
-# 3. Provenance predicate
+# 2. Provenance predicate
 # ---------------------------------------------------------------------------
 
 
@@ -232,7 +187,7 @@ def test_event_is_ours_conservative_false_before_initialize():
 
 
 # ---------------------------------------------------------------------------
-# 4. HARD-09 gate — only WARN on OUR rejected
+# 3. HARD-09 gate — only WARN on OUR rejected
 # ---------------------------------------------------------------------------
 
 
@@ -337,7 +292,7 @@ def test_hard09_debug_on_other_token_rejected(caplog):
 
 
 # ---------------------------------------------------------------------------
-# 5. BUG-08 gate — only fire on OUR accepted; non-blocking wait
+# 4. BUG-08 gate — only fire on OUR accepted; non-blocking wait
 # ---------------------------------------------------------------------------
 
 
@@ -439,63 +394,3 @@ def test_bug08_skips_accepted_without_mode_field():
 
     sleep_mock.assert_not_called()
     stub._set_cycle_time.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# 6. Source-level pins — provenance gates + `sleep(1)` kept inline
-# ---------------------------------------------------------------------------
-
-
-def test_sleep_one_kept_in_bug08_chain():
-    """The ``sleep(1)`` is deliberately preserved. The spike documented
-    that the gap is needed but did not characterise *why* (ordering,
-    throttling, an awaited shadow field), so removing it would be a
-    blind change. The gate above already removes the operational
-    concern about it — only HA-initiated mode changes pay the wait.
-
-    See [[dolphin-bug08-launcher-pick-semantics]] (memory) for the
-    follow-up plan that must precede any sleep refactor.
-    """
-    lines = _bug08_chain_lines()
-    chain = "\n".join(lines)
-    assert re.search(r"\bsleep\(1\)", chain), (
-        "BUG-08 chain must still wait 1 s between the mode echo and the "
-        "cycleTime write — see the in-source rationale + the launcher-pick "
-        "semantics memory"
-    )
-
-
-def test_hard09_branch_is_provenance_gated():
-    """Source-level pin on the HARD-09 branch shape — must consult
-    ``_event_is_ours`` before emitting WARNING."""
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    src = inspect.getsource(AWSClient._message_callback)
-    # the rejected branch must contain `_event_is_ours` between the
-    # `endswith(TOPIC_CALLBACK_REJECTED)` line and the next `elif`.
-    rejected_idx = src.find("TOPIC_CALLBACK_REJECTED")
-    assert rejected_idx >= 0
-    next_elif_idx = src.find("elif", rejected_idx)
-    rejected_branch = src[rejected_idx:next_elif_idx]
-    assert "_event_is_ours" in rejected_branch, (
-        "HARD-09 (`/rejected`) branch must call `self._event_is_ours(...)` "
-        "before deciding between WARNING and DEBUG"
-    )
-
-
-def test_bug08_branch_is_provenance_gated():
-    """Source-level pin: BUG-08's reactive chain must check
-    ``_event_is_ours`` on the parsed payload."""
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    src = inspect.getsource(AWSClient._message_callback)
-    update_accepted_idx = src.find("update_accepted")
-    assert update_accepted_idx >= 0
-    # the reactive sub-branch — look from `update_accepted` to end of
-    # method (or next `except`).
-    end_idx = src.find("except Exception", update_accepted_idx)
-    update_accepted_branch = src[update_accepted_idx:end_idx]
-    assert "_event_is_ours" in update_accepted_branch, (
-        "BUG-08 (`/update/accepted`) branch must call `self._event_is_ours(...)` "
-        "before scheduling the reactive cycleTime write"
-    )

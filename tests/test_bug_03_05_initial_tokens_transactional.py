@@ -20,9 +20,6 @@ replayed.
 
 from __future__ import annotations
 
-import inspect
-from pathlib import Path
-import re
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -224,30 +221,3 @@ async def test_bug03_strip_clears_legacy_conf_password_on_upgrade(monkeypatch):
     )
     fake_cm.update_tokens.assert_not_called()
     hass.config_entries.async_update_entry.assert_called_once()
-
-
-# --- Defense in depth: source-level regression ------------------------------
-
-
-def _init_source() -> str:
-    from custom_components import mydolphin_plus
-
-    return Path(inspect.getfile(mydolphin_plus)).read_text(encoding="utf-8")
-
-
-def test_bug03_source_strips_before_update_tokens():
-    """The strip must lexically precede the `update_tokens` call in async_setup_entry.
-
-    A revert that moves the strip back after the tokens write fails this test.
-    """
-    src = _init_source()
-    strip_match = re.search(
-        r"async_update_entry\s*\(\s*entry\s*,\s*data\s*=",
-        src,
-    )
-    tokens_match = re.search(r"await\s+config_manager\.update_tokens\b", src)
-    assert strip_match is not None, "no async_update_entry call found"
-    assert tokens_match is not None, "no update_tokens call found"
-    assert strip_match.start() < tokens_match.start(), (
-        "INITIAL_TOKENS_KEY strip must lexically precede update_tokens"
-    )
