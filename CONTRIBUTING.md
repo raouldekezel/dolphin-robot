@@ -31,6 +31,10 @@ This project uses `pyproject.toml` configuration for formatting, import sorting,
 - Keep secrets, tokens, account emails, and robot identifiers out of issues, logs, and pull requests.
 - Prefer small, reviewable pull requests over broad refactors.
 
+## Tests
+
+Tests that inspect a module's source code as text are forbidden, for the reasons detailed in [#77 (CHORE-02)](https://github.com/raouldekezel/dolphin-robot/issues/77). Inspecting logs, translation JSON files, and other data is fine.
+
 ## Contributors
 
 Thanks to everyone who has contributed to this project:

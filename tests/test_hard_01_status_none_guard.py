@@ -16,15 +16,11 @@ fix simply restores the guard the author placed on purpose, by dropping
 the premature ``.lower()``.
 
 The tests below pin both helpers behaviourally on ``None`` and on a
-string input, and a source-level regression check forbids the bad
-pattern from coming back through a copy/paste.
+string input.
 """
 
 from __future__ import annotations
 
-import inspect
-from pathlib import Path
-import re
 from unittest.mock import MagicMock
 
 from homeassistant.const import ATTR_STATE
@@ -84,22 +80,3 @@ def test_robot_status_lowercases_string_state():
     result = MyDolphinPlusCoordinator._get_robot_status_data(stub, None)
 
     assert result == {ATTR_STATE: "idle"}
-
-
-def test_source_never_calls_lower_before_none_guard():
-    """Forbid ``state = self._system_details.<x>_state.lower()`` from coming back.
-
-    Catches the original bad pattern on either helper without depending
-    on line numbers (the file shifts as other patches land).
-    """
-    from custom_components.mydolphin_plus.managers import coordinator as mod
-
-    src = Path(inspect.getfile(mod)).read_text(encoding="utf-8")
-
-    bad_pattern = re.compile(
-        r"state\s*=\s*self\._system_details\.(?:power_unit_state|robot_state)\.lower\(\)"
-    )
-
-    assert not bad_pattern.search(src), (
-        "HARD-01 regression: .lower() must come AFTER the None guard, not before."
-    )

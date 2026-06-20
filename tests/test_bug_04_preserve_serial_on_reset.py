@@ -14,9 +14,6 @@ they are robot identity, not authentication state.
 
 from __future__ import annotations
 
-import inspect
-from pathlib import Path
-import re
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -94,54 +91,3 @@ async def test_bug04_reset_login_details_still_clears_real_tokens():
             assert cm._data[key] is None, (
                 f"{key} was preserved but it carries authentication state"
             )
-
-
-# --- Defense in depth: source-level regression ------------------------------
-
-
-def _config_manager_source() -> str:
-    from custom_components.mydolphin_plus.managers import config_manager as cm_module
-
-    return Path(inspect.getfile(cm_module)).read_text(encoding="utf-8")
-
-
-def test_bug04_source_preserves_serial_number_on_reset():
-    """``reset_login_details`` must preserve serial_number, not just motor_unit_serial.
-
-    A revert that goes back to ``if token_param != STORAGE_DATA_MOTOR_UNIT_SERIAL``
-    (only motor_unit_serial preserved) fails this test. Catches both forms of the
-    fix: a literal STORAGE_DATA_SERIAL_NUMBER reference in the function body, or
-    a class-level set/frozenset that includes it (as in the current fix).
-    """
-    src = _config_manager_source()
-
-    # The exact revert pattern is forbidden anywhere in the module.
-    forbidden_revert = re.search(
-        r"if\s+token_param\s*!=\s*STORAGE_DATA_MOTOR_UNIT_SERIAL\s*:",
-        src,
-    )
-    assert forbidden_revert is None, (
-        "old pattern reintroduced — only motor_unit_serial would be preserved"
-    )
-
-    # The module must mention STORAGE_DATA_SERIAL_NUMBER in a preservation
-    # context: either a class-level preserved set, or directly inside the
-    # reset_login_details body.
-    body_match = re.search(
-        r"async def reset_login_details\(self\):.*?await self\._save\(\)",
-        src,
-        re.DOTALL,
-    )
-    assert body_match is not None, "reset_login_details body not found"
-    body = body_match.group(0)
-
-    preserved_set_match = re.search(
-        r"(?:_PRESERVED_ON_RESET|preserved|PRESERVED)[^=]*=[^{]*\{[^}]*STORAGE_DATA_SERIAL_NUMBER",
-        src,
-        re.DOTALL,
-    )
-
-    assert ("STORAGE_DATA_SERIAL_NUMBER" in body) or (preserved_set_match is not None), (
-        "STORAGE_DATA_SERIAL_NUMBER is no longer referenced in a preservation "
-        "context — it would be wiped on every reset, orphaning entities"
-    )
