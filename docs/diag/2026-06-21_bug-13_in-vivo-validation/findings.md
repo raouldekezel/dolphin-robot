@@ -71,7 +71,7 @@ Reviewer hypothesis (2026-06-21): the firmware should have transiently flipped `
 | 12:24:34.073 | **`on`**                        | **`init`**                        |
 | 12:24:37.251 | `holdWeekly`                    | `notConnected`                    |
 
-The firmware did briefly transition for ~4 s. Our `pause()` (published at 12:24:31.938) had been ACK'd before the firmware reported `on`, but the firmware's start-machine had already advanced past the point where the next `pwsState=off` write could pre-empt it — it ran a brief init, then accepted our queued stop.
+The firmware did briefly transition for ~4 s. Our `pause()` (published at 12:24:31.938) had been ACK'd before the firmware reported `on`, but the firmware's start-machine had already advanced past the point where the next `pwsState=off` write could preempt it — it ran a brief init, then accepted our queued stop.
 
 **HA side — `vacuum.nono_2` stayed `docked` throughout.** Raw `states` rows from the HA recorder (`docker exec hass python3 …` against `/config/home-assistant_v2.db?mode=ro`, joining `states` ⨝ `states_meta`, window 12:20:00 → 12:45:00 UTC):
 
