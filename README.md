@@ -1,8 +1,8 @@
 ## Experimental fork — Maytronics Dolphin S2000.
 
-A fork of [`sh00t2kill/dolphin-robot`](https://github.com/sh00t2kill/dolphin-robot) 
-dedicated to the Dolphin S2000. 
-It also explores human/AIs collaboration within a conventional software-development 
+A fork of [`sh00t2kill/dolphin-robot`](https://github.com/sh00t2kill/dolphin-robot)
+dedicated to the Dolphin S2000.
+It also explores human/AIs collaboration within a conventional software-development
 methodology: exhaustive design and code review, unit tests, and on-hardware validation.
 
 ## What this fork changes (vs. upstream)
@@ -15,7 +15,7 @@ methodology: exhaustive design and code review, unit tests, and on-hardware vali
 - Reacts only to the commands the integration itself sent, fixing spurious behaviors.
 - Fixes French labels for the cleaning modes and the robot state. Some Italian fixed too.
 - Adds a documented library of real-device traces with their interpretation (`docs/diag/`).
-- Miscellaneous issues fixes (see the [Releases](https://github.com/raouldekezel/dolphin-robot/releases) page).
+- Miscellaneous issues fixed  (see the [Releases](https://github.com/raouldekezel/dolphin-robot/releases) page).
 
 # MyDolphin Plus
 
