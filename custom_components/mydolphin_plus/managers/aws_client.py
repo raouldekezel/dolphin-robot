@@ -678,9 +678,19 @@ class AWSClient:
 
         Caller is responsible for only invoking this when the robot is
         docked; called on a running robot it would interrupt the cycle.
+
+        If the mode publish raises, the deadline is rolled back so a later
+        unrelated cycleTime write cannot inherit a stale pending and stop
+        a running robot. ``_publish`` itself already swallows broker-side
+        errors, so this guard mainly protects against serialization /
+        programmer errors above it.
         """
         self._silent_stop_deadline = monotonic() + _SILENT_STOP_TTL_SECONDS
-        self.set_cleaning_mode(clean_mode)
+        try:
+            self.set_cleaning_mode(clean_mode)
+        except Exception:
+            self._silent_stop_deadline = None
+            raise
 
     def _set_cycle_time(self, clean_mode: CleanModes):
         cycle_time = self._config_manager.get_clean_cycle_time(clean_mode)

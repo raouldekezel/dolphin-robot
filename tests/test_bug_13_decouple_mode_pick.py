@@ -194,6 +194,27 @@ def test_silent_set_arms_deadline_and_publishes_mode():
     stub.set_cleaning_mode.assert_called_once_with("stairs")
 
 
+def test_silent_set_rolls_back_deadline_on_publish_exception():
+    """If the mode publish raises, the armed deadline must be cleared and
+    the exception re-raised. Otherwise the dangling deadline could match a
+    later, unrelated cycleTime write within the TTL window and stop a
+    running robot. ``_publish`` swallows broker errors itself, so this
+    guard protects mostly against above-the-broker faults (serialization,
+    misuse), but the invariant matters."""
+    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
+    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
+
+    stub = MagicMock(spec=AWSClient)
+    stub._silent_stop_deadline = None
+    stub.set_cleaning_mode = MagicMock(side_effect=RuntimeError("publish failed"))
+
+    with patch.object(aws_client_mod, "monotonic", return_value=1000.0):
+        with pytest.raises(RuntimeError, match="publish failed"):
+            AWSClient.set_cleaning_mode_silent(stub, "stairs")
+
+    assert stub._silent_stop_deadline is None
+
+
 # ---------------------------------------------------------------------------
 # _silent_stop_due — the gate
 # ---------------------------------------------------------------------------
@@ -387,6 +408,68 @@ def test_observer_no_pause_on_pause_own_echo():
         _run_callback_with_fast_sleep(stub, stub._topic_data.update_accepted, payload)
 
     stub.pause.assert_not_called()
+
+
+def test_overlapping_silent_sets_produce_a_single_pause():
+    """Locks the current behaviour reviewer flagged as a residual: two
+    silent sets within the ~1.2 s BUG-08 window share the single
+    ``_silent_stop_deadline`` scalar, so only ONE ``pause()`` fires (the
+    first cycleTime echo consumes the deadline; the second observes None
+    and is inert).
+
+    Strictly better than pre-fix (where EVERY pick started the robot),
+    but the second mode write's auto-start may slip through unobserved.
+    Whether the firmware lets it through is a hardware question
+    (SPIKE-02 D4 territory, deferred). If it does, this scalar needs to
+    become per-write correlation — and this test will then fail loudly,
+    flagging the design change."""
+    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
+    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
+
+    stub = MagicMock(spec=AWSClient)
+    stub._silent_stop_deadline = None
+    stub.set_cleaning_mode = MagicMock()
+    stub._our_token = "OURTOKEN"
+    stub._topic_data = SimpleNamespace(
+        dynamic="dynamic-topic-irrelevant",
+        get_accepted="$aws/things/REDACTED-MUSN/shadow/get/accepted",
+        update_accepted="$aws/things/REDACTED-MUSN/shadow/update/accepted",
+        update="$aws/things/REDACTED-MUSN/shadow/update",
+    )
+    stub._config_manager = MagicMock()
+    stub._config_manager.motor_unit_serial = "REDACTED-MUSN"
+    stub._set_cycle_time = MagicMock()
+    stub._on_data_update_callback = lambda: None
+    stub.data = {}
+    stub._robot_family = None
+    stub._event_is_ours = lambda payload: AWSClient._event_is_ours(stub, payload)
+    stub._silent_stop_due = lambda desired: AWSClient._silent_stop_due(stub, desired)
+    stub.pause = MagicMock()
+
+    cycle_time_echo = _encode(
+        {
+            "state": {"desired": {"cycleInfo": {"cycleTime": 60}}},
+            "clientToken": "OURTOKEN",
+            "version": 100,
+            "timestamp": 1000,
+        }
+    )
+
+    with patch.object(aws_client_mod, "monotonic", return_value=1000.0):
+        AWSClient.set_cleaning_mode_silent(stub, "all")        # pick A, deadline_A
+        AWSClient.set_cleaning_mode_silent(stub, "stairs")     # pick B, overwrites with deadline_B
+
+        # A's cycleTime echo arrives first — consumes the deadline.
+        _run_callback_with_fast_sleep(
+            stub, stub._topic_data.update_accepted, cycle_time_echo
+        )
+        # B's cycleTime echo arrives next — no deadline left, no pause.
+        _run_callback_with_fast_sleep(
+            stub, stub._topic_data.update_accepted, cycle_time_echo
+        )
+
+    assert stub.pause.call_count == 1
+    assert stub._silent_stop_deadline is None
 
 
 def test_observer_clears_expired_pending_without_action():
