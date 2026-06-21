@@ -910,8 +910,17 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         _LOGGER.debug(f"Change cleaning mode, State: {mode}, New: {fan_speed}")
 
-        if mode != fan_speed:
+        if mode == fan_speed:
+            return
+
+        # BUG-13 — split by current robot state.
+        # Running: keep today's behaviour (live mode-swap, matches the
+        # Maytronics app). Docked: route through the silent E-B primitive
+        # so picking a mode does not also start a cycle.
+        if self._system_details.is_active:
             self._aws_client.set_cleaning_mode(fan_speed)
+        else:
+            self._aws_client.set_cleaning_mode_silent(fan_speed)
 
     async def _set_led_mode(self, _entity_description: EntityDescription, option: str):
         _LOGGER.debug(f"Change led mode, New: {option}")
