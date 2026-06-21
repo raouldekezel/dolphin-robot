@@ -2,6 +2,7 @@
 
 A fork of [`sh00t2kill/dolphin-robot`](https://github.com/sh00t2kill/dolphin-robot)
 dedicated to the Dolphin S2000.
+
 It also explores 
 - human/AIs collaboration within a conventional software-development
 methodology
