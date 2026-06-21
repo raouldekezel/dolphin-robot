@@ -19,12 +19,12 @@ End-to-end validation of [PR #86](https://github.com/raouldekezel/dolphin-robot/
 
 ## Branch coverage
 
-| # | Action | Pre-state | Pick | Code path | Cycles | Pause emitted? | Outcome |
-|---|---|---|---|---|---|---|---|
-| 1 | Pick docked | `holdWeekly`, mode=`all` | `stairs` | `set_cleaning_mode_silent` (E-B) | 58 → 58 | ✅ yes (~84 ms post-cycleTime echo) | mode + cycleTime adopted, robot stayed docked |
-| 2 | `vacuum.start` | `holdWeekly`, mode=`stairs` | — | `_vacuum_start` → bare `set_cleaning_mode` | 58 → 59 | ❌ no (`_silent_stop_deadline` not armed) | robot transitioned to `on / init / scanning` |
-| 3 | Pick running | `cleaning`, mode=`stairs` | `floor` | bare `set_cleaning_mode` (today's live write) | 59 → 59 | ❌ no (`is_active` branch skips silent) | mode swapped mid-cycle, no off interlude |
-| 4 | Pick running | `cleaning`, mode=`floor` | `all` | bare `set_cleaning_mode` (today's live write) | 59 → 59 | ❌ no | mode swapped mid-cycle, no off interlude |
+| #   | Action         | Pre-state                   | Pick     | Code path                                     | Cycles  | Pause emitted?                            | Outcome                                       |
+| --- | -------------- | --------------------------- | -------- | --------------------------------------------- | ------- | ----------------------------------------- | --------------------------------------------- |
+| 1   | Pick docked    | `holdWeekly`, mode=`all`    | `stairs` | `set_cleaning_mode_silent` (E-B)              | 58 → 58 | ✅ yes (~84 ms post-cycleTime echo)       | mode + cycleTime adopted, robot stayed docked |
+| 2   | `vacuum.start` | `holdWeekly`, mode=`stairs` | —        | `_vacuum_start` → bare `set_cleaning_mode`    | 58 → 59 | ❌ no (`_silent_stop_deadline` not armed) | robot transitioned to `on / init / scanning`  |
+| 3   | Pick running   | `cleaning`, mode=`stairs`   | `floor`  | bare `set_cleaning_mode` (today's live write) | 59 → 59 | ❌ no (`is_active` branch skips silent)   | mode swapped mid-cycle, no off interlude      |
+| 4   | Pick running   | `cleaning`, mode=`floor`    | `all`    | bare `set_cleaning_mode` (today's live write) | 59 → 59 | ❌ no                                     | mode swapped mid-cycle, no off interlude      |
 
 The four scenarios exercise every branch of the BUG-13 split: `is_active=False` → silent E-B; `is_active=True` → live; `_silent_stop_deadline` armed vs. not armed; mode-echo vs. cycleTime-echo discriminator in the observer.
 
@@ -32,14 +32,14 @@ The four scenarios exercise every branch of the BUG-13 split: `is_active=False` 
 
 `01_silent_pick_all_to_stairs.mqtt.log`. Operator picked `Couverture complète` (= `stairs`) in the HA vacuum combo while the robot was `holdWeekly` with `reported.cycleInfo.cleaningMode.mode = "all"`.
 
-| Δ T₀ | Source | Event |
-|---|---|---|
-| **+0.000 s** (14:24:30.761 CEST) | HA | `Set cleaning mode, Desired: {cleaningMode: {mode: stairs}}` — the silent helper publishes via the standard `set_cleaning_mode`, having armed `_silent_stop_deadline = now + 5 s` |
-| +0.038 s | AWS | `/update/accepted` v1 echoes `reported.cycleInfo.cleaningMode = {mode:"all", cycleTime:150}` (pre-write state) |
-| +0.091 s | AWS | `/update/accepted` v2 echoes our `desired.cleaningMode.mode = "stairs"` with our token — BUG-08 chain branch fires (`sleep(1)`) |
-| **+1.093 s** (14:24:31.854) | HA | `Set cycle time, Desired: {cycleInfo: {cycleTime: 150}}` — BUG-08 chain emits the configured cycle time |
-| +0.011 s after | AWS | `/update/accepted` echoes our cycleTime write with our token — **BUG-13 observer fires the new branch**, clears `_silent_stop_deadline`, calls `pause()` |
-| **+1.177 s** (14:24:31.938) | HA | `Set power state, Desired: {systemState: {pwsState: off}}` — E-B stop write |
+| Δ T₀                             | Source | Event                                                                                                                                                                             |
+| -------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **+0.000 s** (14:24:30.761 CEST) | HA     | `Set cleaning mode, Desired: {cleaningMode: {mode: stairs}}` — the silent helper publishes via the standard `set_cleaning_mode`, having armed `_silent_stop_deadline = now + 5 s` |
+| +0.038 s                         | AWS    | `/update/accepted` v1 echoes `reported.cycleInfo.cleaningMode = {mode:"all", cycleTime:150}` (pre-write state)                                                                    |
+| +0.091 s                         | AWS    | `/update/accepted` v2 echoes our `desired.cleaningMode.mode = "stairs"` with our token — BUG-08 chain branch fires (`sleep(1)`)                                                   |
+| **+1.093 s** (14:24:31.854)      | HA     | `Set cycle time, Desired: {cycleInfo: {cycleTime: 150}}` — BUG-08 chain emits the configured cycle time                                                                           |
+| +0.011 s after                   | AWS    | `/update/accepted` echoes our cycleTime write with our token — **BUG-13 observer fires the new branch**, clears `_silent_stop_deadline`, calls `pause()`                          |
+| **+1.177 s** (14:24:31.938)      | HA     | `Set power state, Desired: {systemState: {pwsState: off}}` — E-B stop write                                                                                                       |
 
 Post-conditions:
 
@@ -55,13 +55,13 @@ Matches #85 E-B PASS exactly. The integration's timing landed the pause comforta
 
 `02_run_start_holdweekly_to_cleaning.mqtt.log`. Operator clicked Start in the vacuum more-info dialog. Robot was `holdWeekly`, mode `stairs` (post-Action 1).
 
-| Δ T₀ | Source | Event |
-|---|---|---|
-| **+0.000 s** (14:30:00.323 CEST) | HA | `Set cleaning mode, Desired: {cleaningMode: {mode: stairs}}` — `_vacuum_start` calls the **bare** `set_cleaning_mode`, **not** the silent helper, so `_silent_stop_deadline` is left None |
-| **+1.057 s** (14:30:01.380) | HA | `Set cycle time, Desired: {cycleInfo: {cycleTime: 150}}` — BUG-08 chain (provenance-gated, ours) |
-| **no Set power state** | — | The BUG-13 observer evaluates `_silent_stop_due` on the cycleTime echo: deadline is None → returns False → `pause()` is **not** called |
-| +3.117 s | firmware | `reported.systemState = {pwsState:"on", robotState:"init", rTurnOnCount: still 58 in this echo}` |
-| +~150 s (estimated) | firmware | `rTurnOnCount` increments to 59 (observed via subsequent dynamic payloads) |
+| Δ T₀                             | Source   | Event                                                                                                                                                                                     |
+| -------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **+0.000 s** (14:30:00.323 CEST) | HA       | `Set cleaning mode, Desired: {cleaningMode: {mode: stairs}}` — `_vacuum_start` calls the **bare** `set_cleaning_mode`, **not** the silent helper, so `_silent_stop_deadline` is left None |
+| **+1.057 s** (14:30:01.380)      | HA       | `Set cycle time, Desired: {cycleInfo: {cycleTime: 150}}` — BUG-08 chain (provenance-gated, ours)                                                                                          |
+| **no Set power state**           | —        | The BUG-13 observer evaluates `_silent_stop_due` on the cycleTime echo: deadline is None → returns False → `pause()` is **not** called                                                    |
+| +3.117 s                         | firmware | `reported.systemState = {pwsState:"on", robotState:"init", rTurnOnCount: still 58 in this echo}`                                                                                          |
+| +~150 s (estimated)              | firmware | `rTurnOnCount` increments to 59 (observed via subsequent dynamic payloads)                                                                                                                |
 
 Post-conditions:
 
@@ -74,10 +74,10 @@ The split between the silent path and Start is intact: the bare `set_cleaning_mo
 
 `03_live_mode_swap_stairs_to_floor.mqtt.log` (`stairs → floor`) and `04_live_mode_swap_floor_to_all.mqtt.log` (`floor → all`). Operator picked a new mode in the HA combo while `vacuum.nono_2` was `cleaning`.
 
-| # | Time | Mode write | BUG-08 cycleTime | `Set power state`? | Cycles before/after |
-|---|---|---|---|---|---|
-| 3 | 14:33:16.950 → 14:33:18.020 (+1.070 s) | `floor` | 120 min | none | 59 → 59 |
-| 4 | 14:38:16.711 → 14:38:17.776 (+1.065 s) | `all` | 60 min | none | 59 → 59 |
+| #   | Time                                   | Mode write | BUG-08 cycleTime | `Set power state`? | Cycles before/after |
+| --- | -------------------------------------- | ---------- | ---------------- | ------------------ | ------------------- |
+| 3   | 14:33:16.950 → 14:33:18.020 (+1.070 s) | `floor`    | 120 min          | none               | 59 → 59             |
+| 4   | 14:38:16.711 → 14:38:17.776 (+1.065 s) | `all`      | 60 min           | none               | 59 → 59             |
 
 Both events follow the **today-preserved live-write path**: `coordinator._set_cleaning_mode` sees `self._system_details.is_active == True` and routes to the bare `aws_client.set_cleaning_mode`. The silent deadline is never armed, the BUG-13 observer never fires, behaviour is identical to pre-fix.
 
