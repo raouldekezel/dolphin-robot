@@ -4,7 +4,7 @@ A fork of [`sh00t2kill/dolphin-robot`](https://github.com/sh00t2kill/dolphin-rob
 dedicated to the Dolphin S2000 that also explores:
 - human/AIs collaboration within a conventional software-development
 methodology
-- a framework for systematic recording and interpretation of 
+- a framework for systematic probing, recording and interpretation of 
 the device behavior.
 
 ## What this fork changes (vs. upstream)
