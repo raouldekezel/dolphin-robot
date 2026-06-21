@@ -15,7 +15,7 @@ methodology: exhaustive design and code review, unit tests, and on-hardware vali
 - Reacts only to the commands the integration itself sent, fixing spurious behaviors.
 - Fixes French labels for the cleaning modes and the robot state. Some Italian fixed too.
 - Adds a documented library of real-device traces with their interpretation (`docs/diag/`).
-- Miscellaneous bug fixes (see the [Releases](https://github.com/raouldekezel/dolphin-robot/releases) page).
+- Miscellaneous issues fixes (see the [Releases](https://github.com/raouldekezel/dolphin-robot/releases) page).
 
 # MyDolphin Plus
 
