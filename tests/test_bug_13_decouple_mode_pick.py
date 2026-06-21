@@ -32,9 +32,8 @@ no-op (E2); combined ``{mode, cycleTime}`` is lossy on ``cycleTime`` (E7).
 from __future__ import annotations
 
 import json
-import logging
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
