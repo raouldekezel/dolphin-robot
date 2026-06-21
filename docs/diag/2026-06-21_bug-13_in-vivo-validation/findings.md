@@ -58,6 +58,40 @@ Post-conditions:
 
 Matches #85 E-B PASS exactly. The integration's timing landed the pause comfortably inside the firmware's pre-`pwsState=on` window (~2.5 s post mode write per #85), and the `_silent_stop_deadline` self-cleared on the cycleTime echo as designed.
 
+### Investigation — does the firmware briefly flip `pwsState=on` during Action 1, and does HA see it?
+
+Reviewer hypothesis (2026-06-21): the firmware should have transiently flipped `pwsState=on` after the mode write, before our `pause()` was processed; if so, `SystemDetails._get_updated_data` maps `pwsState=on` → `VacuumActivity.CLEANING`, so `vacuum.nono_2` should have briefly read `cleaning`.
+
+**Shadow side — confirmed.** Decoded `Payload` lines from `01_silent_pick_all_to_stairs.mqtt.log`:
+
+| Δ T₀ (UTC)   | `reported.systemState.pwsState` | `reported.systemState.robotState` |
+| ------------ | ------------------------------- | --------------------------------- |
+| 12:24:30.799 | `holdWeekly`                    | `notConnected`                    |
+| 12:24:33.238 | **`on`**                        | **`init`**                        |
+| 12:24:34.073 | **`on`**                        | **`init`**                        |
+| 12:24:37.251 | `holdWeekly`                    | `notConnected`                    |
+
+The firmware did briefly transition for ~4 s. Our `pause()` (published at 12:24:31.938) had been ACK'd before the firmware reported `on`, but the firmware's start-machine had already advanced past the point where the next `pwsState=off` write could pre-empt it — it ran a brief init, then accepted our queued stop.
+
+**HA side — `vacuum.nono_2` stayed `docked` throughout.** Raw `states` rows from the HA recorder (`docker exec hass python3 …` against `/config/home-assistant_v2.db?mode=ro`, joining `states` ⨝ `states_meta`, window 12:20:00 → 12:45:00 UTC):
+
+```
+14:20:56.814  unavailable
+14:21:00.801  unavailable
+14:21:07.427  docked
+14:24:40.764  docked          ← no `cleaning` row between Action 1 (14:24:30) and Action 2 Start (14:30:10)
+14:30:10.327  cleaning        ← Action 2 control row (Start) — present ✓
+14:33:26.956  cleaning        ← Action 3 (pick floor) — attributes change, state same
+14:38:26.716  cleaning        ← Action 4 (pick all) — attributes change, state same
+14:41:33.333  docked
+```
+
+`recorder.commit_interval` is the default 1 s (a 4 s state would survive it), `vacuum.nono_2` is not in the recorder exclude list (only one Navimow sensor is). The recorder saw everything that was published to the state machine.
+
+**So why didn't HA see the transient?** `coordinator._on_mqtt_data_update` debounces shadow updates through a `Debouncer(cooldown=1.0, immediate=False)` (`coordinator.py:173-179`); each MQTT message resets the cooldown. Across the 4 s `pwsState=on` window the firmware published at 33.238, 34.073 and 37.251 — at most one debounced refresh would land around ~35.073 with `pwsState=on` still set, and HA Core's own `DataUpdateCoordinator.async_request_refresh` adds its own throttling on top. In practice the refresh that did fire after this debounce window arrived only at 12:24:40.764 with `pwsState=holdWeekly` already restored — hence the `docked → docked` row at 14:24:40 (attributes carry the new `mode=stairs`, the state value never changed).
+
+**Operationally** this is the BUG-13 intent: the operator does not perceive a `cleaning` blip during the silent pick. The combination of E-B's quick `pause()` _and_ the integration's MQTT debouncing means the transient firmware `pwsState=on` is invisible to HA. The fix relies on the second mechanism to fully hide the firmware-side race; documenting it here so a future debouncer rewrite knows it is load-bearing for the UX, not just performance.
+
 ## Action 2 — `vacuum.start` on docked robot
 
 `02_run_start_holdweekly_to_cleaning.mqtt.log`. Operator clicked Start in the vacuum more-info dialog. Robot was `holdWeekly`, mode `stairs` (post-Action 1).
