@@ -19,14 +19,21 @@ End-to-end validation of [PR #86](https://github.com/raouldekezel/dolphin-robot/
 
 ## Branch coverage
 
-| #   | Action         | Pre-state                   | Pick     | Code path                                     | Cycles  | Pause emitted?                            | Outcome                                       |
-| --- | -------------- | --------------------------- | -------- | --------------------------------------------- | ------- | ----------------------------------------- | --------------------------------------------- |
-| 1   | Pick docked    | `holdWeekly`, mode=`all`    | `stairs` | `set_cleaning_mode_silent` (E-B)              | 58 → 58 | ✅ yes (~84 ms post-cycleTime echo)       | mode + cycleTime adopted, robot stayed docked |
-| 2   | `vacuum.start` | `holdWeekly`, mode=`stairs` | —        | `_vacuum_start` → bare `set_cleaning_mode`    | 58 → 59 | ❌ no (`_silent_stop_deadline` not armed) | robot transitioned to `on / init / scanning`  |
-| 3   | Pick running   | `cleaning`, mode=`stairs`   | `floor`  | bare `set_cleaning_mode` (today's live write) | 59 → 59 | ❌ no (`is_active` branch skips silent)   | mode swapped mid-cycle, no off interlude      |
-| 4   | Pick running   | `cleaning`, mode=`floor`    | `all`    | bare `set_cleaning_mode` (today's live write) | 59 → 59 | ❌ no                                     | mode swapped mid-cycle, no off interlude      |
+Two distinct mode notions are at play and the table separates them explicitly:
+
+- **Currently running mode** — the cleaning program the robot is _physically executing_ right now. Observable through the robot's behaviour, not directly in the shadow.
+- **Current next mode** — the slot the integration and the Maytronics app display as "the current mode". This is `reported.cycleInfo.cleaningMode.mode`; despite its name, on a running robot the firmware updates it to the next mode without restarting the in-flight cycle. The shadow doc §A's "État du cycle en cours" wording predates this empirical finding.
+
+| #   | Action         | Pre-state (HA)              | Pick     | Code path                                     | Cycles  | Pause emitted?                            | Current next mode (HA / app)              | Currently running mode (physical)                                      |
+| --- | -------------- | --------------------------- | -------- | --------------------------------------------- | ------- | ----------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------- |
+| 1   | Pick docked    | `holdWeekly`, mode=`all`    | `stairs` | `set_cleaning_mode_silent` (E-B)              | 58 → 58 | ✅ yes (~84 ms post-cycleTime echo)       | updated to `stairs`, cycleTime 150        | — (robot stays docked, not cleaning)                                   |
+| 2   | `vacuum.start` | `holdWeekly`, mode=`stairs` | —        | `_vacuum_start` → bare `set_cleaning_mode`    | 58 → 59 | ❌ no (`_silent_stop_deadline` not armed) | unchanged: `stairs`                       | starts: `stairs` (transition `holdWeekly → on / init / scanning`)      |
+| 3   | Pick running   | `cleaning`, mode=`stairs`   | `floor`  | bare `set_cleaning_mode` (today's live write) | 59 → 59 | ❌ no (`is_active` branch skips silent)   | updated to `floor`, cycleTime 120         | unchanged: still `stairs` from Action 2 (no off interlude, no restart) |
+| 4   | Pick running   | `cleaning`, mode=`floor`    | `all`    | bare `set_cleaning_mode` (today's live write) | 59 → 59 | ❌ no                                     | updated to `all`, cycleTime 60 (off-grid) | unchanged: still `stairs` from Action 2                                |
 
 The four scenarios exercise every branch of the BUG-13 split: `is_active=False` → silent E-B; `is_active=True` → live; `_silent_stop_deadline` armed vs. not armed; mode-echo vs. cycleTime-echo discriminator in the observer.
+
+The Actions 3 and 4 finding (running-robot mode write updates the "next" slot but does not restart the in-flight cycle) is **exactly the contract item 1 wording** from the design comment on #47 ("queue for next cycle; no live restart"). The live path therefore implements that contract by passthrough — the firmware itself handles the queue-for-next semantics; the integration just needs to forward the write.
 
 ## Action 1 — pick docked (silent E-B)
 
@@ -83,14 +90,17 @@ Both events follow the **today-preserved live-write path**: `coordinator._set_cl
 
 Empirical findings:
 
-- **The firmware adopts a mode-write on a running robot in-flight, with no `off` interlude** — matches MAP-03 finding from session 2026-06-13.
-- **`rTurnOnCount` does not increment on a running-robot mode-swap** — this answers the open empirical question flagged in the design review. The firmware treats it as a continuation of the existing cycle, not a fresh start. The integration's HA `sensor.nono_2_nombre_de_cycles` was 59 before, between, and after both swaps.
-- **`cycleStartTime` was not restamped** by either swap. The cycle start observed in the shadow at 14:36:31 (`cycleStartTime=1782052352`, ≈ 14:32:32 CEST) is the firmware's stamp of the Run from Action 2 actually taking effect; the swap to `floor` at 14:33:16 left it intact. The same invariant held across the swap to `all` at 14:38:16.
+- **A mode-write while running updates only the "current next mode" slot, NOT the in-flight cycle.** The firmware accepts the write, mirrors it into `reported.cycleInfo.cleaningMode = {mode, cycleTime}` (which HA and the Maytronics app both display as "current mode"), and the next-mode/next-duration tiles refresh — but the physical robot **continues the previously-started cycle** in its original mode and cycleTime to completion. Direct operator observation at Action 4: app showed mode `Complet` with greyed presets, while the robot was still physically cleaning floor at ~5 % progress. The mid-cycle physical mode swap claimed in earlier sessions (MAP-03, 2026-06-13) is **superseded** by this observation; the previous interpretation conflated the shadow slot's value with the physically-executing program.
+- **`rTurnOnCount` does not increment on a running-robot mode write** — settles the open empirical question flagged in the design review. Cycle counter stayed at 59 across both Actions 3 and 4. Direct consequence of the above: the cycle never restarted, so the counter never ticked.
+- **`cycleStartTime` was not restamped** — same root cause. The cycle start observed in the shadow at 14:36:31 (`cycleStartTime=1782052352`, ≈ 14:32:32 CEST) is the firmware's stamp of the Run from Action 2; both swaps left it intact.
+- **The shadow's `reported.cycleInfo.cleaningMode.mode` is therefore a misleading slot name.** Despite the doc's "État du cycle en cours" wording, on a running robot this slot holds the _next_ mode the firmware will use, not the one it is currently executing. The actually-executing mode is some internal firmware state not directly exposed in the shadow. Worth amending the shadow cartography doc §A.
+
+This is **exactly the contract item 1 the operator wrote on #47 on 2026-06-20** ("queue for next cycle; no live restart"). The live path implements it by passthrough — the firmware itself handles the queue-for-next semantics; the integration just forwards the write.
 
 ## Notes on the Maytronics app
 
 - After Action 1 the app correctly displayed the robot as stopped, with the "default" cleaning mode set to `Couverture complète`. The integration's silent-set + pause is therefore not perceptually distinct from a manual mode change in the app — the operator sees a chosen mode and a docked robot, which is the BUG-13 desired UX.
-- After Action 4, the app showed mode `Complet` with the three duration presets (`2h / 2h30 / 3h`) all greyed out. The integration pushed `cycleTime=60` (= configured value of `number.nono_2_duree_du_cycle_complet`), which is off the app's preset grid. This reproduces the Appendix B finding from session 2026-06-13 (`docs/diag/2026-06-13_map-03_unknown-modes-validation/findings.md`): the app compares `reported.cleaningModes.<mode>` against its own preset list and highlights matches only. Not a fix-introduced regression.
+- After Action 4, the app showed mode `Complet` with the three duration presets (`2h / 2h30 / 3h`) all greyed out **while the robot continued the previously-started cycle**. The greying is the Appendix B finding from session 2026-06-13: the app pushed `cycleTime=60` (= configured value of `number.nono_2_duree_du_cycle_complet`) which is off the app's preset grid `{120, 150, 180}` for `Complet`. The continued-cleaning-in-old-mode is the running-robot finding documented in the previous section.
 - During Action 3, the app's displayed cycle title lagged behind the firmware state for a few seconds before catching up — same async-display latency observed in earlier sessions.
 
 ## What the test does not cover
@@ -101,7 +111,7 @@ Empirical findings:
 
 ## Conclusion
 
-The four scenarios exercise the full BUG-13 fix surface on real hardware. The silent E-B primitive lands as designed, the start path is unchanged, the running-robot live-write path keeps today's app-parity behaviour, and the firmware does not bump `rTurnOnCount` on a running-robot mode-swap (settling the review's open question). The fix shipped in `v1.0.26b3-raoul.10` is validated in vivo.
+The four scenarios exercise the full BUG-13 fix surface on real hardware. The silent E-B primitive lands as designed, the start path is unchanged, and the running-robot live-write path keeps today's app-parity behaviour. The firmware does not bump `rTurnOnCount` on a running-robot mode write — directly because the in-flight cycle is not restarted; only the "current next mode" slot is updated. The live path therefore implements the operator's contract item 1 from #47 ("queue for next cycle; no live restart") by passthrough. The fix shipped in `v1.0.26b3-raoul.10` is validated in vivo.
 
 ## See also
 
