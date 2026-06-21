@@ -4,7 +4,7 @@
 
 End-to-end validation of [PR #86](https://github.com/raouldekezel/dolphin-robot/pull/86) on the live robot, exercising the three code branches the fix introduces and the residual question left open by the code review.
 
-- **Pick mode while docked (silent E-B) → PASS.** Mode + cycleTime adopted by the firmware, robot stayed `holdWeekly`, `rTurnOnCount` unchanged. The integration emits the exact `set + cycleTime + pause` triple #85 predicted, with the pause landing ~84 ms after the cycleTime echo and well before the firmware would flip `pwsState=on`.
+- **Pick mode while docked (silent E-B) → PASS.** Mode + cycleTime adopted by the firmware, `rTurnOnCount` unchanged, `vacuum.nono_2` stayed `docked` in HA throughout. The integration emits the exact `set + cycleTime + pause` triple #85 predicted, with the pause landing ~84 ms after the cycleTime echo. The shadow shows the firmware did transiently report `pwsState=on / robotState=init` for ~4 s before adopting our queued pause; HA never propagated that transient because the coordinator's MQTT debouncer (`cooldown=1.0 s`) coalesced the burst — see the investigation section under Action 1.
 - **Start (`vacuum.start` on docked robot) → PASS.** Normal `Set cleaning mode → Set cycle time` chain, **no** trailing `Set power state` (the new BUG-13 stop branch correctly does not fire on the start path). Robot transitioned `holdWeekly → on / init / scanning`, `rTurnOnCount` incremented by 1.
 - **Pick mode while running → PASS, and the review's open question is settled.** Two consecutive live mode-swaps (`stairs → floor`, then `floor → all`) ran the today-preserved live-write path. The firmware adopted each new mode without an `off` interlude. **`rTurnOnCount` did not bump on either swap** (59 → 59 → 59), and `cycleStartTime` was not restamped — the firmware treats a mode-write on a running robot as a continuation, not a restart.
 
@@ -51,12 +51,12 @@ The Actions 3 and 4 finding (running-robot mode write updates the "next" slot bu
 Post-conditions:
 
 - `reported.cycleInfo.cleaningMode = {mode:"stairs", cycleTime:150}` — mode + cycleTime adopted.
-- `reported.systemState.pwsState` stayed `holdWeekly` (no `on` flip).
+- `reported.systemState.pwsState` transiently went `on` (firmware-side, ~4 s, see investigation below) before settling back to `holdWeekly`.
 - `rTurnOnCount` remained 58.
-- HA `vacuum.nono_2` stayed `docked`.
+- HA `vacuum.nono_2` stayed `docked` (recorder DB query — the firmware-side `pwsState=on` transient never propagated to the HA state machine; see investigation).
 - Maytronics app reported the robot as stopped, with the default mode now `Couverture complète`.
 
-Matches #85 E-B PASS exactly. The integration's timing landed the pause comfortably inside the firmware's pre-`pwsState=on` window (~2.5 s post mode write per #85), and the `_silent_stop_deadline` self-cleared on the cycleTime echo as designed.
+Matches #85 E-B PASS at the level the operator perceives. Earlier sessions assumed the pause arrived strictly before the firmware's `pwsState=on` transition (#85 measured ~2.5 s firmware reaction window); this session shows the firmware actually did flip `on` briefly. The user-visible PASS therefore depends on both our quick `pause()` (which the firmware applies as soon as it's done with its init phase) and the HA-side MQTT debouncing (which hides the brief `on` reflection from the HA state machine).
 
 ### Investigation — does the firmware briefly flip `pwsState=on` during Action 1, and does HA see it?
 
