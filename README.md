@@ -14,6 +14,7 @@ the device behavior.
 - Fixes the recurring "lost authentication" problem.
 - Supports the new Full Coverage cleaning mode of the S2000.
 - Adds read-only sensors for the next scheduled run, mode and cycle time.
+- Prevents a docked robot from starting when the cleaning mode is changed in the vacuum dialog; an explicit start is required.
 - Reacts only to the commands the integration itself sent, fixing spurious behaviors.
 - Fixes French labels for the cleaning modes and the robot state. Some Italian fixed too.
 - Adds a documented library of real-device traces with their interpretation (`docs/diag/`).
