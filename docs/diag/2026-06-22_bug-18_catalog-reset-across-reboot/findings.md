@@ -81,11 +81,46 @@ The cycle that the firmware actually started at 09:00:03 used **mode = `all` (fr
 | 2026-06-22 08:00 CEST (between reboot and schedule)                               | 180 — wrong                                                    | 150                                                                                | **30 min off** |
 | 2026-06-22 12:12 CEST (current, cycle running, next is tomorrow 11:00 CEST `all`) | 180 — still wrong                                              | 150 (until something rewrites `cycleInfo`)                                         | **30 min off** |
 
+## `cleaningModes` is a follower, sometimes desynchronized
+
+Re-observation post-cycle (2026-06-22 ~12:30 UTC, after the 09:00 UTC cycle completed):
+
+```
+cycleInfo.cleaningMode.cycleTime   = 150   (mode=all)
+nextCycleInfo.nextCycleDuration    = 150   (mode=all)
+cleaningModes.{all,floor,water,ultra} = 150   ← all four bumped from 180 to 150
+cleaningModes.stairs               = 150   (unchanged)
+cleaningModes.short                = 60    (unchanged)
+cleaningModes.pickup               = 12    (unchanged)
+cleaningModes.{cove,spot,wall,ticTac,custom} = 120 (unchanged)
+```
+
+So `cleaningModes` **is not authoritative — it is a _follower_** of the running/recent cycle:
+
+- After PWS reboot, the catalog holds firmware factory defaults (`all/floor/water/ultra = 180`).
+- The next cycle that runs (whether scheduled, started by HA, or started by the app) drives the firmware to overwrite the `all/floor/water/ultra` quartet (QUIRK-01 Q2 propagation group) to the running cycle's `cycleTime`.
+- The quartet then tracks the running cycle's `cycleTime` until a new mode change reassigns them again.
+- `stairs`, `short`, `pickup`, and the non-enum modes (`cove/spot/wall/ticTac/custom`) are NOT in the propagation group — they hold their own values independently.
+
+The "wrong-prediction" window for FEAT-04 is therefore not "every morning until somebody picks a mode" but **specifically the gap between the PWS reconnect and the next cycle actually running**. Today's timeline made the asymmetry visible:
+
+| Phase (2026-06-22, UTC)         | catalog.all                                | `cycleInfo.cleaningMode.cycleTime` | FEAT-04 sensor (today) | Firmware would use |
+| ------------------------------- | ------------------------------------------ | ---------------------------------- | ---------------------- | ------------------ |
+| 06:00:14 (PWS reconnect)        | **180** (reset to default)                 | 150 (persisted)                    | 180 ❌                 | 150 ✅             |
+| 06:00 → 09:00 (idle morning)    | 180 (no follower trigger)                  | 150                                | 180 ❌                 | 150 ✅             |
+| 09:00:03 (schedule fires)       | 180 momentarily, then propagation kicks in | 150 (running cycle)                | 180 → 150 transition   | 150 ✅             |
+| ~09:01 → ~11:30 (cycle running) | 150 (Q2 propagation synced)                | 150                                | 150 ✅                 | 150 ✅             |
+| ~11:30 → next reboot            | 150 (steady, latched by last cycle)        | 150 (steady)                       | 150 ✅                 | 150 ✅             |
+
+**Practical impact for this operator**: ~3 h/day of FEAT-04 wrong prediction (06:00 UTC reboot → 09:00 UTC schedule). Outside that window, the follower has caught up and the sensor reads the same value the firmware will use.
+
+This nuances the BUG-18 framing but does not change the fix direction. The catalog being a follower (not an authoritative source) is exactly why FEAT-04 sourcing from it is structurally wrong — the prediction is correct only by coincidence whenever the follower has caught up.
+
 ## Why this matters (and why it will recur every day)
 
-The operator's `Plug Nono coupé la nuit` automation guarantees a daily reset of the catalog. Every morning between ~08:00 CEST (PWS reconnect) and whenever the operator next interacts with the cleaning-mode picker (which triggers a `Set cleaning mode + Set cycle time` write via the BUG-08 chain), the catalog holds firmware defaults and `cycleInfo` holds the truth. The FEAT-04 sensor reads the wrong one for that whole window — and possibly forever if no mode change happens (e.g. operator on holiday).
+The operator's `Plug Nono coupé la nuit` automation guarantees a daily reset window. Every morning between ~08:00 CEST (PWS reconnect) and ~11:00 CEST (weekly schedule for `all` fires), the catalog holds firmware defaults and the FEAT-04 sensor predicts the wrong value. As soon as the morning cycle actually runs, the Q2 follower propagation re-aligns the catalog and the sensor agrees with the firmware again — until tomorrow morning's reboot.
 
-The bug is **not** "the catalog is sometimes wrong" — the catalog is _structurally_ a non-authoritative copy. The firmware's source of truth for the next cycle's duration is the persisted slot. FEAT-04 needs to source from there.
+The bug is **not** "the catalog is sometimes wrong" — the catalog is _structurally_ a non-authoritative follower of the running cycle. The firmware's source of truth for the next cycle's duration is the persisted slot. FEAT-04 needs to source from there.
 
 ## Proposed fix direction (for #88 / BUG-18)
 
