@@ -1,0 +1,29 @@
+
+2026-06-21T04:52:29.536695153Z  cleaningModes.all: None -> 120
+  context: cycleInfo={mode=floor, cycleTime=120}, pwsState=holdWeekly, robotState=notConnected, rTurnOnCount=57
+
+2026-06-21T06:00:13.575114595Z  cleaningModes.all: 120 -> 180
+  context: cycleInfo={mode=stairs, cycleTime=150}, pwsState=holdWeekly, robotState=notConnected, rTurnOnCount=57
+
+2026-06-21T11:32:17.019770869Z  cleaningModes.all: 180 -> 150
+  context: cycleInfo={mode=None, cycleTime=None}, pwsState=None, robotState=None, rTurnOnCount=None
+
+2026-06-21T12:33:19.064582589Z  cleaningModes.all: 150 -> 120
+  context: cycleInfo={mode=floor, cycleTime=120}, pwsState=on, robotState=scanning, rTurnOnCount=59
+  HA events since previous transition:
+  HA WRITE @ 12:24:30.762: Set cleaning mode, Desired: {'cleaningMode': {'mode': 'stairs'}}
+  HA WRITE @ 12:24:31.856: Set cycle time, Desired: {'cycleInfo': {'cycleTime': 150}}
+  HA WRITE @ 12:24:31.939: Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+  HA WRITE @ 12:30:00.324: Set cleaning mode, Desired: {'cleaningMode': {'mode': 'stairs'}}
+  HA WRITE @ 12:30:01.381: Set cycle time, Desired: {'cycleInfo': {'cycleTime': 150}}
+  HA WRITE @ 12:33:16.956: Set cleaning mode, Desired: {'cleaningMode': {'mode': 'floor'}}
+  HA WRITE @ 12:33:18.021: Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+
+2026-06-21T12:38:18.460949846Z  cleaningModes.all: 120 -> 60
+  context: cycleInfo={mode=all, cycleTime=60}, pwsState=None, robotState=None, rTurnOnCount=None
+  HA events since previous transition:
+  HA WRITE @ 12:38:16.716: Set cleaning mode, Desired: {'cleaningMode': {'mode': 'all'}}
+  HA WRITE @ 12:38:17.777: Set cycle time, Desired: {'cycleInfo': {'cycleTime': 60}}
+
+2026-06-22T06:00:14.201902542Z  cleaningModes.all: 60 -> 180
+  context: cycleInfo={mode=stairs, cycleTime=150}, pwsState=holdWeekly, robotState=notConnected, rTurnOnCount=59
