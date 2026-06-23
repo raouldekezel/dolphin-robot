@@ -17,7 +17,7 @@ the device behavior.
 - Prevents a docked robot from starting when the cleaning mode is changed. An explicit start is required.
 - Reacts only to the commands the integration itself sent, fixing spurious behaviors.
 - Fixes French labels for the cleaning modes and the robot state. Some Italian fixed too.
-- Adds a documented library of real-device traces with their interpretation (`docs/diag/`).
+- Adds a documented library of real-device traces with their interpretation ([`docs/diag/`](https://github.com/raouldekezel/dolphin-robot/tree/deploy/docs/diag)).
 - Miscellaneous issues fixed  (see the [Releases](https://github.com/raouldekezel/dolphin-robot/releases) page).
 
 # MyDolphin Plus
