@@ -81,7 +81,6 @@ from ..common.consts import (
     DATA_LED_INTENSITY,
     DATA_LED_MODE,
     DATA_ROBOT_NAME,
-    DATA_SECTION_CLEANING_MODES,
     DATA_SECTION_CYCLE_INFO,
     DATA_SECTION_DEBUG,
     DATA_SECTION_DELAY,
@@ -120,7 +119,6 @@ from ..common.consts import (
 from ..common.joystick_direction import JoystickDirection
 from ..common.next_scheduled_run import (
     ATTR_NSR_CLEANING_MODE,
-    ATTR_NSR_CYCLE_TIME_MINUTES,
     ATTR_NSR_DAY_OF_WEEK,
     ATTR_NSR_SOURCE,
     ATTR_NSR_STATE,
@@ -843,7 +841,6 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             system_state.get(DATA_SYSTEM_STATE_TIME_ZONE_NAME),
             system_state.get(DATA_SYSTEM_STATE_TIME_ZONE),
             dt_util.utcnow(),
-            data.get(DATA_SECTION_CLEANING_MODES),
         )
 
     def _get_next_scheduled_run_data(self, _entity_description) -> dict | None:
@@ -870,12 +867,22 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         return {ATTR_STATE: computed[ATTR_NSR_CLEANING_MODE]}
 
     def _get_next_scheduled_cycle_time_data(self, _entity_description) -> dict | None:
-        computed = self._next_scheduled_data
-
-        if computed is None:
+        # The next-scheduled cycle's duration is the carried-forward
+        # ``reported.cycleInfo.cleaningMode.cycleTime``, persisted across
+        # PWS reboots (BUG-18 / #88). The ``cleaningModes`` catalog is a
+        # firmware-side follower that resets at every PWS reboot, so it
+        # is the wrong source.
+        if self._next_scheduled_data is None:
             return {ATTR_STATE: None}
 
-        return {ATTR_STATE: computed[ATTR_NSR_CYCLE_TIME_MINUTES]}
+        cycle_info = self.aws_data.get(DATA_SECTION_CYCLE_INFO, {})
+        cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
+        value = cleaning_mode.get(DATA_CYCLE_INFO_CLEANING_MODE_DURATION)
+
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            return {ATTR_STATE: None}
+
+        return {ATTR_STATE: value}
 
     def _get_error_code(self, entity_description, data_section_key) -> dict | None:
         data = self.aws_data

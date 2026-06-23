@@ -1,196 +1,166 @@
-"""Tests for the FEAT-04 cycle-time extension to ``compute_next_scheduled_run``.
+"""Behavioural tests for ``sensor.{robot}_next_scheduled_cycle_time`` (FEAT-04,
+post-BUG-18 repointing).
 
-Pure unit tests against the extended ``compute_next_scheduled_run`` —
-no Home Assistant runtime needed. Covers:
+Before BUG-18 (#88), the sensor sourced its value from
+``reported.cleaningModes[next_scheduled_mode]``. Two diag sessions
+(``docs/diag/2026-06-22_bug-18_catalog-reset-across-reboot/`` and
+``docs/diag/2026-06-23_bug-18_cycletime-vs-nextcycleduration-sync/``)
+showed that the firmware actually uses the carried-forward
+``reported.cycleInfo.cleaningMode.cycleTime`` (persisted across PWS
+reboots) and that the catalog read is structurally wrong: it gets reset
+to firmware defaults at every PWS reboot, so the sensor predicts a
+value the firmware will never use.
 
-- mode present in ``cleaningModes`` → returns the minute count
-- mode absent from ``cleaningModes`` → ``None`` (no fallback)
-- ``cleaningModes`` section entirely absent from shadow → ``None``
-- non-positive / non-int / bool values are rejected → ``None``
-- when there is no next slot at all, the result dict itself is ``None``
+Post-fix: ``_get_next_scheduled_cycle_time_data`` reads
+``cycleInfo.cleaningMode.cycleTime`` directly. The schedule
+existence guard (``_next_scheduled_data is None`` → state ``None``) is
+preserved so the three next-scheduled sensors stay in lockstep.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
-from custom_components.mydolphin_plus.common.next_scheduled_run import (
-    ATTR_NSR_CLEANING_MODE,
-    ATTR_NSR_CYCLE_TIME_MINUTES,
-    compute_next_scheduled_run,
+from custom_components.mydolphin_plus.common.consts import (
+    DATA_CYCLE_INFO_CLEANING_MODE,
+    DATA_CYCLE_INFO_CLEANING_MODE_DURATION,
+    DATA_SECTION_CYCLE_INFO,
+)
+from custom_components.mydolphin_plus.managers.coordinator import (
+    MyDolphinPlusCoordinator,
 )
 
-
-def _full_weekly(*, mode: str = "all", hours: int = 11, minutes: int = 0) -> dict:
-    days = [
-        "monday",
-        "tuesday",
-        "wednesday",
-        "thursday",
-        "friday",
-        "saturday",
-        "sunday",
-    ]
-    out: dict = {"isInRepeatMode": True, "triggeredBy": 1}
-    for day in days:
-        out[day] = {
-            "isEnabled": True,
-            "time": {"hours": hours, "minutes": minutes},
-            "cleaningMode": {"mode": mode},
-        }
-    return out
+ATTR_STATE = "state"
 
 
-# Monday 2026-06-15 09:00 UTC = 11:00 Brussels (CEST); next slot is today at 11:00
-# local since we're exactly on the boundary — rollover advances to the next
-# occurrence, which for a daily-enabled weekly is tomorrow 11:00 Brussels.
-_NOW = datetime(2026, 6, 15, 9, 0, tzinfo=timezone.utc)
+def _make_coordinator_stub(
+    *, aws_data: dict, next_scheduled_data: dict | None
+) -> MagicMock:
+    """Build a coordinator stub exposing just what the getter reads.
+
+    ``_next_scheduled_data`` gates the sensor (no schedule → state
+    ``None``); ``aws_data`` carries the live shadow document.
+    """
+    stub = MagicMock(spec=MyDolphinPlusCoordinator)
+    stub.aws_data = aws_data
+    stub._next_scheduled_data = next_scheduled_data
+    return stub
 
 
-# --- Mode present in cleaningModes -----------------------------------------
+def _call(stub) -> dict | None:
+    return MyDolphinPlusCoordinator._get_next_scheduled_cycle_time_data(
+        stub, SimpleNamespace()
+    )
 
 
-def test_cycle_time_resolved_from_cleaning_modes():
-    """Mode in cleaningModes → returns the minute count for that mode."""
-    weekly = _full_weekly(mode="all")
-    cleaning_modes = {
-        "all": 180,
-        "short": 60,
-        "stairs": 150,
-        "pickup": 12,
+def _cycle_info(cycle_time: object) -> dict:
+    return {
+        DATA_SECTION_CYCLE_INFO: {
+            DATA_CYCLE_INFO_CLEANING_MODE: {
+                DATA_CYCLE_INFO_CLEANING_MODE_DURATION: cycle_time,
+            },
+        },
     }
 
-    result = compute_next_scheduled_run(
-        weekly, None, "Europe/Brussels", 120, _NOW, cleaning_modes
+
+_SCHEDULE = {"state": "irrelevant"}  # any non-None: schedule exists
+
+
+# --- Happy path: cycleInfo carries the duration ----------------------------
+
+
+def test_returns_cycle_info_cycle_time_when_schedule_exists():
+    """Schedule active and ``cycleInfo.cleaningMode.cycleTime`` is a positive
+    int → sensor returns that value, regardless of the scheduled mode."""
+    stub = _make_coordinator_stub(
+        aws_data=_cycle_info(150),
+        next_scheduled_data=_SCHEDULE,
     )
-
-    assert result is not None
-    assert result[ATTR_NSR_CLEANING_MODE] == "all"
-    assert result[ATTR_NSR_CYCLE_TIME_MINUTES] == 180
+    assert _call(stub) == {ATTR_STATE: 150}
 
 
-def test_cycle_time_resolved_for_stairs():
-    """Independent confirmation on the canary mode `stairs` (firmware
-    decouples it from the long-mode group — `stairs` carries its own value
-    inside `cleaningModes`)."""
-    weekly = _full_weekly(mode="stairs")
-    cleaning_modes = {"all": 180, "stairs": 150}
+def test_returns_cycle_info_value_even_when_diverges_from_catalog():
+    """The BUG-18 scenario: catalog says one thing, cycleInfo says another.
+    Sensor must surface cycleInfo — the firmware uses that one at trigger."""
+    aws_data = _cycle_info(150)
+    aws_data["cleaningModes"] = {"all": 180}  # catalog disagrees
+    stub = _make_coordinator_stub(aws_data=aws_data, next_scheduled_data=_SCHEDULE)
+    assert _call(stub) == {ATTR_STATE: 150}
 
-    result = compute_next_scheduled_run(
-        weekly, None, "Europe/Brussels", 120, _NOW, cleaning_modes
+
+# --- Lockstep with the other next-scheduled sensors ------------------------
+
+
+def test_returns_none_when_no_schedule_active():
+    """No weekly + no delay → ``_next_scheduled_data`` is ``None`` and the
+    sensor returns ``None`` (in lockstep with ``next_scheduled_run`` and
+    ``next_scheduled_mode``)."""
+    stub = _make_coordinator_stub(
+        aws_data=_cycle_info(150),
+        next_scheduled_data=None,
     )
-
-    assert result is not None
-    assert result[ATTR_NSR_CLEANING_MODE] == "stairs"
-    assert result[ATTR_NSR_CYCLE_TIME_MINUTES] == 150
+    assert _call(stub) == {ATTR_STATE: None}
 
 
-# --- Missing or malformed → None (no fallback) -----------------------------
+# --- cycleInfo absent / malformed → None -----------------------------------
 
 
-def test_cycle_time_none_when_mode_missing_from_catalogue():
-    """Mode absent from cleaningModes → None (no fallback to a hardcoded
-    default)."""
-    weekly = _full_weekly(mode="custom")
-    cleaning_modes = {"all": 180}  # custom missing
+def test_returns_none_when_cycle_info_section_missing():
+    """Cold start before the first AWS shadow message arrives."""
+    stub = _make_coordinator_stub(aws_data={}, next_scheduled_data=_SCHEDULE)
+    assert _call(stub) == {ATTR_STATE: None}
 
-    result = compute_next_scheduled_run(
-        weekly, None, "Europe/Brussels", 120, _NOW, cleaning_modes
+
+def test_returns_none_when_cleaning_mode_missing():
+    """``cycleInfo`` present but no ``cleaningMode`` subkey yet."""
+    stub = _make_coordinator_stub(
+        aws_data={DATA_SECTION_CYCLE_INFO: {}},
+        next_scheduled_data=_SCHEDULE,
     )
-
-    assert result is not None
-    assert result[ATTR_NSR_CLEANING_MODE] == "custom"
-    assert result[ATTR_NSR_CYCLE_TIME_MINUTES] is None
+    assert _call(stub) == {ATTR_STATE: None}
 
 
-def test_cycle_time_none_when_cleaning_modes_section_absent():
-    """Cold-start before first AWS message: cleaningModes dict not passed →
-    None."""
-    weekly = _full_weekly(mode="all")
-
-    result = compute_next_scheduled_run(
-        weekly, None, "Europe/Brussels", 120, _NOW
+def test_returns_none_when_cycle_time_missing():
+    """``cleaningMode`` present but no ``cycleTime`` key (firmware has not
+    emitted a ``Set cycle time`` yet)."""
+    stub = _make_coordinator_stub(
+        aws_data={
+            DATA_SECTION_CYCLE_INFO: {
+                DATA_CYCLE_INFO_CLEANING_MODE: {"mode": "all"},
+            },
+        },
+        next_scheduled_data=_SCHEDULE,
     )
-
-    assert result is not None
-    assert result[ATTR_NSR_CYCLE_TIME_MINUTES] is None
+    assert _call(stub) == {ATTR_STATE: None}
 
 
-def test_cycle_time_none_when_cleaning_modes_is_not_a_dict():
-    """Defensive: a non-dict cleaningModes payload is treated as absent."""
-    weekly = _full_weekly(mode="all")
-
-    result = compute_next_scheduled_run(
-        weekly, None, "Europe/Brussels", 120, _NOW, "not-a-dict"  # type: ignore[arg-type]
-    )
-
-    assert result is not None
-    assert result[ATTR_NSR_CYCLE_TIME_MINUTES] is None
-
-
-def test_cycle_time_none_for_non_positive_values():
+def test_returns_none_for_non_positive_cycle_time():
     """Zero and negative durations are rejected — the sensor reports
     unavailable rather than emit a nonsense reading."""
-    weekly = _full_weekly(mode="all")
-
-    for bad_value in (0, -1, -120):
-        result = compute_next_scheduled_run(
-            weekly,
-            None,
-            "Europe/Brussels",
-            120,
-            _NOW,
-            {"all": bad_value},
+    for bad in (0, -1, -120):
+        stub = _make_coordinator_stub(
+            aws_data=_cycle_info(bad),
+            next_scheduled_data=_SCHEDULE,
         )
-        assert result is not None
-        assert result[ATTR_NSR_CYCLE_TIME_MINUTES] is None, bad_value
+        assert _call(stub) == {ATTR_STATE: None}, bad
 
 
-def test_cycle_time_none_for_non_int_values():
-    """Strings, dicts, floats are not durations the firmware would emit, so
-    treat them as malformed shadow data → None."""
-    weekly = _full_weekly(mode="all")
-
-    for bad_value in ("180", 180.0, {"minutes": 180}, [180], None):
-        result = compute_next_scheduled_run(
-            weekly,
-            None,
-            "Europe/Brussels",
-            120,
-            _NOW,
-            {"all": bad_value},
+def test_returns_none_for_non_int_cycle_time():
+    """Strings, dicts, floats, None — anything the firmware would not emit
+    as a minute count is treated as malformed shadow data."""
+    for bad in ("180", 180.0, {"minutes": 180}, [180], None):
+        stub = _make_coordinator_stub(
+            aws_data=_cycle_info(bad),
+            next_scheduled_data=_SCHEDULE,
         )
-        assert result is not None
-        assert result[ATTR_NSR_CYCLE_TIME_MINUTES] is None, bad_value
+        assert _call(stub) == {ATTR_STATE: None}, bad
 
 
-def test_cycle_time_none_when_value_is_a_bool():
-    """`bool` is a subclass of `int` in Python — explicitly reject it."""
-    weekly = _full_weekly(mode="all")
-
-    result = compute_next_scheduled_run(
-        weekly,
-        None,
-        "Europe/Brussels",
-        120,
-        _NOW,
-        {"all": True},
+def test_returns_none_for_bool_cycle_time():
+    """``bool`` is a subclass of ``int`` in Python — explicitly reject it."""
+    stub = _make_coordinator_stub(
+        aws_data=_cycle_info(True),
+        next_scheduled_data=_SCHEDULE,
     )
-    assert result is not None
-    assert result[ATTR_NSR_CYCLE_TIME_MINUTES] is None
-
-
-# --- Other axes still honored ---------------------------------------------
-
-
-def test_no_slot_returns_none_result_overall():
-    """When `isInRepeatMode=False` and no delay, the whole result is None —
-    cleaning_modes is irrelevant in this case."""
-    weekly = _full_weekly(mode="all")
-    weekly["isInRepeatMode"] = False  # short-circuit
-
-    result = compute_next_scheduled_run(
-        weekly, None, "Europe/Brussels", 120, _NOW, {"all": 180}
-    )
-
-    assert result is None
+    assert _call(stub) == {ATTR_STATE: None}
