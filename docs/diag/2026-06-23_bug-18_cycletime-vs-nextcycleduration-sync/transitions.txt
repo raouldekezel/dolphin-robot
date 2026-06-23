@@ -1,0 +1,42 @@
+08:50:11.794  cycleInfo.cycleTime=150 | cycleInfo.mode=stairs | nextCycleInfo.nextCycleDuration=150 | nextCycleInfo.mode=stairs  [pws=holdWeekly rs=notConnected rTOC=60]
+08:58:39.316  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={}
+08:58:39.320  DESIRED={}
+08:58:39.380  nextCycleInfo.nextCycleDuration=150 | nextCycleInfo.mode=stairs  [pws=holdWeekly rs=notConnected rTOC=60]
+08:58:58.458  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={'cleaningMode': {'mode': 'all'}}
+08:59:00.935  cycleInfo.mode=all | nextCycleInfo.nextCycleDuration=150 | nextCycleInfo.mode=all  [pws=on rs=init rTOC=60]
+08:59:01.085  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={'cycleInfo': {'cycleTime': 120}}
+08:59:03.715  cycleInfo.cycleTime=120 | nextCycleInfo.nextCycleDuration=120 | nextCycleInfo.mode=all
+08:59:47.433  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None  [pws=on rs=init rTOC=61]
+09:00:23.745  nextCycleInfo.nextCycleDuration=120 | nextCycleInfo.mode=all  [pws=on rs=scanning rTOC=61]
+09:00:26.875  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={}
+09:00:32.387  DESIRED={'systemState': {'pwsState': 'off'}}
+09:01:13.808  nextCycleInfo.nextCycleDuration=120 | nextCycleInfo.mode=all  [pws=holdWeekly rs=notConnected rTOC=61]
+09:01:59.542  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={}
+09:02:12.129  DESIRED={'weeklySettings': {'tuesday': {'isEnabled': True, 'time': {'minutes': 15, 'hours': 11}, 'cleaningMode': {'mode': 'all'}}, 'triggeredBy': 0}}
+09:02:22.196  nextCycleInfo.nextCycleDuration=120 | nextCycleInfo.mode=all  [pws=holdWeekly rs=notConnected rTOC=61]
+09:06:24.228  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={}
+09:06:33.779  DESIRED={'cleaningMode': {'mode': 'all'}}
+09:06:34.294  nextCycleInfo.nextCycleDuration=120 | nextCycleInfo.mode=all  [pws=holdWeekly rs=notConnected rTOC=61]
+09:06:36.440  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None  [pws=on rs=init rTOC=61]
+09:06:36.496  DESIRED={'cycleInfo': {'cycleTime': 180}}
+09:06:39.244  cycleInfo.cycleTime=180 | nextCycleInfo.nextCycleDuration=180 | nextCycleInfo.mode=all
+09:07:22.915  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None  [pws=on rs=init rTOC=62]
+09:07:43.865  nextCycleInfo.nextCycleDuration=180 | nextCycleInfo.mode=all  [pws=on rs=init rTOC=62]
+09:08:01.012  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None  [pws=on rs=scanning rTOC=62]
+09:08:33.795  nextCycleInfo.nextCycleDuration=180 | nextCycleInfo.mode=all  [pws=on rs=scanning rTOC=62]
+09:09:17.019  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={}
+09:09:18.438  DESIRED={'systemState': {'pwsState': 'off'}}
+09:09:56.799  nextCycleInfo.nextCycleDuration=180 | nextCycleInfo.mode=all  [pws=holdWeekly rs=notConnected rTOC=62]
+09:10:03.194  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={}
+09:10:36.797  nextCycleInfo.nextCycleDuration=180 | nextCycleInfo.mode=all  [pws=holdWeekly rs=notConnected rTOC=62]
+09:15:03.210  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None
+09:15:13.288  nextCycleInfo.nextCycleDuration=180 | nextCycleInfo.mode=all  [pws=on rs=init rTOC=62]
+09:15:49.906  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None  [pws=on rs=init rTOC=63]
+09:16:19.562  nextCycleInfo.nextCycleDuration=180 | nextCycleInfo.mode=all  [pws=on rs=scanning rTOC=63]
+09:21:42.039  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={}
+09:21:42.081  DESIRED={}
+09:21:45.968  nextCycleInfo.nextCycleDuration=180 | nextCycleInfo.mode=all  [pws=on rs=scanning rTOC=63]
+09:23:19.802  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={}
+09:23:19.864  nextCycleInfo.nextCycleDuration=180 | nextCycleInfo.mode=all  [pws=on rs=scanning rTOC=63]
+09:23:21.616  nextCycleInfo.nextCycleDuration=None | nextCycleInfo.mode=None | DESIRED={'systemState': {'pwsState': 'off'}}
+09:23:59.809  nextCycleInfo.nextCycleDuration=180 | nextCycleInfo.mode=all  [pws=holdWeekly rs=notConnected rTOC=63]
