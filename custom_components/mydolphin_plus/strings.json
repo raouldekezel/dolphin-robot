@@ -181,18 +181,6 @@
           "init": "Checking Environment"
         }
       },
-      "clean_mode": {
-        "name": "Clean Mode",
-        "state": {
-          "all": "Regular",
-          "short": "Fast mode",
-          "floor": "Floor only",
-          "water": "Water line",
-          "ultra": "Ultra clean",
-          "pickup": "Pickup",
-          "stairs": "Full Coverage"
-        }
-      },
       "robot_error": {
         "name": "Robot Error",
         "state": {
@@ -279,6 +267,18 @@
       }
     },
     "select": {
+      "clean_mode": {
+        "name": "Clean Mode",
+        "state": {
+          "all": "Regular",
+          "short": "Fast mode",
+          "floor": "Floor only",
+          "water": "Water line",
+          "ultra": "Ultra clean",
+          "pickup": "Pickup",
+          "stairs": "Full Coverage"
+        }
+      },
       "led_mode": {
         "name": "LED Mode",
         "state": {
