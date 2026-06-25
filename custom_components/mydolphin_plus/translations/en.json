@@ -73,16 +73,6 @@
       }
     },
     "select": {
-      "led_mode": {
-        "name": "LED Mode",
-        "state": {
-          "1": "Blinking",
-          "2": "Always on",
-          "3": "Disco"
-        }
-      }
-    },
-    "sensor": {
       "clean_mode": {
         "name": "Clean Mode",
         "state": {
@@ -95,6 +85,16 @@
           "stairs": "Full Coverage"
         }
       },
+      "led_mode": {
+        "name": "LED Mode",
+        "state": {
+          "1": "Blinking",
+          "2": "Always on",
+          "3": "Disco"
+        }
+      }
+    },
+    "sensor": {
       "cycle_count": {
         "name": "Cycle Count"
       },
