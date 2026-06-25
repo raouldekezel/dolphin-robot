@@ -551,7 +551,10 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
         mode = cleaning_mode.get(ATTR_MODE, CleanModes.REGULAR)
 
-        result = {ATTR_STATE: mode}
+        result = {
+            ATTR_STATE: mode,
+            ATTR_ACTIONS: {SERVICE_SELECT_OPTION: self._set_cleaning_mode},
+        }
 
         return result
 

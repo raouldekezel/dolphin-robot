@@ -72,8 +72,9 @@ def test_stairs_label_in_translations(filename, expected):
     """Each shipped locale carries the correct Full Coverage label.
 
     The label must appear in BOTH surfaces:
-    - ``entity.sensor.clean_mode.state.stairs`` — the
-      ``sensor.<robot>_clean_mode`` text
+    - ``entity.select.clean_mode.state.stairs`` — the
+      ``select.<robot>_clean_mode`` text (FEAT-05 moved this block from
+      ``entity.sensor`` to ``entity.select``)
     - ``entity.vacuum.vacuum.state_attributes.fan_speed.state.stairs``
       — the dropdown label in the vacuum entity card
 
@@ -89,14 +90,14 @@ def test_stairs_label_in_translations(filename, expected):
         / filename
     )
     data = json.loads(path.read_text(encoding="utf-8"))
-    sensor_label = data["entity"]["sensor"]["clean_mode"]["state"]["stairs"]
+    select_label = data["entity"]["select"]["clean_mode"]["state"]["stairs"]
     vacuum_label = (
         data["entity"]["vacuum"]["vacuum"]["state_attributes"]["fan_speed"][
             "state"
         ]["stairs"]
     )
-    assert sensor_label == expected, (
-        f"sensor.clean_mode.state.stairs in {filename!r} = {sensor_label!r}, "
+    assert select_label == expected, (
+        f"select.clean_mode.state.stairs in {filename!r} = {select_label!r}, "
         f"expected {expected!r}"
     )
     assert vacuum_label == expected, (

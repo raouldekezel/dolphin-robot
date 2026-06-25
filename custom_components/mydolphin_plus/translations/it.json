@@ -73,16 +73,6 @@
       }
     },
     "select": {
-      "led_mode": {
-        "name": "Modalit\u00e0 LED",
-        "state": {
-          "1": "Palla",
-          "2": "Sempre acceso",
-          "3": "Discoteca"
-        }
-      }
-    },
-    "sensor": {
       "clean_mode": {
         "name": "Modalit\u00e0 pulita",
         "state": {
@@ -95,6 +85,16 @@
           "stairs": "Copertura completa"
         }
       },
+      "led_mode": {
+        "name": "Modalit\u00e0 LED",
+        "state": {
+          "1": "Palla",
+          "2": "Sempre acceso",
+          "3": "Discoteca"
+        }
+      }
+    },
+    "sensor": {
       "cycle_count": {
         "name": "Conteggio dei cicli"
       },

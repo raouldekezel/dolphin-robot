@@ -186,10 +186,10 @@ ENTITY_DESCRIPTIONS: list[MyDolphinPlusEntityDescription] = [
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_NETWORK_NAME),
     ),
-    MyDolphinPlusSensorEntityDescription(
+    MyDolphinPlusSelectEntityDescription(
         key=slugify(DATA_KEY_CLEAN_MODE),
         name=DATA_KEY_CLEAN_MODE,
-        entity_category=EntityCategory.DIAGNOSTIC,
+        options=[str(mode) for mode in CleanModes],
         translation_key=slugify(DATA_KEY_CLEAN_MODE),
     ),
     MyDolphinPlusSensorEntityDescription(
