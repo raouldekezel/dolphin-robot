@@ -1098,16 +1098,21 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
           it is itself unset, so a pick that landed before the first refresh
           is preserved.
         * Subsequent refresh with `reported != _last_seen`: the firmware
-          mode just changed. Our own write paths set `_desired` before
-          publishing, so by construction those echoes arrive at a value that
-          already matches `_desired` — the divergence indicates a foreign
-          initiator (Maytronics app, scheduler). Contract: `desired :=
-          reported` ("desired becomes the current one").
+          mode just changed. The only HA-initiated path that moves `reported`
+          is a write that itself wrote the same value to `_desired` first
+          (Run from the staged value, or the running live-swap), so our own
+          echoes converge on `_desired` and the overwrite is idempotent. A
+          divergence therefore indicates a foreign initiator (Maytronics
+          app, scheduler). Contract: `desired := reported` ("desired
+          becomes the current one").
 
-        Explicit `_event_is_ours` gating would be equivalent here but would
-        require plumbing provenance up from `aws_client`; the value-based
-        check is sufficient because the only paths that set `_desired` also
-        write the same value to the firmware.
+        The load-bearing invariant is "reconcile is gated on `reported`
+        movement", not "every set of `_desired` writes to the firmware" —
+        the docked-pick path sets `_desired` and writes nothing, but that
+        path also does not move `reported`, so it never enters this method
+        at all. Explicit `_event_is_ours` plumbing from `aws_client` would
+        be equivalent on the cases that DO move `reported`; the value-based
+        check is kept for locality.
         """
         cycle_info = self.aws_data.get(DATA_SECTION_CYCLE_INFO, {})
         cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
