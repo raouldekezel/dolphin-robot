@@ -187,6 +187,16 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         # `_async_update_data` cycle.
         self._next_scheduled_data: dict | None = None
 
+        # BUG-13 (write-on-commit) — staged cleaning mode held in coordinator
+        # memory, never persisted. While docked, picking a mode updates this
+        # field only; the firmware is written at Run. Seeded from the shadow's
+        # reported mode on the first refresh and re-seeded any time the
+        # firmware-reported mode changes outside an HA-initiated write (app /
+        # scheduler / running live-swap echo). Lost on HA restart by design —
+        # a reboot shows the robot's real mode, not a stale unlaunched pick.
+        self._desired_clean_mode: str | None = None
+        self._last_seen_reported_clean_mode: str | None = None
+
         self._load_signal_handlers()
 
     @property
@@ -547,9 +557,16 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         return result
 
     def _get_clean_mode_data(self, _entity_description) -> dict | None:
-        cycle_info = self.aws_data.get(DATA_SECTION_CYCLE_INFO, {})
-        cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
-        mode = cleaning_mode.get(ATTR_MODE, CleanModes.REGULAR)
+        # BUG-13 (write-on-commit) — display the staged mode while docked.
+        # `_desired_clean_mode` is seeded from / reconciled with the reported
+        # mode in `_reconcile_desired_clean_mode`, so this falls through to
+        # the firmware's reported mode whenever nothing is staged.
+        mode = self._desired_clean_mode
+
+        if mode is None:
+            cycle_info = self.aws_data.get(DATA_SECTION_CYCLE_INFO, {})
+            cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
+            mode = cleaning_mode.get(ATTR_MODE, CleanModes.REGULAR)
 
         result = {
             ATTR_STATE: mode,
@@ -594,9 +611,14 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         return result
 
     def _get_vacuum_data(self, _entity_description) -> dict | None:
-        cycle_info = self.aws_data.get(DATA_SECTION_CYCLE_INFO, {})
-        cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
-        mode = cleaning_mode.get(ATTR_MODE, CleanModes.REGULAR)
+        # BUG-13 (write-on-commit) — same source of truth as the clean-mode
+        # select: the staged pick, falling back to reported.
+        mode = self._desired_clean_mode
+
+        if mode is None:
+            cycle_info = self.aws_data.get(DATA_SECTION_CYCLE_INFO, {})
+            cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
+            mode = cleaning_mode.get(ATTR_MODE, CleanModes.REGULAR)
 
         state = self._system_details.vacuum_state
 
@@ -914,23 +936,31 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     async def _set_cleaning_mode(
         self, _entity_description: EntityDescription, fan_speed
     ):
-        data = self._get_vacuum_data(None)
-        attributes = data.get(ATTR_ATTRIBUTES)
-        mode = attributes.get(ATTR_MODE)
+        current = self._desired_clean_mode
+        _LOGGER.debug(f"Change cleaning mode, State: {current}, New: {fan_speed}")
 
-        _LOGGER.debug(f"Change cleaning mode, State: {mode}, New: {fan_speed}")
-
-        if mode == fan_speed:
+        if current == fan_speed:
             return
 
-        # BUG-13 — split by current robot state.
-        # Running: keep today's behaviour (live mode-swap, matches the
-        # Maytronics app). Docked: route through the silent E-B primitive
-        # so picking a mode does not also start a cycle.
+        # BUG-13 (write-on-commit) — stage the pick in coordinator memory
+        # in all cases. While docked, do not write to the firmware: writing
+        # `desired.cleaningMode.mode` is the firmware's start primitive
+        # (SPIKE-02 E3b), and every variant that tried to suppress the
+        # implicit start (silent E-B, reactive stop, restamp) raced the
+        # firmware's ~2.5 s window and caused start→pause mini-cycles that
+        # themselves triggered the BUG-20 stuck-init cascade. The firmware
+        # only hears the mode at Run. While the robot is already running,
+        # keep today's live-swap path: the Maytronics app does the same, and
+        # #87 confirmed it does not bump `rTurnOnCount` nor restamp
+        # `cycleStartTime`.
+        self._desired_clean_mode = fan_speed
+
         if self._system_details.is_active:
             self._aws_client.set_cleaning_mode(fan_speed)
-        else:
-            self._aws_client.set_cleaning_mode_silent(fan_speed)
+
+        # Push the staged value to entities now — no firmware echo will
+        # arrive on the docked path, and the running path's echo is debounced.
+        self.async_update_listeners()
 
     async def _set_led_mode(self, _entity_description: EntityDescription, option: str):
         _LOGGER.debug(f"Change led mode, New: {option}")
@@ -971,9 +1001,16 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     async def _vacuum_start(self, _entity_description: EntityDescription, _state):
         _LOGGER.debug("Start vacuum")
 
-        data = self._get_vacuum_data(None)
-        attributes = data.get(ATTR_ATTRIBUTES)
-        mode = attributes.get(ATTR_MODE, CleanModes.REGULAR)
+        # BUG-13 (write-on-commit) — Run commits the staged pick. Falls back
+        # to the firmware's reported mode (and finally REGULAR) only when
+        # nothing is staged, which should be rare in practice — the staged
+        # field is seeded from reported on the first refresh.
+        mode = self._desired_clean_mode
+
+        if mode is None:
+            cycle_info = self.aws_data.get(DATA_SECTION_CYCLE_INFO, {})
+            cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
+            mode = cleaning_mode.get(ATTR_MODE, CleanModes.REGULAR)
 
         self._aws_client.set_cleaning_mode(mode)
 
@@ -1045,6 +1082,49 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
                 f"Main Unit State: {self._system_details.power_unit_state}, "
                 f"Robot State: {self._system_details.robot_state}"
             )
+
+        self._reconcile_desired_clean_mode()
+
+    def _reconcile_desired_clean_mode(self):
+        """BUG-13 (write-on-commit) — seed at startup and reconcile on foreign
+        change.
+
+        Tracks the firmware-reported mode in `_last_seen_reported_clean_mode`
+        so a real change (since the previous refresh) can be told from a
+        steady-state echo. Two cases:
+
+        * First refresh after coordinator init (`_last_seen is None`): take
+          the reported mode as the baseline; seed `_desired` from it only if
+          it is itself unset, so a pick that landed before the first refresh
+          is preserved.
+        * Subsequent refresh with `reported != _last_seen`: the firmware
+          mode just changed. Our own write paths set `_desired` before
+          publishing, so by construction those echoes arrive at a value that
+          already matches `_desired` — the divergence indicates a foreign
+          initiator (Maytronics app, scheduler). Contract: `desired :=
+          reported` ("desired becomes the current one").
+
+        Explicit `_event_is_ours` gating would be equivalent here but would
+        require plumbing provenance up from `aws_client`; the value-based
+        check is sufficient because the only paths that set `_desired` also
+        write the same value to the firmware.
+        """
+        cycle_info = self.aws_data.get(DATA_SECTION_CYCLE_INFO, {})
+        cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
+        reported = cleaning_mode.get(ATTR_MODE)
+
+        if reported is None:
+            return
+
+        if self._last_seen_reported_clean_mode is None:
+            self._last_seen_reported_clean_mode = reported
+            if self._desired_clean_mode is None:
+                self._desired_clean_mode = reported
+            return
+
+        if reported != self._last_seen_reported_clean_mode:
+            self._last_seen_reported_clean_mode = reported
+            self._desired_clean_mode = reported
 
     @property
     def has_real_data(self) -> bool:

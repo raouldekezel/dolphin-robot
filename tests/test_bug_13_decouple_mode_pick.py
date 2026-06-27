@@ -1,32 +1,41 @@
-"""Regression tests for BUG-13 (#47) — decouple cleaning-mode pick from start.
+"""Regression tests for BUG-13 (#47) — write-on-commit cleaning-mode pick.
 
 Pre-fix, ``coordinator._set_cleaning_mode`` always called
-``aws_client.set_cleaning_mode`` on any mode delta, and the firmware
-interpreted that as "set mode + start now" when the robot was docked
-(holdWeekly/holdDelay/off → on within ~2.5 s). Picking a mode from the
-combo box was therefore an implicit start.
+``aws_client.set_cleaning_mode`` on any mode delta. The firmware
+interprets that write as "set mode + start now" when the robot is docked
+(``holdWeekly``/``holdDelay``/``off`` → ``on`` within ~2.5 s), so picking a
+mode from the combo box was an implicit start.
 
-Post-fix:
+The first attempt (E-B silent stop, PR #86) tried to suppress the implicit
+start with a reactive ``pause()`` triggered by the BUG-08 cycleTime echo.
+That race lost in two ways:
 
-* ``coordinator._set_cleaning_mode`` splits on ``self._system_details.is_active``.
-  When the robot is active (CLEANING/RETURNING), today's live mode-swap path is
-  kept — same shape as the Maytronics app. When the robot is docked, the call
-  routes through ``aws_client.set_cleaning_mode_silent``.
-* ``aws_client.set_cleaning_mode_silent`` arms a monotonic deadline
-  (``_silent_stop_deadline``) and publishes the mode the same way as
-  ``set_cleaning_mode``. The existing BUG-08 chain emits ``cycleTime`` ~1 s
-  later; the AWS ``/update/accepted`` echo of that cycleTime write triggers a
-  ``pause()`` (E-B primitive, validated in #85). The pause lands before the
-  firmware reports ``pwsState=on``, so the firmware adopts mode + cycleTime
-  and the robot stays docked.
-* ``_silent_stop_due`` is the gate: pending iff (a) deadline armed and not
-  expired, (b) echoed ``desired`` carries ``cycleInfo.cycleTime``. The TTL is
-  the safety net that prevents a dropped cycleTime echo from later turning
-  an unrelated cycleTime write into a spurious mid-cycle stop.
+* BUG-19 (#96): a second consecutive docked pick ~17 s later still started
+  a cycle anyway — the firmware window was non-deterministic.
+* BUG-20 (#98): a scheduled cycle after a BUG-19 sequence left the firmware
+  stuck in init for hours, with the cycle counter jumping to a sentinel.
+  The start→pause mini-cycle was itself the trigger.
 
-The empirical foundation is #85 (E-B PASS, E-A FAIL) and the SPIKE-02 pre-D2
-diag (#72): mode-only write starts the robot (E3b); cycleTime-only write is a
-no-op (E2); combined ``{mode, cycleTime}`` is lossy on ``cycleTime`` (E7).
+The pivot — **write-on-commit** (issue #47, 2026-06-27 comments):
+
+* While **docked**, picking a mode stores the value in
+  ``coordinator._desired_clean_mode`` and writes **nothing** to AWS. No
+  shadow write → no implicit start → BUG-19 cannot occur, and the
+  start→pause trigger of BUG-20 is removed by construction.
+* While **running**, picking a mode keeps today's live-write path —
+  matches the Maytronics app, and #87 confirmed it does not bump
+  ``rTurnOnCount`` nor restamp ``cycleStartTime``.
+* **Run** (``_vacuum_start``) commits the staged value via the existing
+  ``set_cleaning_mode`` primitive; the firmware's implicit start is now
+  exactly what's wanted, and the BUG-08 chain supplies the cycle time.
+* **Reconcile on foreign change / startup**: when the firmware-reported
+  mode changes outside an HA-initiated write (Maytronics app, scheduler,
+  or first refresh after init), the staged value is overwritten with
+  reported. The contract is "desired := current".
+* The BUG-08 ``cycleTime`` chain in ``aws_client._on_update_accepted``
+  stays — it is the mandatory two-step delivery for a per-mode duration
+  (SPIKE-02 E7: combined ``{mode, cycleTime}`` writes are firmware-lossy
+  on the sibling cycleTime).
 """
 
 from __future__ import annotations
@@ -45,14 +54,13 @@ import pytest
 def _make_aws_stub(*, our_token: str | None = "OURTOKEN"):
     """Build an ``AWSClient`` stub for the ``_on_update_accepted`` branches.
 
-    The two predicate methods are bound to the real implementations so the
-    test exercises the actual gates, not MagicMock auto-returns.
+    ``_event_is_ours`` is bound to the real implementation so the
+    provenance gate is exercised, not auto-stubbed.
     """
     from custom_components.mydolphin_plus.managers.aws_client import AWSClient
 
     stub = MagicMock(spec=AWSClient)
     stub._our_token = our_token
-    stub._silent_stop_deadline = None
     stub.data = {}
     stub._on_data_update_callback = lambda: None
     stub._robot_family = None
@@ -68,19 +76,44 @@ def _make_aws_stub(*, our_token: str | None = "OURTOKEN"):
     stub._read_temperature_and_in_water_details = MagicMock()
     stub._on_dynamic_content_received = MagicMock()
     stub._event_is_ours = lambda payload: AWSClient._event_is_ours(stub, payload)
-    stub._silent_stop_due = lambda desired: AWSClient._silent_stop_due(stub, desired)
     stub.pause = MagicMock()
     return stub
 
 
-def _make_coordinator_stub(*, vacuum_mode: str, is_active: bool):
-    """Build a coordinator stub exposing only what ``_set_cleaning_mode`` reads."""
-    stub = MagicMock()
-    stub._system_details = SimpleNamespace(is_active=is_active)
-    stub._aws_client = MagicMock()
-    stub._get_vacuum_data = MagicMock(
-        return_value={"attributes": {"mode": vacuum_mode}}
+def _make_coordinator_stub(
+    *,
+    desired: str | None,
+    last_seen: str | None = None,
+    is_active: bool = False,
+    reported: str | None = None,
+):
+    """Stub the bits of ``MyDolphinPlusCoordinator`` that the BUG-13 paths read.
+
+    Includes the optional firmware-reported mode in ``aws_data`` so the
+    ``_vacuum_start`` fallback (and ``_reconcile_desired_clean_mode``) can
+    be exercised end-to-end.
+    """
+    from custom_components.mydolphin_plus.common.consts import (
+        DATA_CYCLE_INFO_CLEANING_MODE,
+        DATA_SECTION_CYCLE_INFO,
+        DATA_SECTION_SYSTEM_STATE,
     )
+
+    stub = MagicMock()
+    stub._desired_clean_mode = desired
+    stub._last_seen_reported_clean_mode = last_seen
+    stub._system_details = SimpleNamespace(is_active=is_active)
+    stub._has_real_data = False
+    stub._aws_client = MagicMock()
+    stub._aws_client.data = {}
+    if reported is not None:
+        stub._aws_client.data[DATA_SECTION_CYCLE_INFO] = {
+            DATA_CYCLE_INFO_CLEANING_MODE: {"mode": reported},
+        }
+        stub._aws_client.data[DATA_SECTION_SYSTEM_STATE] = {"pwsState": "holdWeekly"}
+    # ``aws_data`` is a property on the real class — emulate it.
+    stub.aws_data = stub._aws_client.data
+    stub.async_update_listeners = MagicMock()
     return stub
 
 
@@ -99,222 +132,78 @@ def _run_callback_with_fast_sleep(stub, topic, payload):
 
 
 # ---------------------------------------------------------------------------
-# Coordinator split — docked vs running
+# Step 1 rollback — the silent-stop apparatus is gone
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_set_cleaning_mode_docked_routes_to_silent():
-    """Docked + real mode delta → silent E-B path. The shared
-    ``set_cleaning_mode`` (which Start and pickup also use) must NOT be
-    called on this path — otherwise the robot starts cleaning."""
-    from custom_components.mydolphin_plus.managers.coordinator import (
-        MyDolphinPlusCoordinator,
-    )
-
-    stub = _make_coordinator_stub(vacuum_mode="all", is_active=False)
-
-    await MyDolphinPlusCoordinator._set_cleaning_mode(stub, None, "stairs")
-
-    stub._aws_client.set_cleaning_mode_silent.assert_called_once_with("stairs")
-    stub._aws_client.set_cleaning_mode.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_set_cleaning_mode_running_keeps_live_write():
-    """Running + real mode delta → live mode-swap, matching today's
-    behaviour (and the Maytronics app's). The silent path must NOT be
-    used — it would stop the cycle the operator is currently watching."""
-    from custom_components.mydolphin_plus.managers.coordinator import (
-        MyDolphinPlusCoordinator,
-    )
-
-    stub = _make_coordinator_stub(vacuum_mode="all", is_active=True)
-
-    await MyDolphinPlusCoordinator._set_cleaning_mode(stub, None, "stairs")
-
-    stub._aws_client.set_cleaning_mode.assert_called_once_with("stairs")
-    stub._aws_client.set_cleaning_mode_silent.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_set_cleaning_mode_same_mode_is_no_op_docked():
-    """Picking the already-current mode is a no-op on either side — no AWS
-    write, no silent-stop arming, no flicker."""
-    from custom_components.mydolphin_plus.managers.coordinator import (
-        MyDolphinPlusCoordinator,
-    )
-
-    stub = _make_coordinator_stub(vacuum_mode="all", is_active=False)
-
-    await MyDolphinPlusCoordinator._set_cleaning_mode(stub, None, "all")
-
-    stub._aws_client.set_cleaning_mode.assert_not_called()
-    stub._aws_client.set_cleaning_mode_silent.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_set_cleaning_mode_same_mode_is_no_op_running():
-    """Same as above for the running branch — locks the early-return."""
-    from custom_components.mydolphin_plus.managers.coordinator import (
-        MyDolphinPlusCoordinator,
-    )
-
-    stub = _make_coordinator_stub(vacuum_mode="all", is_active=True)
-
-    await MyDolphinPlusCoordinator._set_cleaning_mode(stub, None, "all")
-
-    stub._aws_client.set_cleaning_mode.assert_not_called()
-    stub._aws_client.set_cleaning_mode_silent.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# Silent-set arming
-# ---------------------------------------------------------------------------
-
-
-def test_silent_set_arms_deadline_and_publishes_mode():
-    """``set_cleaning_mode_silent`` must (a) arm a deadline in the future
-    and (b) delegate to ``set_cleaning_mode`` so the existing publisher and
-    BUG-08 chain stay in charge of the wire."""
+def test_silent_stop_apparatus_removed_from_aws_client():
+    """The reactive E-B / silent-stop primitives must not exist on the
+    AWS client any more. Their presence would mean a follow-up could
+    accidentally re-arm the start→pause race that triggered BUG-19/20."""
     from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
     from custom_components.mydolphin_plus.managers.aws_client import AWSClient
 
-    stub = MagicMock(spec=AWSClient)
-    stub._silent_stop_deadline = None
-    stub.set_cleaning_mode = MagicMock()
-
-    with patch.object(aws_client_mod, "monotonic", return_value=1000.0):
-        AWSClient.set_cleaning_mode_silent(stub, "stairs")
-
-    assert stub._silent_stop_deadline > 1000.0
-    assert stub._silent_stop_deadline - 1000.0 == pytest.approx(
-        aws_client_mod._SILENT_STOP_TTL_SECONDS
-    )
-    stub.set_cleaning_mode.assert_called_once_with("stairs")
+    assert not hasattr(AWSClient, "set_cleaning_mode_silent")
+    assert not hasattr(AWSClient, "_silent_stop_due")
+    assert not hasattr(aws_client_mod, "_SILENT_STOP_TTL_SECONDS")
 
 
-def test_silent_set_rolls_back_deadline_on_publish_exception():
-    """If the mode publish raises, the armed deadline must be cleared and
-    the exception re-raised. Otherwise the dangling deadline could match a
-    later, unrelated cycleTime write within the TTL window and stop a
-    running robot. ``_publish`` swallows broker errors itself, so this
-    guard protects mostly against above-the-broker faults (serialization,
-    misuse), but the invariant matters."""
-    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    stub = MagicMock(spec=AWSClient)
-    stub._silent_stop_deadline = None
-    stub.set_cleaning_mode = MagicMock(side_effect=RuntimeError("publish failed"))
-
-    with patch.object(aws_client_mod, "monotonic", return_value=1000.0):
-        with pytest.raises(RuntimeError, match="publish failed"):
-            AWSClient.set_cleaning_mode_silent(stub, "stairs")
-
-    assert stub._silent_stop_deadline is None
-
-
-# ---------------------------------------------------------------------------
-# _silent_stop_due — the gate
-# ---------------------------------------------------------------------------
-
-
-def test_silent_stop_due_false_when_not_armed():
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    stub = MagicMock(spec=AWSClient)
-    stub._silent_stop_deadline = None
-
-    assert AWSClient._silent_stop_due(stub, {"cycleInfo": {"cycleTime": 120}}) is False
-
-
-def test_silent_stop_due_true_when_armed_and_cycle_time_present():
-    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    stub = MagicMock(spec=AWSClient)
-    stub._silent_stop_deadline = 1000.0
-
-    with patch.object(aws_client_mod, "monotonic", return_value=999.0):
-        result = AWSClient._silent_stop_due(stub, {"cycleInfo": {"cycleTime": 120}})
-
-    assert result is True
-    # Deadline left intact — the caller (the callback) consumes it.
-    assert stub._silent_stop_deadline == 1000.0
-
-
-def test_silent_stop_due_false_and_cleared_when_expired():
-    """A stale armed deadline must self-clear so a future write doesn't
-    inherit it. Without this, finding 2 of the design review's blocker
-    scenario lets a dangling pending stop a running robot mid-cycle."""
-    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    stub = MagicMock(spec=AWSClient)
-    stub._silent_stop_deadline = 1000.0
-
-    with patch.object(aws_client_mod, "monotonic", return_value=1500.0):
-        result = AWSClient._silent_stop_due(stub, {"cycleInfo": {"cycleTime": 120}})
-
-    assert result is False
-    assert stub._silent_stop_deadline is None
-
-
-def test_silent_stop_due_false_without_cycle_time_field():
-    """The pause must NOT fire on a sibling-section write
-    (e.g. ``systemState``, ``led``) that happens to land within the TTL
-    window. The shape discriminator is non-negotiable."""
-    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    stub = MagicMock(spec=AWSClient)
-    stub._silent_stop_deadline = 1000.0
-
-    with patch.object(aws_client_mod, "monotonic", return_value=999.0):
-        assert AWSClient._silent_stop_due(stub, {}) is False
-        assert (
-            AWSClient._silent_stop_due(stub, {"systemState": {"pwsState": "off"}})
-            is False
-        )
-        assert AWSClient._silent_stop_due(stub, {"cycleInfo": {}}) is False
-
-
-# ---------------------------------------------------------------------------
-# Observer integration — full _message_callback path
-# ---------------------------------------------------------------------------
-
-
-def test_observer_pauses_on_our_cycle_time_echo_with_pending():
-    """End-to-end happy path: armed pending + our-token cycleTime echo →
-    ``pause()`` fires and the deadline is cleared in one step."""
+def test_bug_08_chain_survives_on_our_mode_echo():
+    """The BUG-08 chain must still fire on our own mode echo — without it,
+    a started cycle would run at the firmware's persisted cycleTime instead
+    of the integration's configured per-mode value (SPIKE-02 E7 makes the
+    two-step chain mandatory)."""
     from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
 
     stub = _make_aws_stub(our_token="OURTOKEN")
-    stub._silent_stop_deadline = 1_000_000.0  # far future
     payload = _encode(
         {
-            "state": {"desired": {"cycleInfo": {"cycleTime": 60}}},
+            "state": {"desired": {"cleaningMode": {"mode": "stairs"}}},
             "clientToken": "OURTOKEN",
             "version": 100,
             "timestamp": 1000,
         }
     )
 
-    with patch.object(aws_client_mod, "monotonic", return_value=999.0):
-        _run_callback_with_fast_sleep(stub, stub._topic_data.update_accepted, payload)
+    sleep_mock = _run_callback_with_fast_sleep(
+        stub, stub._topic_data.update_accepted, payload
+    )
 
-    stub.pause.assert_called_once()
-    assert stub._silent_stop_deadline is None
-    stub._set_cycle_time.assert_not_called()
+    sleep_mock.assert_called_once_with(1)
+    stub._set_cycle_time.assert_called_once_with("stairs")
+    # No reactive stop primitive any more — pause() must never be a side
+    # effect of receiving a mode echo.
+    stub.pause.assert_not_called()
+    _ = aws_client_mod  # silence unused-import warning under strict linters
 
 
-def test_observer_no_pause_when_no_pending():
-    """Our own cycleTime write echoing back WITHOUT a pending silent set
-    (e.g. operator changed a number entity, or any future cycleTime path)
-    must not interfere. This is the lock on finding 2 of the review."""
+def test_bug_08_chain_does_not_fire_on_foreign_mode_echo():
+    """Provenance gate is unchanged: app-issued mode writes (no token) must
+    not trigger our cycleTime push. The app handles its own durations."""
     stub = _make_aws_stub(our_token="OURTOKEN")
-    stub._silent_stop_deadline = None
+    payload = _encode(
+        {
+            "state": {"desired": {"cleaningMode": {"mode": "stairs"}}},
+            "version": 100,
+            "timestamp": 1000,
+        }
+    )
+
+    sleep_mock = _run_callback_with_fast_sleep(
+        stub, stub._topic_data.update_accepted, payload
+    )
+
+    sleep_mock.assert_not_called()
+    stub._set_cycle_time.assert_not_called()
+    stub.pause.assert_not_called()
+
+
+def test_no_pause_fires_on_our_cycle_time_echo():
+    """Pre-pivot, an armed silent set turned our own cycleTime echo into a
+    reactive ``pause()``. With the apparatus removed, the cycleTime echo
+    must be inert in the observer — only the BUG-08 path matters, and the
+    cycleTime echo never carries ``cleaningMode.mode``."""
+    stub = _make_aws_stub(our_token="OURTOKEN")
     payload = _encode(
         {
             "state": {"desired": {"cycleInfo": {"cycleTime": 60}}},
@@ -327,170 +216,245 @@ def test_observer_no_pause_when_no_pending():
     _run_callback_with_fast_sleep(stub, stub._topic_data.update_accepted, payload)
 
     stub.pause.assert_not_called()
+    stub._set_cycle_time.assert_not_called()
 
 
-def test_observer_no_pause_on_foreign_cycle_time_echo_even_when_pending():
-    """The provenance gate stays in force on the new branch — an app-issued
-    cycleTime write must not consume our pending. Otherwise an app cycleTime
-    write landing within our TTL window would stop the robot."""
-    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
+# ---------------------------------------------------------------------------
+# Step 2 — write-on-commit in the coordinator
+# ---------------------------------------------------------------------------
 
-    stub = _make_aws_stub(our_token="OURTOKEN")
-    stub._silent_stop_deadline = 1_000_000.0
-    payload = _encode(
-        {
-            "state": {"desired": {"cycleInfo": {"cycleTime": 60}}},
-            # no clientToken → app-authored
-            "version": 100,
-            "timestamp": 1000,
-        }
+
+@pytest.mark.asyncio
+async def test_pick_while_docked_writes_nothing_only_stages():
+    """The whole BUG-13/19/20 fix: a docked pick must not touch AWS. It
+    stores the value in ``_desired_clean_mode`` and notifies listeners."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
     )
 
-    with patch.object(aws_client_mod, "monotonic", return_value=999.0):
-        _run_callback_with_fast_sleep(stub, stub._topic_data.update_accepted, payload)
+    stub = _make_coordinator_stub(desired="all", is_active=False)
 
-    stub.pause.assert_not_called()
-    # Pending is left intact — our own cycleTime echo may still arrive.
-    assert stub._silent_stop_deadline == 1_000_000.0
+    await MyDolphinPlusCoordinator._set_cleaning_mode(stub, None, "stairs")
+
+    assert stub._desired_clean_mode == "stairs"
+    stub._aws_client.set_cleaning_mode.assert_not_called()
+    # No silent primitive: even the legacy name must be untouched on stubs
+    # that auto-create attributes.
+    assert "set_cleaning_mode_silent" not in {
+        c[0] for c in stub._aws_client.mock_calls
+    }
+    stub.async_update_listeners.assert_called_once()
 
 
-def test_observer_no_pause_on_our_mode_echo_with_pending():
-    """The mode echo of OUR silent set (the first BUG-08 step) must take
-    the existing branch (sleep + set_cycle_time) and NOT also trigger the
-    pause — otherwise we stop before the cycleTime is even written.
-
-    This locks the ``return`` after ``_set_cycle_time`` in the callback,
-    which is otherwise only structurally guaranteed.
-    """
-    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
-
-    stub = _make_aws_stub(our_token="OURTOKEN")
-    stub._silent_stop_deadline = 1_000_000.0
-    payload = _encode(
-        {
-            "state": {"desired": {"cleaningMode": {"mode": "stairs"}}},
-            "clientToken": "OURTOKEN",
-            "version": 100,
-            "timestamp": 1000,
-        }
+@pytest.mark.asyncio
+async def test_pick_while_running_lives_writes_and_stages():
+    """Running + real delta → live mode-swap (Maytronics-app parity, #87)
+    AND stage `_desired` so subsequent reads stay consistent."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
     )
 
-    with patch.object(aws_client_mod, "monotonic", return_value=999.0):
-        sleep_mock = _run_callback_with_fast_sleep(
-            stub, stub._topic_data.update_accepted, payload
-        )
+    stub = _make_coordinator_stub(desired="all", is_active=True)
 
-    sleep_mock.assert_called_once_with(1)
-    stub._set_cycle_time.assert_called_once_with("stairs")
-    stub.pause.assert_not_called()
-    # Pending stays armed — the cycleTime echo is the next step.
-    assert stub._silent_stop_deadline == 1_000_000.0
+    await MyDolphinPlusCoordinator._set_cleaning_mode(stub, None, "stairs")
+
+    assert stub._desired_clean_mode == "stairs"
+    stub._aws_client.set_cleaning_mode.assert_called_once_with("stairs")
+    stub.async_update_listeners.assert_called_once()
 
 
-def test_observer_no_pause_on_pause_own_echo():
-    """Our own ``pause()`` write echoes back as ``desired.systemState.pwsState``
-    (no ``cycleInfo``). The shape discriminator must reject it so we don't
-    issue a second pause."""
-    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
-
-    stub = _make_aws_stub(our_token="OURTOKEN")
-    stub._silent_stop_deadline = 1_000_000.0  # could plausibly still be armed
-    payload = _encode(
-        {
-            "state": {"desired": {"systemState": {"pwsState": "off"}}},
-            "clientToken": "OURTOKEN",
-            "version": 100,
-            "timestamp": 1000,
-        }
+@pytest.mark.asyncio
+async def test_pick_same_mode_is_a_noop():
+    """No write, no listener bump — both branches return early."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
     )
 
-    with patch.object(aws_client_mod, "monotonic", return_value=999.0):
-        _run_callback_with_fast_sleep(stub, stub._topic_data.update_accepted, payload)
+    for is_active in (False, True):
+        stub = _make_coordinator_stub(desired="all", is_active=is_active)
+        await MyDolphinPlusCoordinator._set_cleaning_mode(stub, None, "all")
+        stub._aws_client.set_cleaning_mode.assert_not_called()
+        stub.async_update_listeners.assert_not_called()
 
-    stub.pause.assert_not_called()
 
-
-def test_overlapping_silent_sets_produce_a_single_pause():
-    """Locks the current behaviour reviewer flagged as a residual: two
-    silent sets within the ~1.2 s BUG-08 window share the single
-    ``_silent_stop_deadline`` scalar, so only ONE ``pause()`` fires (the
-    first cycleTime echo consumes the deadline; the second observes None
-    and is inert).
-
-    Strictly better than pre-fix (where EVERY pick started the robot),
-    but the second mode write's auto-start may slip through unobserved.
-    Whether the firmware lets it through is a hardware question
-    (SPIKE-02 D4 territory, deferred). If it does, this scalar needs to
-    become per-write correlation — and this test will then fail loudly,
-    flagging the design change."""
-    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    stub = MagicMock(spec=AWSClient)
-    stub._silent_stop_deadline = None
-    stub.set_cleaning_mode = MagicMock()
-    stub._our_token = "OURTOKEN"
-    stub._topic_data = SimpleNamespace(
-        dynamic="dynamic-topic-irrelevant",
-        get_accepted="$aws/things/REDACTED-MUSN/shadow/get/accepted",
-        update_accepted="$aws/things/REDACTED-MUSN/shadow/update/accepted",
-        update="$aws/things/REDACTED-MUSN/shadow/update",
-    )
-    stub._config_manager = MagicMock()
-    stub._config_manager.motor_unit_serial = "REDACTED-MUSN"
-    stub._set_cycle_time = MagicMock()
-    stub._on_data_update_callback = lambda: None
-    stub.data = {}
-    stub._robot_family = None
-    stub._event_is_ours = lambda payload: AWSClient._event_is_ours(stub, payload)
-    stub._silent_stop_due = lambda desired: AWSClient._silent_stop_due(stub, desired)
-    stub.pause = MagicMock()
-
-    cycle_time_echo = _encode(
-        {
-            "state": {"desired": {"cycleInfo": {"cycleTime": 60}}},
-            "clientToken": "OURTOKEN",
-            "version": 100,
-            "timestamp": 1000,
-        }
+@pytest.mark.asyncio
+async def test_run_commits_staged_mode():
+    """``_vacuum_start`` is the one place that writes a mode to the
+    firmware on the docked path. It must read the staged value, not the
+    firmware-reported mode — otherwise the user's pick is lost."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
     )
 
-    with patch.object(aws_client_mod, "monotonic", return_value=1000.0):
-        AWSClient.set_cleaning_mode_silent(stub, "all")        # pick A, deadline_A
-        AWSClient.set_cleaning_mode_silent(stub, "stairs")     # pick B, overwrites with deadline_B
+    stub = _make_coordinator_stub(desired="stairs", reported="all")
 
-        # A's cycleTime echo arrives first — consumes the deadline.
-        _run_callback_with_fast_sleep(
-            stub, stub._topic_data.update_accepted, cycle_time_echo
-        )
-        # B's cycleTime echo arrives next — no deadline left, no pause.
-        _run_callback_with_fast_sleep(
-            stub, stub._topic_data.update_accepted, cycle_time_echo
-        )
+    await MyDolphinPlusCoordinator._vacuum_start(stub, None, None)
 
-    assert stub.pause.call_count == 1
-    assert stub._silent_stop_deadline is None
+    stub._aws_client.set_cleaning_mode.assert_called_once_with("stairs")
 
 
-def test_observer_clears_expired_pending_without_action():
-    """An accepted carrying our cycleTime arrives AFTER the TTL elapses
-    (e.g. broker delay): no pause, and the stale pending is cleared so a
-    later, unrelated cycleTime write cannot trigger a spurious stop."""
-    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
-
-    stub = _make_aws_stub(our_token="OURTOKEN")
-    stub._silent_stop_deadline = 1000.0
-    payload = _encode(
-        {
-            "state": {"desired": {"cycleInfo": {"cycleTime": 60}}},
-            "clientToken": "OURTOKEN",
-            "version": 100,
-            "timestamp": 1000,
-        }
+@pytest.mark.asyncio
+async def test_run_falls_back_to_reported_when_nothing_staged():
+    """Defensive fallback for an unusual sequence (Run before the first
+    refresh has seeded ``_desired``). Should never happen in steady state."""
+    from custom_components.mydolphin_plus.common.clean_modes import CleanModes
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
     )
 
-    with patch.object(aws_client_mod, "monotonic", return_value=2000.0):
-        _run_callback_with_fast_sleep(stub, stub._topic_data.update_accepted, payload)
+    stub = _make_coordinator_stub(desired=None, reported="floor")
 
-    stub.pause.assert_not_called()
-    assert stub._silent_stop_deadline is None
+    await MyDolphinPlusCoordinator._vacuum_start(stub, None, None)
+
+    stub._aws_client.set_cleaning_mode.assert_called_once_with("floor")
+
+    # And, true last-resort fallback when even reported is absent.
+    stub2 = _make_coordinator_stub(desired=None, reported=None)
+    await MyDolphinPlusCoordinator._vacuum_start(stub2, None, None)
+    stub2._aws_client.set_cleaning_mode.assert_called_once_with(CleanModes.REGULAR)
+
+
+# ---------------------------------------------------------------------------
+# Step 2 — getters return the staged value while docked
+# ---------------------------------------------------------------------------
+
+
+def test_get_clean_mode_data_returns_staged_value_while_docked():
+    """Select / sensor must show the operator's pick immediately, even
+    though no firmware echo has arrived (and won't, on the docked path)."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
+    )
+
+    stub = _make_coordinator_stub(desired="stairs", reported="all")
+
+    result = MyDolphinPlusCoordinator._get_clean_mode_data(stub, None)
+
+    assert result["state"] == "stairs"
+
+
+def test_get_vacuum_data_returns_staged_value_while_docked():
+    """Same source of truth for the vacuum entity's ``fan_speed``."""
+    from custom_components.mydolphin_plus.common.consts import ATTR_ATTRIBUTES
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
+    )
+    from homeassistant.const import ATTR_MODE
+
+    stub = _make_coordinator_stub(desired="stairs", reported="all")
+    # The getter also reads vacuum_state from system_details.
+    from homeassistant.components.vacuum import VacuumActivity
+
+    stub._system_details = SimpleNamespace(
+        is_active=False, vacuum_state=VacuumActivity.DOCKED
+    )
+
+    result = MyDolphinPlusCoordinator._get_vacuum_data(stub, None)
+
+    assert result[ATTR_ATTRIBUTES][ATTR_MODE] == "stairs"
+
+
+# ---------------------------------------------------------------------------
+# Step 2 — reconciliation
+# ---------------------------------------------------------------------------
+
+
+def test_reconcile_seeds_desired_from_reported_at_first_refresh():
+    """Startup contract: a reboot shows the robot's real mode, not a stale
+    pick. The first refresh after coordinator init seeds both
+    ``_desired_clean_mode`` and ``_last_seen_reported_clean_mode``."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
+    )
+
+    stub = _make_coordinator_stub(desired=None, last_seen=None, reported="all")
+
+    MyDolphinPlusCoordinator._reconcile_desired_clean_mode(stub)
+
+    assert stub._desired_clean_mode == "all"
+    assert stub._last_seen_reported_clean_mode == "all"
+
+
+def test_reconcile_preserves_pick_landed_before_first_refresh():
+    """Tight race: the operator picks ``stairs`` before the first refresh
+    arrives. Seeding must not clobber the pre-existing pick (whose own
+    write paths would also have set it deliberately)."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
+    )
+
+    stub = _make_coordinator_stub(desired="stairs", last_seen=None, reported="all")
+
+    MyDolphinPlusCoordinator._reconcile_desired_clean_mode(stub)
+
+    assert stub._desired_clean_mode == "stairs"
+    # The baseline is still established so a SUBSEQUENT foreign change is
+    # detected as a delta against "all".
+    assert stub._last_seen_reported_clean_mode == "all"
+
+
+def test_reconcile_overwrites_staged_pick_on_foreign_change():
+    """Maytronics-app / scheduler-initiated mode change: the user's staged
+    pick yields to the firmware's current mode (contract: "desired :=
+    current")."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
+    )
+
+    stub = _make_coordinator_stub(desired="stairs", last_seen="all", reported="wall")
+
+    MyDolphinPlusCoordinator._reconcile_desired_clean_mode(stub)
+
+    assert stub._desired_clean_mode == "wall"
+    assert stub._last_seen_reported_clean_mode == "wall"
+
+
+def test_reconcile_is_noop_when_reported_unchanged():
+    """Steady state — most refreshes. Reported has not moved since last
+    seen; the staged pick (if any) must survive intact."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
+    )
+
+    stub = _make_coordinator_stub(desired="stairs", last_seen="all", reported="all")
+
+    MyDolphinPlusCoordinator._reconcile_desired_clean_mode(stub)
+
+    assert stub._desired_clean_mode == "stairs"
+    assert stub._last_seen_reported_clean_mode == "all"
+
+
+def test_reconcile_skips_when_reported_absent():
+    """Pre-first-shadow window — the cleaning-mode slot is not in
+    ``aws_data`` yet. The reconciler must not crash and must not seed a
+    spurious value."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
+    )
+
+    stub = _make_coordinator_stub(desired=None, last_seen=None, reported=None)
+
+    MyDolphinPlusCoordinator._reconcile_desired_clean_mode(stub)
+
+    assert stub._desired_clean_mode is None
+    assert stub._last_seen_reported_clean_mode is None
+
+
+def test_reconcile_idempotent_after_our_own_run_echo():
+    """End-to-end shape of a Run committed by HA. We set ``_desired`` to
+    ``stairs`` and call ``set_cleaning_mode("stairs")``; the firmware
+    later echoes ``reported.cleaningMode.mode = stairs``. The reconciler
+    sees a real delta against ``_last_seen``, refreshes both fields, and
+    leaves ``_desired`` exactly where it already was — by construction
+    of the value-based gate, our own writes never spuriously reset the
+    staged value."""
+    from custom_components.mydolphin_plus.managers.coordinator import (
+        MyDolphinPlusCoordinator,
+    )
+
+    stub = _make_coordinator_stub(desired="stairs", last_seen="all", reported="stairs")
+
+    MyDolphinPlusCoordinator._reconcile_desired_clean_mode(stub)
+
+    assert stub._desired_clean_mode == "stairs"
+    assert stub._last_seen_reported_clean_mode == "stairs"

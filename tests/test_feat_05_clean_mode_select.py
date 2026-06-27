@@ -125,6 +125,10 @@ def test_clean_mode_translation_key_preserved():
 def _coordinator_with_mode(mode: str | None) -> MagicMock:
     """Stub a coordinator exposing only what ``_get_clean_mode_data`` reads."""
     stub = MagicMock(spec=MyDolphinPlusCoordinator)
+    # BUG-13 (write-on-commit) — the getter prefers the staged pick when
+    # set; clear it so these tests still exercise the firmware-reported
+    # fallback path they were written for.
+    stub._desired_clean_mode = None
     if mode is None:
         stub.aws_data = {}
     else:
