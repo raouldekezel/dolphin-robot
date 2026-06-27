@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import sys
-from time import monotonic, sleep
+from time import sleep
 from typing import Any, Callable
 import uuid
 
@@ -87,12 +87,6 @@ from .config_manager import ConfigManager
 
 _LOGGER = logging.getLogger(__name__)
 
-# BUG-13 — TTL for the silent-stop pending state (seconds, monotonic).
-# Sized to cover AWS RTT (~50–100 ms) + BUG-08 sleep(1) + cycleTime RTT
-# + headroom under degraded WAN, while staying well under any plausible
-# user interval between two cleaning-mode pickings.
-_SILENT_STOP_TTL_SECONDS = 5.0
-
 
 class AWSClient:
     _awsiot_client: mqtt.Connection | None
@@ -131,14 +125,6 @@ class AWSClient:
             # so the predicate `event.clientToken == self._our_token` is
             # boolean — no TTL needed for provenance. Set in initialize().
             self._our_token: str | None = None
-
-            # BUG-13 — monotonic deadline (not a flag) gating the silent-stop
-            # branch in `_on_update_accepted`. Set by `set_cleaning_mode_silent`
-            # and consumed by the cycleTime-echo observer; expires on its own so
-            # a lost echo cannot turn a later, unrelated cycleTime write into a
-            # spurious mid-cycle stop. TTL covers AWS RTT + BUG-08 sleep(1) with
-            # comfortable margin.
-            self._silent_stop_deadline: float | None = None
 
             self._status = None
 
@@ -511,14 +497,6 @@ class AWSClient:
                         if mode is not None:
                             sleep(1)
                             self._set_cycle_time(mode)
-                        elif self._silent_stop_due(desired):
-                            # BUG-13 — the cycleTime echo of OUR own
-                            # BUG-08 chain following a silent mode set.
-                            # Publish pwsState=off now so the firmware
-                            # adopts mode + cycleTime but never flips to
-                            # pwsState=on (E-B primitive, #85).
-                            self._silent_stop_deadline = None
-                            self.pause()
 
         except Exception as ex:
             exc_type, exc_obj, tb = sys.exc_info()
@@ -557,26 +535,6 @@ class AWSClient:
 
         if remote_control_mode == ATTR_REMOTE_CONTROL_MODE_EXIT:
             self.data[DATA_SECTION_ACTIVITY] = None
-
-    def _silent_stop_due(self, desired: dict) -> bool:
-        """True when ``desired`` is the cycleTime echo of an armed silent set.
-
-        BUG-13 — the stop branch fires only when:
-          * a silent set is pending (deadline armed, not expired);
-          * the echoed ``desired`` carries ``cycleInfo.cycleTime`` — the
-            shape of OUR own BUG-08 follow-up write, not the firmware's
-            ``desired:null`` clear and not a sibling ``led`` / ``systemState``
-            write.
-
-        The provenance check (``_event_is_ours``) is performed by the caller.
-        """
-        if self._silent_stop_deadline is None:
-            return False
-        if monotonic() >= self._silent_stop_deadline:
-            self._silent_stop_deadline = None
-            return False
-        cycle_info = desired.get(DATA_SECTION_CYCLE_INFO) or {}
-        return cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE_DURATION) is not None
 
     def _event_is_ours(self, payload_data: dict) -> bool:
         """SPIKE-02 — provenance predicate.
@@ -665,32 +623,6 @@ class AWSClient:
 
         _LOGGER.info(f"Set cleaning mode, Desired: {data}")
         self._send_desired_command(data)
-
-    def set_cleaning_mode_silent(self, clean_mode: CleanModes):
-        """Set the cleaning mode without leaving the robot running (BUG-13).
-
-        Arms a monotonic deadline, then publishes the mode the same way as
-        ``set_cleaning_mode``. The existing BUG-08 chain emits ``cycleTime``
-        ~1 s later; its AWS ``/update/accepted`` echo triggers a ``pause()``
-        in ``_on_update_accepted``, landing the ``pwsState=off`` write before
-        the firmware reports ``pwsState=on`` (E-B primitive, #85). Net effect:
-        mode and cycleTime adopted, robot stays docked, no cycle-counter bump.
-
-        Caller is responsible for only invoking this when the robot is
-        docked; called on a running robot it would interrupt the cycle.
-
-        If the mode publish raises, the deadline is rolled back so a later
-        unrelated cycleTime write cannot inherit a stale pending and stop
-        a running robot. ``_publish`` itself already swallows broker-side
-        errors, so this guard mainly protects against serialization /
-        programmer errors above it.
-        """
-        self._silent_stop_deadline = monotonic() + _SILENT_STOP_TTL_SECONDS
-        try:
-            self.set_cleaning_mode(clean_mode)
-        except Exception:
-            self._silent_stop_deadline = None
-            raise
 
     def _set_cycle_time(self, clean_mode: CleanModes):
         cycle_time = self._config_manager.get_clean_cycle_time(clean_mode)
