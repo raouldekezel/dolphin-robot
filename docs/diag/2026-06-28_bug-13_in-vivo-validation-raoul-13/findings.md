@@ -52,7 +52,7 @@ The pivot reshapes four call sites of `_set_cleaning_mode` + `_vacuum_start` + `
 | 13:06:20      | Reconcile: foreign initiator detected                              | `select.mode_de_nettoyage = short` (reconciled from app), `cycle_time = 60`, `vacuum.state = cleaning`                                                                                                               |
 | 13:07:11      | Firmware tick                                                      | `nombre_de_cycles 76 → 77`                                                                                                                                                                                           |
 | 13:08:29      | T-d — operator picked `all` in HA while cycle running              | `select.mode_de_nettoyage = all`. Running path: stage + live-write                                                                                                                                                   |
-| 13:08:39      | BUG-08 chain delivers cycleTime                                    | `cycle_time = 60 → 120`. `vacuum.state` stays `cleaning`. `nombre_de_cycles` stays at `77`. `etat_du_robot` stays `scanning`.                                                                                        |
+| 13:08:39      | BUG-08 chain delivers cycleTime                                    | `cycle_time = 60 → 120`. `vacuum.state` stays `cleaning`. `nombre_de_cycles` stays at `77`. `etat_du_robot`/`statut` transiently re-enter `init` (13:08:39 → 13:09:09, ~30 s) then return to scanning/cleaning.                                                                                        |
 
 ## Per-test detail
 
@@ -152,8 +152,8 @@ Critically:
 
 - `nombre_de_cycles` stays at `77` — **no `rTurnOnCount` tick**, confirming no restart
 - `vacuum.state` stays `cleaning` — no docked transition
-- `etat_du_robot` stays `scanning` — no `init` re-entry
-- `statut` stays `cleaning`
+- mid-cycle mode pick has **two effects**: (a) the firmware transiently re-enters `init` for ~30 s (13:08:39 → 13:09:09) before resuming; (b) it **rewrites the total cycle duration** — `cycle_time 60 → 120` — and does **not** restamp `cycleStartTime`, so the new duration runs from the original start (13:06:20), not from the pick
+- the cycle is not *restarted* (`rTurnOnCount` unchanged, `vacuum.state` never leaves `cleaning`, no re-dock), but its **planned end-time moves** — see § *Operator-flagged behaviour to track separately* below
 
 This is the running-path branch of `_set_cleaning_mode`: stage `_desired := all`, AND live-write to AWS. The firmware accepts the mode swap on a running robot without restarting the cycle (Maytronics-app parity, validated in [PR #87](https://github.com/raouldekezel/dolphin-robot/pull/87) — same primitive, same effect). The BUG-08 chain fires (mode-delta detected), delivering the per-mode `cycle_time = 120` from `number.nono_2_duree_du_cycle_complet`.
 
