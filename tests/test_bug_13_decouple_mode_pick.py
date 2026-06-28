@@ -22,9 +22,12 @@ The pivot — **write-on-commit** (issue #47, 2026-06-27 comments):
   ``coordinator._desired_clean_mode`` and writes **nothing** to AWS. No
   shadow write → no implicit start → BUG-19 cannot occur, and the
   start→pause trigger of BUG-20 is removed by construction.
-* While **running**, picking a mode keeps today's live-write path —
-  matches the Maytronics app, and #87 confirmed it does not bump
-  ``rTurnOnCount`` nor restamp ``cycleStartTime``.
+* While **running**, picking a mode also stages only (HARD-12, #104).
+  The earlier pivot kept a live-write path for app parity, but the 2026-06-28
+  in-vivo session (PR #102) showed every mid-cycle mode write transiently
+  re-enters ``init`` for ~30 s and silently rewrites the in-flight cycle's
+  ``cycleTime`` without restamping ``cycleStartTime`` — confusing for the
+  operator. To apply a new mode mid-cycle, the operator stops then starts.
 * **Run** (``_vacuum_start``) commits the staged value via the existing
   ``set_cleaning_mode`` primitive; the firmware's implicit start is now
   exactly what's wanted, and the BUG-08 chain supplies the cycle time.
@@ -247,9 +250,11 @@ async def test_pick_while_docked_writes_nothing_only_stages():
 
 
 @pytest.mark.asyncio
-async def test_pick_while_running_lives_writes_and_stages():
-    """Running + real delta → live mode-swap (Maytronics-app parity, #87)
-    AND stage `_desired` so subsequent reads stay consistent."""
+async def test_pick_while_running_stages_only_no_aws_write():
+    """HARD-12 (#104) — picking a mode while the cycle is running must not
+    touch AWS. Same write-nothing branch as the docked path: stage
+    ``_desired`` and notify listeners; the firmware only hears the mode at
+    the next Run."""
     from custom_components.mydolphin_plus.managers.coordinator import (
         MyDolphinPlusCoordinator,
     )
@@ -259,7 +264,7 @@ async def test_pick_while_running_lives_writes_and_stages():
     await MyDolphinPlusCoordinator._set_cleaning_mode(stub, None, "stairs")
 
     assert stub._desired_clean_mode == "stairs"
-    stub._aws_client.set_cleaning_mode.assert_called_once_with("stairs")
+    stub._aws_client.set_cleaning_mode.assert_not_called()
     stub.async_update_listeners.assert_called_once()
 
 
