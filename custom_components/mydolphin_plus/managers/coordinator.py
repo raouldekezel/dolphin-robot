@@ -942,24 +942,23 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         if current == fan_speed:
             return
 
-        # BUG-13 (write-on-commit) — stage the pick in coordinator memory
-        # in all cases. While docked, do not write to the firmware: writing
-        # `desired.cleaningMode.mode` is the firmware's start primitive
-        # (SPIKE-02 E3b), and every variant that tried to suppress the
-        # implicit start (silent E-B, reactive stop, restamp) raced the
-        # firmware's ~2.5 s window and caused start→pause mini-cycles that
-        # themselves triggered the BUG-20 stuck-init cascade. The firmware
-        # only hears the mode at Run. While the robot is already running,
-        # keep today's live-swap path: the Maytronics app does the same, and
-        # #87 confirmed it does not bump `rTurnOnCount` nor restamp
-        # `cycleStartTime`.
+        # HARD-12 (#104) — picking a mode is a UI-level affordance, never
+        # a robot command. We stage the choice in coordinator memory and
+        # propagate it to entities; we do not write `desired.cleaningMode.mode`
+        # to AWS regardless of the robot's state.
+        #
+        # The firmware only hears the mode at Run: `_vacuum_start` reads
+        # `_desired_clean_mode` and writes via `aws_client.set_cleaning_mode`,
+        # and the BUG-08 chain in `_on_update_accepted` then delivers the
+        # per-mode `cycleTime`. To apply a new mode mid-cycle the operator
+        # stops then starts.
+        #
+        # Together with the BUG-13 pivot (write-on-commit, #100) this also
+        # closes the running-path side effects documented in PR #102: no
+        # transient `init` re-entry, no silent cycleTime rewrite of an
+        # in-flight cycle. The Maytronics app retains its mid-cycle swap
+        # capability and `_reconcile_desired_clean_mode` adapts to it.
         self._desired_clean_mode = fan_speed
-
-        if self._system_details.is_active:
-            self._aws_client.set_cleaning_mode(fan_speed)
-
-        # Push the staged value to entities now — no firmware echo will
-        # arrive on the docked path, and the running path's echo is debounced.
         self.async_update_listeners()
 
     async def _set_led_mode(self, _entity_description: EntityDescription, option: str):
