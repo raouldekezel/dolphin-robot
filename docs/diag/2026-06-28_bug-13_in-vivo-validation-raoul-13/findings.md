@@ -30,29 +30,29 @@ The morning of the test had a scheduled cycle (09:00 UTC, mode `all`, 2h30) that
 
 The pivot reshapes four call sites of `_set_cleaning_mode` + `_vacuum_start` + `_reconcile_desired_clean_mode`. The four T-tests exercise them as follows:
 
-| #   | Action                       | Pre-state                       | Pick from | Code path exercised                                                       | Expected effect                                                                    | Result |
-| --- | ---------------------------- | ------------------------------- | --------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------ |
-| T-a | N rapid picks while docked   | `docked`, `mode=all` (post-AM)  | HA picker | `_set_cleaning_mode` docked → stage only, **no AWS write**                 | No firmware start. `rTurnOnCount` unchanged. UI reflects staged mode immediately.  | PASS   |
-| T-b | Run after staging `floor`    | `docked`, staged `_desired=floor` | HA `vacuum.start` | `_vacuum_start` reads `_desired_clean_mode`, writes via `set_cleaning_mode` → BUG-08 chain fires | Firmware adopts `floor` + per-mode cycleTime. `rTurnOnCount` +1.            | PASS   |
-| T-c | Stage `all` then start app `short` | `docked`, staged `_desired=all` | App | App writes directly. `_reconcile_desired_clean_mode` detects foreign initiator (mode-echo differs from `_last_seen_reported_clean_mode`) | `_desired := short`. Staged `all` overwritten. No re-write from integration. | PASS   |
-| T-d | Live-swap `short → all` mid-cycle | `cleaning`, `mode=short`        | HA picker | `_set_cleaning_mode` running → stage `_desired` AND live-write to firmware | Mode swap accepted, no restart. BUG-08 chain fires (mode-delta detected). `rTurnOnCount` unchanged. | PASS   |
+| #   | Action                             | Pre-state                         | Pick from         | Code path exercised                                                                                                                      | Expected effect                                                                                     | Result |
+| --- | ---------------------------------- | --------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------ |
+| T-a | N rapid picks while docked         | `docked`, `mode=all` (post-AM)    | HA picker         | `_set_cleaning_mode` docked → stage only, **no AWS write**                                                                               | No firmware start. `rTurnOnCount` unchanged. UI reflects staged mode immediately.                   | PASS   |
+| T-b | Run after staging `floor`          | `docked`, staged `_desired=floor` | HA `vacuum.start` | `_vacuum_start` reads `_desired_clean_mode`, writes via `set_cleaning_mode` → BUG-08 chain fires                                         | Firmware adopts `floor` + per-mode cycleTime. `rTurnOnCount` +1.                                    | PASS   |
+| T-c | Stage `all` then start app `short` | `docked`, staged `_desired=all`   | App               | App writes directly. `_reconcile_desired_clean_mode` detects foreign initiator (mode-echo differs from `_last_seen_reported_clean_mode`) | `_desired := short`. Staged `all` overwritten. No re-write from integration.                        | PASS   |
+| T-d | Live-swap `short → all` mid-cycle  | `cleaning`, `mode=short`          | HA picker         | `_set_cleaning_mode` running → stage `_desired` AND live-write to firmware                                                               | Mode swap accepted, no restart. BUG-08 chain fires (mode-delta detected). `rTurnOnCount` unchanged. | PASS   |
 
 ## Timeline (UTC)
 
-| Time (UTC)   | Event                                                              | Observable                                                                                                                                                                                |
-| ------------ | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 09:00:54     | Scheduler started morning cycle, mode `all`                        | `nombre_de_cycles 74 → 75`                                                                                                                                                                |
-| ~11:30       | Morning cycle ended                                                | `vacuum.state = docked` last_changed `11:32:42`; `statut = holdweekly`                                                                                                                    |
-| 11:32 → 12:58 | **T-a — operator-initiated rapid picks while docked**             | `nombre_de_cycles` stayed at `75` throughout (no tick). `vacuum.state` stayed `docked` (no `cleaning` transition). Final pick `floor` at `12:58:59` left `select.mode_de_nettoyage=floor` and vacuum still `docked`. |
-| 13:01:28     | T-b — `vacuum.start` commits the staged `floor`                    | `vacuum.state = cleaning`, `sensor.statut = init`, `sensor.cycle_time = 120` (= `number.duree_du_cycle_sol_uniquement`)                                                                   |
-| 13:02:08     | Firmware enters `scanning` phase                                   | `nombre_de_cycles 75 → 76` (tick exactly once for the Run)                                                                                                                                |
-| ~13:05:00    | T-c step 1 — operator stopped cycle via `vacuum.pause`             | `vacuum.state = docked`, `statut = holdweekly`, `etat_du_robot = notconnected` @ `13:05:30`                                                                                                |
-| 13:05:39     | T-c step 2 — operator picked `all` (Complet) in HA                 | `select.mode_de_nettoyage = all`, `vacuum.state` still `docked` (staged, no firmware write)                                                                                                |
-| ~13:06:00    | T-c step 3 — operator started `short` (Rapide) from Maytronics app | _no HA write_                                                                                                                                                                             |
-| 13:06:20     | Reconcile: foreign initiator detected                              | `select.mode_de_nettoyage = short` (reconciled from app), `cycle_time = 60`, `vacuum.state = cleaning`                                                                                     |
-| 13:07:11     | Firmware tick                                                      | `nombre_de_cycles 76 → 77`                                                                                                                                                                |
-| 13:08:29     | T-d — operator picked `all` in HA while cycle running              | `select.mode_de_nettoyage = all`. Running path: stage + live-write                                                                                                                        |
-| 13:08:39     | BUG-08 chain delivers cycleTime                                    | `cycle_time = 60 → 120`. `vacuum.state` stays `cleaning`. `nombre_de_cycles` stays at `77`. `etat_du_robot` stays `scanning`.                                                              |
+| Time (UTC)    | Event                                                              | Observable                                                                                                                                                                                                           |
+| ------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 09:00:54      | Scheduler started morning cycle, mode `all`                        | `nombre_de_cycles 74 → 75`                                                                                                                                                                                           |
+| ~11:30        | Morning cycle ended                                                | `vacuum.state = docked` last_changed `11:32:42`; `statut = holdweekly`                                                                                                                                               |
+| 11:32 → 12:58 | **T-a — operator-initiated rapid picks while docked**              | `nombre_de_cycles` stayed at `75` throughout (no tick). `vacuum.state` stayed `docked` (no `cleaning` transition). Final pick `floor` at `12:58:59` left `select.mode_de_nettoyage=floor` and vacuum still `docked`. |
+| 13:01:28      | T-b — `vacuum.start` commits the staged `floor`                    | `vacuum.state = cleaning`, `sensor.statut = init`, `sensor.cycle_time = 120` (= `number.duree_du_cycle_sol_uniquement`)                                                                                              |
+| 13:02:08      | Firmware enters `scanning` phase                                   | `nombre_de_cycles 75 → 76` (tick exactly once for the Run)                                                                                                                                                           |
+| ~13:05:00     | T-c step 1 — operator stopped cycle via `vacuum.pause`             | `vacuum.state = docked`, `statut = holdweekly`, `etat_du_robot = notconnected` @ `13:05:30`                                                                                                                          |
+| 13:05:39      | T-c step 2 — operator picked `all` (Complet) in HA                 | `select.mode_de_nettoyage = all`, `vacuum.state` still `docked` (staged, no firmware write)                                                                                                                          |
+| ~13:06:00     | T-c step 3 — operator started `short` (Rapide) from Maytronics app | _no HA write_                                                                                                                                                                                                        |
+| 13:06:20      | Reconcile: foreign initiator detected                              | `select.mode_de_nettoyage = short` (reconciled from app), `cycle_time = 60`, `vacuum.state = cleaning`                                                                                                               |
+| 13:07:11      | Firmware tick                                                      | `nombre_de_cycles 76 → 77`                                                                                                                                                                                           |
+| 13:08:29      | T-d — operator picked `all` in HA while cycle running              | `select.mode_de_nettoyage = all`. Running path: stage + live-write                                                                                                                                                   |
+| 13:08:39      | BUG-08 chain delivers cycleTime                                    | `cycle_time = 60 → 120`. `vacuum.state` stays `cleaning`. `nombre_de_cycles` stays at `77`. `etat_du_robot` stays `scanning`.                                                                                        |
 
 ## Per-test detail
 
@@ -95,11 +95,11 @@ This is the exact pattern that triggered BUG-19 #96 on the silent E-B fix (#86),
 
 ### T-b — Run after staging a mode
 
-| Time (UTC)   | Event                                                          |
-| ------------ | -------------------------------------------------------------- |
-| 12:58:59     | Pick `floor` (Sol uniquement) — staged                         |
-| 13:01:28     | `vacuum.start` → `vacuum.state = cleaning`, `cycle_time = 120` |
-| 13:02:08     | `nombre_de_cycles 75 → 76`                                     |
+| Time (UTC) | Event                                                          |
+| ---------- | -------------------------------------------------------------- |
+| 12:58:59   | Pick `floor` (Sol uniquement) — staged                         |
+| 13:01:28   | `vacuum.start` → `vacuum.state = cleaning`, `cycle_time = 120` |
+| 13:02:08   | `nombre_de_cycles 75 → 76`                                     |
 
 `_vacuum_start` read the staged `_desired_clean_mode = floor`, wrote it via `set_cleaning_mode`, the firmware took it as the start command. The BUG-08 chain emitted `cycle_time = 120` (`number.nono_2_duree_du_cycle_sol_uniquement = 120`) ~1 s after the mode write (the chain delay is preserved on purpose, per SPIKE-02 E7).
 
@@ -143,10 +143,10 @@ The only integration-originated AWS write in the entire T-c window is `Set power
 
 Robot running in `short` since `13:06:20`. Operator picked `all` (Complet) in the HA `select` at `13:08:29`. Two updates landed:
 
-| Time (UTC)   | Field                                  | Before | After |
-| ------------ | -------------------------------------- | ------ | ----- |
-| 13:08:29     | `select.mode_de_nettoyage`             | short  | all   |
-| 13:08:39     | `sensor.nono_2_cycle_time`             | 60     | 120   |
+| Time (UTC) | Field                      | Before | After |
+| ---------- | -------------------------- | ------ | ----- |
+| 13:08:29   | `select.mode_de_nettoyage` | short  | all   |
+| 13:08:39   | `sensor.nono_2_cycle_time` | 60     | 120   |
 
 Critically:
 
@@ -192,13 +192,13 @@ The E5a hot-patch on the previous `raoul.12` host was not ported into `raoul.13`
 
 ## Raw artifacts in this directory
 
-| File | Window (UTC) | Lines | Content |
-|---|---|---|---|
-| `01_t-a_rapid_picks_no_aws_write.mqtt.log` | 11:32 → 13:01 | 806 | Picking window. Zero `Set cleaning mode` / `Set cycle time` / `Set power state` lines (definitive write-on-commit proof). |
-| `02_t-b_run_floor.mqtt.log` | 13:01 → 13:03 | 69 | Run after stage. Chain `Set cleaning mode = floor` (`13:01:18.577`) → `Set cycle time = 120` (`13:01:19.783`); delay **1.206 s**. |
-| `03_t-c_app_override.mqtt.log` | 13:05 → 13:08 | 89 | Pause + app override. Only `Set power state = off` (`13:05:20.027`) — no `Set cleaning mode` despite the HA stage at `13:05:39`. |
-| `04_t-d_live_swap.mqtt.log` | 13:08 → 13:11 | 66 | Live-swap. Chain `Set cleaning mode = all` (`13:08:29.759`) → `Set cycle time = 120` (`13:08:30.892`); delay **1.133 s**. |
-| `recorder_states.tsv` | 08:55 → 13:15 | 53 | HA recorder DB rows for `vacuum.nono_2`, `select.nono_2_mode_de_nettoyage`, `sensor.nono_2_{nombre_de_cycles,cycle_time,etat_du_robot,statut}`. Read-only SQLite query. |
+| File                                       | Window (UTC)  | Lines | Content                                                                                                                                                                 |
+| ------------------------------------------ | ------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `01_t-a_rapid_picks_no_aws_write.mqtt.log` | 11:32 → 13:01 | 806   | Picking window. Zero `Set cleaning mode` / `Set cycle time` / `Set power state` lines (definitive write-on-commit proof).                                               |
+| `02_t-b_run_floor.mqtt.log`                | 13:01 → 13:03 | 69    | Run after stage. Chain `Set cleaning mode = floor` (`13:01:18.577`) → `Set cycle time = 120` (`13:01:19.783`); delay **1.206 s**.                                       |
+| `03_t-c_app_override.mqtt.log`             | 13:05 → 13:08 | 89    | Pause + app override. Only `Set power state = off` (`13:05:20.027`) — no `Set cleaning mode` despite the HA stage at `13:05:39`.                                        |
+| `04_t-d_live_swap.mqtt.log`                | 13:08 → 13:11 | 66    | Live-swap. Chain `Set cleaning mode = all` (`13:08:29.759`) → `Set cycle time = 120` (`13:08:30.892`); delay **1.133 s**.                                               |
+| `recorder_states.tsv`                      | 08:55 → 13:15 | 53    | HA recorder DB rows for `vacuum.nono_2`, `select.nono_2_mode_de_nettoyage`, `sensor.nono_2_{nombre_de_cycles,cycle_time,etat_du_robot,statut}`. Read-only SQLite query. |
 
 Redactions applied per the `docs/diag/README.md` PII table: motor unit serial `N4720KMV3Q` / `N4720KMV` → `REDACTED-MUSN`, wifi SSID → `REDACTED-WIFI-SSID`. Zero secret-shaped patterns (`AKIA…`, `eyJ…`, `AccessKey`/`SecretKey`/`sessionToken`) detected in the captured window — the SEC-01/02/03 fixes are sealed in deployed code.
 
