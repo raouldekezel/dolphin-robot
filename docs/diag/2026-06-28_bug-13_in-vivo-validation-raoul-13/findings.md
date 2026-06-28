@@ -19,7 +19,10 @@ One UX gap surfaced during T-b and T-d and is filed separately as HARD-11 (see �
 - **Tag installed via HACS:** `v1.0.26b3-raoul.13` (BUG-13 pivot from PR #100, no E5a hot-patch residue on host)
 - **Robot:** Maytronics Dolphin S2000 ("Nono 2"). Firmware reports `robotType="S4"`.
 - **HA:** 2026.1.3 (container `hass` on intel-nuc, `network_mode: host`)
-- **Capture:** HA state reads via REST API (`/api/states`) at observation points. No MQTT trace this session — pivot effects observed at the HA state layer, which is the user-facing contract being validated.
+- **Capture:**
+  - HA REST API (`/api/states`) snapshots at observation points during the test.
+  - `docker logs hass --timestamps --since 6h` filtered on `mydolphin|reported|desired|cleaningMode|pwsState|rTurnOnCount|cycleStartTime|Set (cleaning|cycle|power)|holdWeekly|scanning|init` and ANSI-stripped, sliced per T-test into the four `*.mqtt.log` files in this directory (`01..04`). Redactions applied: motor unit serial `N4720KMV3Q` / `N4720KMV` → `REDACTED-MUSN`, wifi SSID → `REDACTED-WIFI-SSID`. **Zero secret-shaped patterns** (`AKIA…`, `eyJ…`, `AccessKey/SecretKey/sessionToken`) were found in the captured window, confirming the SEC-01/02/03 fixes are sealed in the deployed code.
+  - HA recorder DB (`/config/home-assistant_v2.db`, read-only) → state-transition rows for the six relevant entities exported to `recorder_states.tsv`.
 
 The morning of the test had a scheduled cycle (09:00 UTC, mode `all`, 2h30) that completed normally at ~11:30 UTC. The test sequence below ran on the same `vacuum.nono_2` instance with no integration reload between the scheduled cycle and the picking session — exactly the trigger pattern documented in [BUG-19 #96](https://github.com/raouldekezel/dolphin-robot/issues/96) and [BUG-20 #98](https://github.com/raouldekezel/dolphin-robot/issues/98). Both bugs were observed as removed-by-construction on the pivot.
 
@@ -55,13 +58,40 @@ The pivot reshapes four call sites of `_set_cleaning_mode` + `_vacuum_start` + `
 
 ### T-a — N rapid picks while docked
 
-After the morning scheduled cycle docked the robot at `~11:32 UTC`, the operator issued a series of rapid mode picks from the HA `select.nono_2_mode_de_nettoyage` dropdown (cycling through `all`, `floor`, `short`, etc., over ~90 minutes). Observation point at `13:01:25 UTC` showed `vacuum.nono_2.state = docked`, `vacuum.nono_2.fan_speed = floor` with `last_changed = 11:32:42` (= the post-cycle docked timestamp, not refreshed by intervening picks).
+After the morning scheduled cycle docked the robot at `~11:32 UTC`, the operator issued a series of rapid mode picks from the HA `select.nono_2_mode_de_nettoyage` dropdown over ~90 minutes. Observation point at `13:01:25 UTC` showed `vacuum.nono_2.state = docked`, `vacuum.nono_2.fan_speed = floor` with `last_changed = 11:32:42` (= the post-cycle docked timestamp, not refreshed by intervening picks).
 
-**Critical metric:** `sensor.nono_2_nombre_de_cycles = 75` with `last_changed = 09:00:54` — meaning the cycle counter has not been touched since the morning cycle started. Zero implicit starts during the entire picking window.
+**MQTT-level proof — `01_t-a_rapid_picks_no_aws_write.mqtt.log` contains zero `Set cleaning mode` / `Set cycle time` / `Set power state` lines** for the entire 11:32 → 13:01 UTC window:
+
+```
+$ grep -cE "Set cleaning mode|Set cycle time|Set power state" 01_t-a_rapid_picks_no_aws_write.mqtt.log
+0
+```
+
+This is the definitive evidence for the pivot's docked-path write-nothing branch: not just no `pwsState=on` echo (which could be explained away as firmware refusing the start), but **no AWS write at all** for the entire picking window. The picks never left the coordinator's memory.
+
+**Recorder-level corroboration** — `recorder_states.tsv` shows six `vacuum.nono_2` rows in the 12:58:28 → 12:58:59 window (one per pick), all with state `docked`. The rows exist because the entity's attributes (`fan_speed`) changed, but the state column remains `docked` throughout:
+
+```
+vacuum.nono_2  2026-06-28T12:58:28.651+00:00  docked
+vacuum.nono_2  2026-06-28T12:58:39.251+00:00  docked
+vacuum.nono_2  2026-06-28T12:58:46.127+00:00  docked
+vacuum.nono_2  2026-06-28T12:58:57.179+00:00  docked
+vacuum.nono_2  2026-06-28T12:58:59.191+00:00  docked
+```
+
+In parallel, `select.nono_2_mode_de_nettoyage` shows the actual pick sequence — `floor → stairs → floor → all → floor` over those 31 s — propagated to the entity via `async_update_listeners()` without any AWS interaction:
+
+```
+select.nono_2_mode_de_nettoyage  2026-06-28T12:58:28.651+00:00  floor
+select.nono_2_mode_de_nettoyage  2026-06-28T12:58:39.250+00:00  stairs
+select.nono_2_mode_de_nettoyage  2026-06-28T12:58:46.127+00:00  floor
+select.nono_2_mode_de_nettoyage  2026-06-28T12:58:57.178+00:00  all
+select.nono_2_mode_de_nettoyage  2026-06-28T12:58:59.190+00:00  floor
+```
+
+**Critical metric:** `sensor.nono_2_nombre_de_cycles = 75` from `09:00:54` (morning cycle start) all the way to `13:02:08` (T-b's first `scanning` tick). Zero implicit starts during the entire picking window.
 
 This is the exact pattern that triggered BUG-19 #96 on the silent E-B fix (#86), where a second consecutive docked pick ~17 s later started a cycle. On the write-on-commit pivot, no `desired.cleaningMode.mode` is ever written while docked — the firmware has no opportunity to interpret the write as an implicit start, regardless of timing between picks.
-
-The pivot's `async_update_listeners()` call after each stage propagated the staged value to entities immediately — `vacuum.fan_speed` and `select.mode_de_nettoyage` followed each pick without waiting for a firmware echo. The operator confirmed the picker UI updates were visible.
 
 ### T-b — Run after staging a mode
 
@@ -72,6 +102,15 @@ The pivot's `async_update_listeners()` call after each stage propagated the stag
 | 13:02:08     | `nombre_de_cycles 75 → 76`                                     |
 
 `_vacuum_start` read the staged `_desired_clean_mode = floor`, wrote it via `set_cleaning_mode`, the firmware took it as the start command. The BUG-08 chain emitted `cycle_time = 120` (`number.nono_2_duree_du_cycle_sol_uniquement = 120`) ~1 s after the mode write (the chain delay is preserved on purpose, per SPIKE-02 E7).
+
+**MQTT-level proof — `02_t-b_run_floor.mqtt.log` shows the chain at the wire:**
+
+```
+13:01:18.577  Set cleaning mode, Desired: {'cleaningMode': {'mode': 'floor'}}
+13:01:19.783  Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+```
+
+Measured chain delay: **1.206 s** between the two `INFO` lines. Within tolerance of the `sleep(1)` in `set_cleaning_mode` (slightly above 1 s due to asyncio scheduling).
 
 The interval mode-write → first-`scanning`-tick was ~40 s. This is consistent with the firmware echo latency band documented across prior sessions (`60-77 s` for HA-initiated starts in the FEAT-01 session 2026-06-15). The `init → scanning` transition triggers the `rTurnOnCount` increment.
 
@@ -91,6 +130,15 @@ This is `_reconcile_desired_clean_mode` doing the "foreign change overwrites" br
 
 `nombre_de_cycles 76 → 77` at `13:07:11` confirms a single tick for the app-initiated start.
 
+**MQTT-level proof — `03_t-c_app_override.mqtt.log` shows what the integration did NOT write:**
+
+```
+$ grep -E "Set cleaning mode|Set cycle time" 03_t-c_app_override.mqtt.log
+(no matches)
+```
+
+The only integration-originated AWS write in the entire T-c window is `Set power state` at `13:05:20.027 UTC` — the `pause()` primitive that stopped the T-b floor cycle. Despite the operator picking `all` in HA at `13:05:39` (`select.mode_de_nettoyage = all` in `recorder_states.tsv`), no `desired.cleaningMode.mode` was ever published to AWS. The staged value lived only in coordinator memory and was overwritten by the reconcile branch when the app-initiated `reported.cleaningMode.mode = short` echo arrived.
+
 ### T-d — Live-swap mid-cycle
 
 Robot running in `short` since `13:06:20`. Operator picked `all` (Complet) in the HA `select` at `13:08:29`. Two updates landed:
@@ -109,7 +157,16 @@ Critically:
 
 This is the running-path branch of `_set_cleaning_mode`: stage `_desired := all`, AND live-write to AWS. The firmware accepts the mode swap on a running robot without restarting the cycle (Maytronics-app parity, validated in [PR #87](https://github.com/raouldekezel/dolphin-robot/pull/87) — same primitive, same effect). The BUG-08 chain fires (mode-delta detected), delivering the per-mode `cycle_time = 120` from `number.nono_2_duree_du_cycle_complet`.
 
-The ~10 s gap between the mode write and the visible `cycle_time` update reflects coordinator refresh cadence, not the firmware-side `sleep(1)` of the BUG-08 chain. The chain itself emitted at `~13:08:30 UTC`; HA observation lagged.
+**MQTT-level proof — `04_t-d_live_swap.mqtt.log` shows the running-path chain:**
+
+```
+13:08:29.759  Set cleaning mode, Desired: {'cleaningMode': {'mode': 'all'}}
+13:08:30.892  Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+```
+
+Measured chain delay: **1.133 s**. Same `sleep(1)` arm of `set_cleaning_mode` that fired on the start path (T-b 1.206 s). The chain is mode-write triggered, not state-gated.
+
+The ~10 s gap between the mode write (`13:08:29.759`) and the visible `sensor.cycle_time` update (`13:08:39.769`) reflects coordinator refresh cadence after the firmware echo arrives — not the firmware-side `sleep(1)`. The chain itself emitted both writes within `1.133 s`; the lag is on the shadow-echo → HA-sensor side, not on the integration → AWS side.
 
 #### Operator-flagged behaviour to track separately
 
@@ -132,6 +189,18 @@ The E5a hot-patch on the previous `raoul.12` host was not ported into `raoul.13`
 
 - **HARD-11 (filed, separate PR)** — no visual feedback during the firmware echo window. On T-b, the operator observed ~60-90 s between `vacuum.start` and `vacuum.state = cleaning`, during which the picker UI showed no transient state. On T-d, the live-swap was applied at the integration level but the operator initially did not perceive the picker update (resolved a few seconds later when `cycle_time` and the picker UI caught up). Proposed approach: optimistic `vacuum.state` transition on `vacuum.start` with TTL fallback, and a transient indicator on writes (mode pick, cycle time pick, pause). The pivot already sets the right precedent for staged values reaching entities via `async_update_listeners()`; extending the same pattern to `vacuum.state` and other write paths is the natural next step.
 - **Behaviour change request (operator-flagged, separate ticket)** — live-swap cycleTime extension semantics (cf. T-d note above). Operator to file a dedicated request.
+
+## Raw artifacts in this directory
+
+| File | Window (UTC) | Lines | Content |
+|---|---|---|---|
+| `01_t-a_rapid_picks_no_aws_write.mqtt.log` | 11:32 → 13:01 | 806 | Picking window. Zero `Set cleaning mode` / `Set cycle time` / `Set power state` lines (definitive write-on-commit proof). |
+| `02_t-b_run_floor.mqtt.log` | 13:01 → 13:03 | 69 | Run after stage. Chain `Set cleaning mode = floor` (`13:01:18.577`) → `Set cycle time = 120` (`13:01:19.783`); delay **1.206 s**. |
+| `03_t-c_app_override.mqtt.log` | 13:05 → 13:08 | 89 | Pause + app override. Only `Set power state = off` (`13:05:20.027`) — no `Set cleaning mode` despite the HA stage at `13:05:39`. |
+| `04_t-d_live_swap.mqtt.log` | 13:08 → 13:11 | 66 | Live-swap. Chain `Set cleaning mode = all` (`13:08:29.759`) → `Set cycle time = 120` (`13:08:30.892`); delay **1.133 s**. |
+| `recorder_states.tsv` | 08:55 → 13:15 | 53 | HA recorder DB rows for `vacuum.nono_2`, `select.nono_2_mode_de_nettoyage`, `sensor.nono_2_{nombre_de_cycles,cycle_time,etat_du_robot,statut}`. Read-only SQLite query. |
+
+Redactions applied per the `docs/diag/README.md` PII table: motor unit serial `N4720KMV3Q` / `N4720KMV` → `REDACTED-MUSN`, wifi SSID → `REDACTED-WIFI-SSID`. Zero secret-shaped patterns (`AKIA…`, `eyJ…`, `AccessKey`/`SecretKey`/`sessionToken`) detected in the captured window — the SEC-01/02/03 fixes are sealed in deployed code.
 
 ## Verdict
 
