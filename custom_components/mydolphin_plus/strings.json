@@ -99,6 +99,18 @@
       }
     },
     "sensor": {
+      "clean_mode": {
+        "name": "Clean Mode",
+        "state": {
+          "all": "Regular",
+          "short": "Fast mode",
+          "floor": "Floor only",
+          "water": "Water line",
+          "ultra": "Ultra clean",
+          "pickup": "Pickup",
+          "stairs": "Full Coverage"
+        }
+      },
       "rssi": {
         "name": "RSSI"
       },
@@ -267,8 +279,8 @@
       }
     },
     "select": {
-      "clean_mode": {
-        "name": "Clean Mode",
+      "desired_clean_mode": {
+        "name": "Next Clean Mode",
         "state": {
           "all": "Regular",
           "short": "Fast mode",
