@@ -1,0 +1,52 @@
+[2026-06-27 14:27:33.910] systemState  pwsState=holdWeekly  robotState=notConnected  rTurnOnCount=72
+[2026-06-27 14:27:33.910] cycleInfo    mode=all     cycleTime=120 startTime=1782558336
+[2026-06-27 14:27:58.936] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'floor'}}
+[2026-06-27 14:27:59.993] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+[2026-06-27 14:28:01.097] systemState  pwsState=on          robotState=init          rTurnOnCount=72
+[2026-06-27 14:28:01.097] cycleInfo    mode=floor   cycleTime=120 startTime=1782570496
+[2026-06-27 14:28:01.097] BUG-19 reactive stop: firmware reported pwsState=on after a silent set; issuing a single pwsState=off
+[2026-06-27 14:28:01.097] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+[2026-06-27 14:28:04.971] systemState  pwsState=holdWeekly  robotState=notConnected  rTurnOnCount=72
+[2026-06-27 14:28:45.723] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'stairs'}}
+[2026-06-27 14:28:46.839] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 150}}
+[2026-06-27 14:28:48.468] systemState  pwsState=on          robotState=init          rTurnOnCount=72
+[2026-06-27 14:28:48.468] cycleInfo    mode=stairs  cycleTime=150 startTime=1782570496
+[2026-06-27 14:28:48.468] BUG-19 reactive stop: firmware reported pwsState=on after a silent set; issuing a single pwsState=off
+[2026-06-27 14:28:48.469] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+[2026-06-27 14:28:51.342] systemState  pwsState=holdWeekly  robotState=notConnected  rTurnOnCount=72
+[2026-06-27 14:29:34.838] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'short'}}
+[2026-06-27 14:29:35.930] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 60}}
+[2026-06-27 14:29:37.177] systemState  pwsState=on          robotState=init          rTurnOnCount=72
+[2026-06-27 14:29:37.177] cycleInfo    mode=short   cycleTime=60 startTime=1782570624
+[2026-06-27 14:29:37.177] BUG-19 reactive stop: firmware reported pwsState=on after a silent set; issuing a single pwsState=off
+[2026-06-27 14:29:37.178] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+[2026-06-27 14:29:40.956] systemState  pwsState=holdWeekly  robotState=notConnected  rTurnOnCount=72
+[2026-06-27 14:30:30.856] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'floor'}}
+[2026-06-27 14:30:31.930] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+[2026-06-27 14:30:32.644] cycleInfo    mode=floor   cycleTime=120 startTime=1782570624
+[2026-06-27 14:30:33.446] systemState  pwsState=on          robotState=init          rTurnOnCount=72
+[2026-06-27 14:30:33.447] BUG-19 reactive stop: firmware reported pwsState=on after a silent set; issuing a single pwsState=off
+[2026-06-27 14:30:33.447] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+[2026-06-27 14:30:36.586] systemState  pwsState=holdWeekly  robotState=notConnected  rTurnOnCount=72
+[2026-06-27 14:34:22.333] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'all'}}
+[2026-06-27 14:34:23.435] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+[2026-06-27 14:34:25.293] systemState  pwsState=on          robotState=init          rTurnOnCount=72
+[2026-06-27 14:34:25.293] cycleInfo    mode=all     cycleTime=120 startTime=1782570880
+[2026-06-27 14:34:25.293] BUG-19 reactive stop: firmware reported pwsState=on after a silent set; issuing a single pwsState=off
+[2026-06-27 14:34:25.294] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+[2026-06-27 14:34:26.393] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'stairs'}}
+[2026-06-27 14:34:27.452] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 150}}
+[2026-06-27 14:34:28.192] cycleInfo    mode=stairs  cycleTime=150 startTime=1782570880
+[2026-06-27 14:34:33.420] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'all'}}
+[2026-06-27 14:34:34.519] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+[2026-06-27 14:34:34.525] systemState  pwsState=holdWeekly  robotState=notConnected  rTurnOnCount=72
+[2026-06-27 14:34:35.003] cycleInfo    mode=all     cycleTime=120 startTime=1782570880
+[2026-06-27 14:34:35.745] systemState  pwsState=on          robotState=init          rTurnOnCount=72
+[2026-06-27 14:34:35.746] BUG-19 reactive stop: firmware reported pwsState=on after a silent set; issuing a single pwsState=off
+[2026-06-27 14:34:35.746] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+[2026-06-27 14:34:49.376] systemState  pwsState=on          robotState=notConnected  rTurnOnCount=72
+[stderr] Traceback (most recent call last):
+[stderr]   File "/tmp/dolphin_observer.py", line 48, in <module>
+    f"[{pm.group(1)}] systemState  pwsState={ss_key[0]:<11} "
+                                            ^^^^^^^^^^^^^^^
+TypeError: unsupported format string passed to NoneType.__format__
