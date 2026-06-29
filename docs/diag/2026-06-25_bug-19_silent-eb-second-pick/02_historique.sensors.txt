@@ -1,0 +1,17 @@
+Excerpt of sensor.{robot}_historique.attributes.executions (top 2 entries, all PII-free):
+[
+  {
+    "start": "25/06 13:44",
+    "mode": "Couverture complète",
+    "duration": "1min",
+    "end": "13:45",
+    "outcome": "🛑"
+  },
+  {
+    "start": "25/06 11:00",
+    "mode": "Couverture complète",
+    "duration": "2h32",
+    "end": "13:32",
+    "outcome": "✅"
+  }
+]
