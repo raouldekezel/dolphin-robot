@@ -39,6 +39,7 @@ from .consts import (
     DATA_KEY_CYCLE_COUNT,
     DATA_KEY_CYCLE_TIME,
     DATA_KEY_CYCLE_TIME_LEFT,
+    DATA_KEY_DESIRED_CLEAN_MODE,
     DATA_KEY_FILTER_STATUS,
     DATA_KEY_LED,
     DATA_KEY_LED_INTENSITY,
@@ -186,11 +187,17 @@ ENTITY_DESCRIPTIONS: list[MyDolphinPlusEntityDescription] = [
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_NETWORK_NAME),
     ),
-    MyDolphinPlusSelectEntityDescription(
+    MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_CLEAN_MODE),
         name=DATA_KEY_CLEAN_MODE,
-        options=[str(mode) for mode in CleanModes],
+        entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_CLEAN_MODE),
+    ),
+    MyDolphinPlusSelectEntityDescription(
+        key=slugify(DATA_KEY_DESIRED_CLEAN_MODE),
+        name=DATA_KEY_DESIRED_CLEAN_MODE,
+        options=[str(mode) for mode in CleanModes],
+        translation_key=slugify(DATA_KEY_DESIRED_CLEAN_MODE),
     ),
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_POWER_SUPPLY_STATUS),

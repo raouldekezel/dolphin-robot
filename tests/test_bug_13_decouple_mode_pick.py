@@ -324,16 +324,20 @@ async def test_run_falls_back_to_reported_when_nothing_staged():
 # ---------------------------------------------------------------------------
 
 
-def test_get_clean_mode_data_returns_staged_value_while_docked():
-    """Select / sensor must show the operator's pick immediately, even
-    though no firmware echo has arrived (and won't, on the docked path)."""
+def test_get_desired_clean_mode_data_returns_staged_value_while_docked():
+    """The writable picker must show the operator's pick immediately, even
+    though no firmware echo has arrived (and won't, on the docked path).
+    HARD-13 moved this getter from ``_get_clean_mode_data`` to
+    ``_get_desired_clean_mode_data`` so the sensor stays on the
+    firmware-reported value; the staged behaviour now lives on the new
+    select."""
     from custom_components.mydolphin_plus.managers.coordinator import (
         MyDolphinPlusCoordinator,
     )
 
     stub = _make_coordinator_stub(desired="stairs", reported="all")
 
-    result = MyDolphinPlusCoordinator._get_clean_mode_data(stub, None)
+    result = MyDolphinPlusCoordinator._get_desired_clean_mode_data(stub, None)
 
     assert result["state"] == "stairs"
 

@@ -73,8 +73,8 @@
       }
     },
     "select": {
-      "clean_mode": {
-        "name": "Clean Mode",
+      "desired_clean_mode": {
+        "name": "Next Clean Mode",
         "state": {
           "all": "Regular",
           "floor": "Floor only",
@@ -95,6 +95,18 @@
       }
     },
     "sensor": {
+      "clean_mode": {
+        "name": "Clean Mode",
+        "state": {
+          "all": "Regular",
+          "floor": "Floor only",
+          "pickup": "Pickup",
+          "short": "Fast mode",
+          "ultra": "Ultra clean",
+          "water": "Water line",
+          "stairs": "Full Coverage"
+        }
+      },
       "cycle_count": {
         "name": "Cycle Count"
       },
