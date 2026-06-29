@@ -1,0 +1,23 @@
+# HA recorder snapshot — 2026-06-26 14:44:00 → 14:51:00 UTC
+# Captured from /api/history/period after T1 + T2 completed.
+# One row per entity / state change observed by HA recorder.
+
+=== vacuum.nono_2 ===
+  2026-06-26T14:44:00+00:00  docked
+=== sensor.nono_2_statut ===
+  2026-06-26T14:44:00+00:00  holdweekly
+=== sensor.nono_2_etat_du_robot ===
+  2026-06-26T14:44:00+00:00  notconnected
+=== sensor.nono_2_etat_de_l_alimentation ===
+  2026-06-26T14:44:00+00:00  holdweekly
+=== sensor.nono_2_nombre_de_cycles ===
+  2026-06-26T14:44:00+00:00  71
+
+=== sensor.nono_2_historique latest 6 executions (PII unchanged: dates only) ===
+  count: 10
+  {'start': '26/06 16:38', 'mode': 'Complet', 'duration': '1min', 'end': '16:39', 'outcome': '🛑'}
+  {'start': '26/06 15:49', 'mode': 'Complet', 'duration': '48min', 'end': '16:38', 'outcome': '🛑'}
+  {'start': '26/06 15:00', 'mode': 'Complet', 'duration': '24min', 'end': '15:25', 'outcome': '🛑'}
+  {'start': '26/06 11:00', 'mode': 'Complet', 'duration': '3h51', 'end': '14:51', 'outcome': '✅'}
+  {'start': '26/06 08:46', 'mode': 'Sol uniquement', 'duration': '20s', 'end': '08:46', 'outcome': '🛑'}
+  {'start': '26/06 08:44', 'mode': 'Sol uniquement', 'duration': '51s', 'end': '08:45', 'outcome': '🛑'}
