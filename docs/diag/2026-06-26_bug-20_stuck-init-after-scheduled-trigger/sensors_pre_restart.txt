@@ -1,0 +1,34 @@
+2026-06-26T12:43:14Z
+sensor.sps_04_nono_puissance	state=4.85	last_changed=2026-06-26T12:43:06.121981+00:00	last_updated=2026-06-26T12:43:06.121981+00:00
+sensor.sps_04_nono_energie	state=3.11495	last_changed=2026-06-26T12:43:06.122147+00:00	last_updated=2026-06-26T12:43:06.122147+00:00
+switch.sps_04_nono	state=on	last_changed=2026-06-26T12:03:49.468170+00:00	last_updated=2026-06-26T12:03:49.468170+00:00
+sensor.nono_2_etat_synthetique	state=Analyse	last_changed=2026-06-26T11:42:11.034756+00:00	last_updated=2026-06-26T11:42:11.034756+00:00
+	attr.couleur=grey
+	attr.icone=mdi:robot-vacuum
+sensor.nono_2_progression	state=0	last_changed=2026-06-25T11:40:57.293144+00:00	last_updated=2026-06-25T11:40:57.293144+00:00
+binary_sensor.nono_2_broker_aws	state=on	last_changed=2026-06-26T11:42:11.032317+00:00	last_updated=2026-06-26T11:42:11.032317+00:00
+	attr.status=Connected to the API
+sensor.nono_2_statut	state=init	last_changed=2026-06-26T09:00:07.869754+00:00	last_updated=2026-06-26T09:00:07.869754+00:00
+	attr.Vacuum State=cleaning
+	attr.Calculated State=init
+	attr.Power Supply State=on
+	attr.Robot State=init
+	attr.Robot Type=S4
+	attr.Busy=False
+	attr.Turn On Count=255
+	attr.Time Zone=Europe/Brussels (120)
+	attr.Activity=None
+sensor.nono_2_etat_de_l_alimentation	state=on	last_changed=2026-06-26T09:00:07.869948+00:00	last_updated=2026-06-26T09:00:07.869948+00:00
+sensor.nono_2_etat_du_robot	state=init	last_changed=2026-06-26T09:00:07.870075+00:00	last_updated=2026-06-26T09:00:07.870075+00:00
+sensor.nono_2_nombre_de_cycles	state=255	last_changed=2026-06-26T09:00:07.870225+00:00	last_updated=2026-06-26T09:00:07.870225+00:00
+sensor.nono_2_cycle_time	state=120	last_changed=2026-06-26T09:00:07.870474+00:00	last_updated=2026-06-26T09:00:07.870474+00:00
+	attr.start_time=2026-06-26T10:59:44
+sensor.nono_2_temps_restant_du_cycle	state=0	last_changed=2026-06-25T11:41:07.320050+00:00	last_updated=2026-06-26T09:00:07.870723+00:00
+	attr.start_time=2026-06-26T10:59:44
+	attr.expected_end_time=2026-06-26T12:59:44
+sensor.nono_2_erreur_du_robot	state=0	last_changed=2026-06-25T11:41:07.320131+00:00	last_updated=2026-06-25T11:41:07.320131+00:00
+sensor.nono_2_erreur_d_alimentation	state=0	last_changed=2026-06-25T11:41:07.320204+00:00	last_updated=2026-06-25T11:41:07.320204+00:00
+vacuum.nono_2	state=cleaning	last_changed=2026-06-26T09:00:07.871332+00:00	last_updated=2026-06-26T09:00:07.871332+00:00
+	attr.fan_speed_list=['all', 'short', 'floor', 'water', 'ultra', 'pickup', 'stairs']
+	attr.fan_speed=all
+	attr.mode=all
