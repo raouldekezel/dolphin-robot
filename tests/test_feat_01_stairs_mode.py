@@ -72,9 +72,12 @@ def test_stairs_label_in_translations(filename, expected):
     """Each shipped locale carries the correct Full Coverage label.
 
     The label must appear in BOTH surfaces:
-    - ``entity.select.clean_mode.state.stairs`` — the
-      ``select.<robot>_clean_mode`` text (FEAT-05 moved this block from
-      ``entity.sensor`` to ``entity.select``)
+    - ``entity.sensor.clean_mode.state.stairs`` — the
+      ``sensor.<robot>_clean_mode`` text (HARD-13 split: FEAT-05 had
+      moved this block to ``entity.select.clean_mode``, HARD-13 moved it
+      back under ``entity.sensor``)
+    - ``entity.select.desired_clean_mode.state.stairs`` — the writable
+      picker added by HARD-13 alongside the restored sensor
     - ``entity.vacuum.vacuum.state_attributes.fan_speed.state.stairs``
       — the dropdown label in the vacuum entity card
 
@@ -90,15 +93,22 @@ def test_stairs_label_in_translations(filename, expected):
         / filename
     )
     data = json.loads(path.read_text(encoding="utf-8"))
-    select_label = data["entity"]["select"]["clean_mode"]["state"]["stairs"]
+    sensor_label = data["entity"]["sensor"]["clean_mode"]["state"]["stairs"]
+    select_label = (
+        data["entity"]["select"]["desired_clean_mode"]["state"]["stairs"]
+    )
     vacuum_label = (
         data["entity"]["vacuum"]["vacuum"]["state_attributes"]["fan_speed"][
             "state"
         ]["stairs"]
     )
-    assert select_label == expected, (
-        f"select.clean_mode.state.stairs in {filename!r} = {select_label!r}, "
+    assert sensor_label == expected, (
+        f"sensor.clean_mode.state.stairs in {filename!r} = {sensor_label!r}, "
         f"expected {expected!r}"
+    )
+    assert select_label == expected, (
+        f"select.desired_clean_mode.state.stairs in {filename!r} = "
+        f"{select_label!r}, expected {expected!r}"
     )
     assert vacuum_label == expected, (
         f"vacuum.fan_speed.state.stairs in {filename!r} = {vacuum_label!r}, "

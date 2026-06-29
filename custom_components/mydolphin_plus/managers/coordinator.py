@@ -60,6 +60,7 @@ from ..common.consts import (
     DATA_KEY_CYCLE_COUNT,
     DATA_KEY_CYCLE_TIME,
     DATA_KEY_CYCLE_TIME_LEFT,
+    DATA_KEY_DESIRED_CLEAN_MODE,
     DATA_KEY_FILTER_STATUS,
     DATA_KEY_LED,
     DATA_KEY_LED_INTENSITY,
@@ -449,6 +450,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             slugify(DATA_KEY_RSSI): self._get_rssi_data,
             slugify(DATA_KEY_NETWORK_NAME): self._get_network_name_data,
             slugify(DATA_KEY_CLEAN_MODE): self._get_clean_mode_data,
+            slugify(DATA_KEY_DESIRED_CLEAN_MODE): self._get_desired_clean_mode_data,
             slugify(DATA_KEY_POWER_SUPPLY_STATUS): self._get_power_supply_status_data,
             slugify(DATA_KEY_ROBOT_STATUS): self._get_robot_status_data,
             slugify(DATA_KEY_ROBOT_TYPE): self._get_robot_type_data,
@@ -557,7 +559,18 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         return result
 
     def _get_clean_mode_data(self, _entity_description) -> dict | None:
-        # BUG-13 (write-on-commit) — display the staged mode while docked.
+        # HARD-13 — read-only mirror of the firmware-reported mode. Returns
+        # None until the first cleaningMode shadow lands; BUG-16 already
+        # gates entity availability on `has_real_data`, so the None should
+        # not surface in practice.
+        cycle_info = self.aws_data.get(DATA_SECTION_CYCLE_INFO, {})
+        cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
+        mode = cleaning_mode.get(ATTR_MODE)
+
+        return {ATTR_STATE: mode}
+
+    def _get_desired_clean_mode_data(self, _entity_description) -> dict | None:
+        # HARD-13 — writable select backed by the staged pick.
         # `_desired_clean_mode` is seeded from / reconciled with the reported
         # mode in `_reconcile_desired_clean_mode`, so this falls through to
         # the firmware's reported mode whenever nothing is staged.

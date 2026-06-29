@@ -73,8 +73,8 @@
       }
     },
     "select": {
-      "clean_mode": {
-        "name": "Modalit\u00e0 pulita",
+      "desired_clean_mode": {
+        "name": "Prossima modalit\u00e0 di pulizia",
         "state": {
           "all": "Regolare",
           "floor": "Solo piano",
@@ -95,6 +95,18 @@
       }
     },
     "sensor": {
+      "clean_mode": {
+        "name": "Modalità pulita",
+        "state": {
+          "all": "Regolare",
+          "floor": "Solo piano",
+          "pickup": "Raccolta",
+          "short": "Modalità veloce",
+          "ultra": "Ultra pulito",
+          "water": "Linea di galleggiamento",
+          "stairs": "Copertura completa"
+        }
+      },
       "cycle_count": {
         "name": "Conteggio dei cicli"
       },
