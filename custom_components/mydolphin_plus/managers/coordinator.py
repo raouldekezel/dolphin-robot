@@ -246,25 +246,35 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         await self._api.initialize()
 
     def _load_signal_handlers(self):
-        loop = self.hass.loop
+        # BUG-09: the previous code called `.__await__()` on a freshly created
+        # task and discarded the resulting iterator, firing the task without
+        # any reference — exceptions disappeared silently and the task was
+        # not cancelled on entry unload. `ConfigEntry.async_create_task(hass,
+        # coro)` ties the task to the entry lifecycle (cancelled on reload),
+        # which is strictly better than upstream PR #287's
+        # `hass.async_create_task` (loop-scoped, cancelled only on full HA
+        # shutdown).
+        entry = self.config_entry
 
         @callback
         def on_api_status_changed(entry_id: str, status: ConnectivityStatus):
-            loop.create_task(self._on_api_status_changed(entry_id, status)).__await__()
+            entry.async_create_task(
+                self.hass, self._on_api_status_changed(entry_id, status)
+            )
 
         @callback
         def on_aws_client_status_changed(entry_id: str, status: ConnectivityStatus):
-            loop.create_task(
-                self._on_aws_client_status_changed(entry_id, status)
-            ).__await__()
+            entry.async_create_task(
+                self.hass, self._on_aws_client_status_changed(entry_id, status)
+            )
 
-        self.config_entry.async_on_unload(
+        entry.async_on_unload(
             async_dispatcher_connect(
                 self.hass, SIGNAL_API_STATUS, on_api_status_changed
             )
         )
 
-        self.config_entry.async_on_unload(
+        entry.async_on_unload(
             async_dispatcher_connect(
                 self.hass, SIGNAL_AWS_CLIENT_STATUS, on_aws_client_status_changed
             )
