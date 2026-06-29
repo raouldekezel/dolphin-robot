@@ -1,0 +1,31 @@
+[2026-06-27 14:46:54.281] systemState  pwsState=on          robotState=notConnected  rTurnOnCount=72
+[2026-06-27 14:46:54.281] cycleInfo    mode=all     cycleTime=120 startTime=1782570880
+[2026-06-27 14:47:10.467] systemState  pwsState=None        robotState=None          rTurnOnCount=None
+[2026-06-27 14:47:11.909] systemState  pwsState=holdWeekly  robotState=notConnected  rTurnOnCount=72
+[2026-06-27 14:47:11.909] cycleInfo    mode=stairs  cycleTime=150 startTime=None
+[2026-06-27 14:47:24.306] cycleInfo    mode=stairs  cycleTime=150 startTime=1782570880
+[2026-06-27 16:37:18.421] Status update Connected to the API --> Failed to access API, AWS IoT connection interrupted, Error: AWS_ERROR_MQTT_UNEXPECTED_HANGUP: The connection was closed unexpectedly.
+[2026-06-27 16:37:18.423] Status update Failed to access API --> Disconnected by the system, terminate requested
+[2026-06-27 16:37:18.423] Connection failure - reconnection attempt #1, waiting 1 minute(s) before retry
+[2026-06-27 16:38:20.116] Status update Connected to the API --> Connected with temporary API key, profile loaded for N4720KMV3Q
+[2026-06-27 16:38:21.599] Status update Connected with temporary API key --> Connected to the API
+[2026-06-27 16:38:21.599] Status update Disconnected by the system --> Establishing connection to API, Initializing MyDolphin AWS IOT WS
+[2026-06-27 16:38:21.954] Status update Establishing connection to API --> Connected to the API
+[2026-06-27 16:53:46.892] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'all'}}
+[2026-06-27 16:53:47.991] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+[2026-06-27 16:53:48.090] cycleInfo    mode=all     cycleTime=150 startTime=1782579200
+[2026-06-27 16:53:48.792] systemState  pwsState=holdWeekly  robotState=notConnected  rTurnOnCount=73
+[2026-06-27 16:53:48.792] cycleInfo    mode=all     cycleTime=120 startTime=1782579200
+[2026-06-27 16:53:49.548] systemState  pwsState=on          robotState=init          rTurnOnCount=73
+[2026-06-27 16:53:49.549] BUG-19 reactive stop: firmware reported pwsState=on after a silent set; issuing a single pwsState=off
+[2026-06-27 16:53:49.550] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+[2026-06-27 16:53:50.542] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'floor'}}
+[2026-06-27 16:53:51.611] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+[2026-06-27 16:53:52.515] cycleInfo    mode=floor   cycleTime=120 startTime=1782579200
+[2026-06-27 16:54:00.006] systemState  pwsState=holdWeekly  robotState=notConnected  rTurnOnCount=73
+[2026-06-27 16:54:04.858] systemState  pwsState=on          robotState=init          rTurnOnCount=73
+[2026-06-27 16:54:13.729] systemState  pwsState=on          robotState=notConnected  rTurnOnCount=73
+[2026-06-27 17:02:12.062] systemState  pwsState=None        robotState=None          rTurnOnCount=None
+[2026-06-27 17:02:13.481] systemState  pwsState=holdWeekly  robotState=notConnected  rTurnOnCount=72
+[2026-06-27 17:02:13.481] cycleInfo    mode=stairs  cycleTime=150 startTime=None
+[2026-06-27 17:02:25.015] cycleInfo    mode=stairs  cycleTime=150 startTime=1782579200

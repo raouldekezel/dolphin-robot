@@ -1,0 +1,110 @@
+--- /home/raoul/home-assistant/data/config/custom_components/mydolphin_plus/managers/aws_client.py.bak	2026-06-25 10:20:33.000000000 +0200
++++ /home/raoul/home-assistant/data/config/custom_components/mydolphin_plus/managers/aws_client.py	2026-06-26 16:34:49.000000000 +0200
+@@ -93,6 +93,12 @@
+ # user interval between two cleaning-mode pickings.
+ _SILENT_STOP_TTL_SECONDS = 5.0
+
++# BUG-19 (E5a) — reactive-stop window. After a silent set we do NOT pre-empt;
++# we watch reported.pwsState and, if the firmware flips to "on", issue one
++# clean pause(). Must exceed the on-latency (~3 s after the silent set) with
++# margin, while staying under any plausible inter-pick interval.
++_SILENT_GUARD_TTL_SECONDS = 12.0
++
+
+ class AWSClient:
+     _awsiot_client: mqtt.Connection | None
+@@ -140,6 +146,13 @@
+             # comfortable margin.
+             self._silent_stop_deadline: float | None = None
+
++            # BUG-19 (E5a) — reactive-stop guard armed by
++            # set_cleaning_mode_silent. A reported transition into pwsState="on"
++            # while armed triggers ONE pause(); _last_reported_pws_state
++            # edge-gates so a steady "on" snapshot does not loop.
++            self._silent_guard_deadline: float | None = None
++            self._last_reported_pws_state: str | None = None
++
+             self._status = None
+
+             self._local_async_dispatcher_send = None
+@@ -489,6 +502,31 @@
+                 # Trigger callback for real-time updates
+                 self._on_data_update_callback()
+
++                # BUG-19 (E5a) — reactive stop. If the firmware flips to
++                # pwsState="on" within the guard window after a silent set,
++                # issue exactly one pause(). Edge-triggered on the transition
++                # into "on" so a full snapshot of a steady "on" does not loop.
++                reported_system_state = (
++                    reported.get(DATA_SECTION_SYSTEM_STATE) or {}
++                )
++                incoming_pws = reported_system_state.get(
++                    DATA_SYSTEM_STATE_PWS_STATE
++                )
++                if incoming_pws is not None:
++                    became_on = (
++                        incoming_pws == PowerSupplyState.ON.value
++                        and self._last_reported_pws_state
++                        != PowerSupplyState.ON.value
++                    )
++                    self._last_reported_pws_state = incoming_pws
++                    if became_on and self._silent_guard_active():
++                        _LOGGER.warning(
++                            "BUG-19 reactive stop: firmware reported "
++                            "pwsState=on after a silent set; issuing a "
++                            "single pwsState=off"
++                        )
++                        self.pause()
++
+                 if topic == self._topic_data.get_accepted:
+                     if self._robot_family == RobotFamily.M700:
+                         self._read_temperature_and_in_water_details()
+@@ -511,14 +549,10 @@
+                         if mode is not None:
+                             sleep(1)
+                             self._set_cycle_time(mode)
+-                        elif self._silent_stop_due(desired):
+-                            # BUG-13 — the cycleTime echo of OUR own
+-                            # BUG-08 chain following a silent mode set.
+-                            # Publish pwsState=off now so the firmware
+-                            # adopts mode + cycleTime but never flips to
+-                            # pwsState=on (E-B primitive, #85).
+-                            self._silent_stop_deadline = None
+-                            self.pause()
++                        # BUG-19 (E5a) — pre-emptive pause removed. We no longer
++                        # blind-race the start on the cycleTime echo; the
++                        # reactive hook issues a single pause() only if the
++                        # firmware actually reports pwsState=on.
+
+         except Exception as ex:
+             exc_type, exc_obj, tb = sys.exc_info()
+@@ -578,6 +612,15 @@
+         cycle_info = desired.get(DATA_SECTION_CYCLE_INFO) or {}
+         return cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE_DURATION) is not None
+
++    def _silent_guard_active(self) -> bool:
++        """BUG-19 (E5a) — True while the reactive-stop guard is armed."""
++        if self._silent_guard_deadline is None:
++            return False
++        if monotonic() >= self._silent_guard_deadline:
++            self._silent_guard_deadline = None
++            return False
++        return True
++
+     def _event_is_ours(self, payload_data: dict) -> bool:
+         """SPIKE-02 — provenance predicate.
+
+@@ -685,11 +728,11 @@
+         errors, so this guard mainly protects against serialization /
+         programmer errors above it.
+         """
+-        self._silent_stop_deadline = monotonic() + _SILENT_STOP_TTL_SECONDS
++        self._silent_guard_deadline = monotonic() + _SILENT_GUARD_TTL_SECONDS
+         try:
+             self.set_cleaning_mode(clean_mode)
+         except Exception:
+-            self._silent_stop_deadline = None
++            self._silent_guard_deadline = None
+             raise
+
+     def _set_cycle_time(self, clean_mode: CleanModes):
