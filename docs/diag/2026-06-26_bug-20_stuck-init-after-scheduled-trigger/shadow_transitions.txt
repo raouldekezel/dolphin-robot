@@ -1,0 +1,21 @@
+# Shadow transitions for device REDACTED-ROBOT-SERIAL, 2026-06-26 06:00 → 13:00 UTC
+# Extracted from container ha logs (sensitive fields redacted per docs/diag/README.md).
+# Only rows where any of the four tracked fields changed are printed.
+
+  UTC time      pwsState      robotState      rTurnOnCount   cycleStartTimeUTC  cycleTime      mode
+  04:45:50      holdWeekly    notConnected              66          1782389760         60       all
+  06:00:22      holdWeekly    notConnected              66          1782389760        150    stairs
+  06:43:22      holdWeekly    notConnected              66          1782456192         60     short
+  06:43:52      on            init                      66          1782456192        120       all
+  06:43:56      holdWeekly    notConnected              66          1782456192        120       all
+  06:44:26      on            init                      66          1782456320        120     floor
+  06:45:20      on            init                      67          1782456320        120     floor
+  06:45:23      holdWeekly    notConnected              67          1782456320        120     floor
+  06:45:43      holdWeekly    notConnected              67          1782456320        120       all
+  06:46:03      holdWeekly    notConnected              67          1782456320        150    stairs
+  06:46:29      on            init                      67          1782456448        120     floor
+  06:46:48      holdWeekly    notConnected              67          1782456448        120     floor
+  06:47:20      on            init                      67          1782456448         60     short
+  06:47:24      holdWeekly    notConnected              67          1782456448         60     short
+  09:00:03      holdWeekly    notConnected             255          1782464384        120       all
+  09:00:04      on            init                     255          1782464384        120       all
