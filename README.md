@@ -18,7 +18,7 @@ the device behavior.
 - Adds a dropdown to choose the cleaning mode for the next run.
 - Shows the robot as cleaning the moment you press Start for immediate feedback.
 - Transient "Starting…" and "Stopping…" states make clear that a start or stop is in progress even though
-  the robot didnt aknowledge it yet.
+  the robot didn't acknowledge it yet.
 - Reacts only to the commands the integration itself sent, fixing spurious behaviors.
 - Fixes French labels for the cleaning modes and the robot state. Some Italian fixed too.
 - Adds a documented library of real-device traces with their interpretation ([`docs/diag/`](https://github.com/raouldekezel/dolphin-robot/tree/deploy/docs/diag)).
