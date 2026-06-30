@@ -133,15 +133,37 @@ from .rest_api import RestAPI
 
 _LOGGER = logging.getLogger(__name__)
 
-# HARD-11 — optimistic-overlay TTL and start-serialization guard windows.
-# TTL covers the worst observed echo gap (~60 s to `pwsState=on`, ~9 s to
-# `holdWeekly` after pause) with margin. Guard window covers the worst
-# observed post-pause `holdWeekly` latency under contention (9.2 s in T3
-# pick #5, 10.5 s in T4 — see `docs/diag/2026-06-26_bug-19_e5a-...`); cap
-# is the hard upper bound on guard lifetime when `holdWeekly` never lands.
+# HARD-11 — optimistic-overlay TTL and start-serialization guard TTL.
+#
+# Overlay TTL covers the worst observed echo gap (~60 s to `pwsState=on`,
+# ~9 s to `holdWeekly` after pause) with margin.
+#
+# Guard TTL covers the worst observed post-pause acknowledgement latency
+# under contention (9.2 s in T3 pick #5, 10.5 s in T4 — see
+# `docs/diag/2026-06-26_bug-19_e5a-...`). A single value is used: when it
+# elapses, the Start block lifts AND the guard bookkeeping clears at the
+# same instant — so a Run cannot land in a window where it is allowed but
+# the cap is still scheduled to wipe its fresh overlay (v1.1's
+# block-window vs. cap-timeout split was the source of that fragility).
 _OPTIMISTIC_TTL_S: float = 120.0
-_PAUSE_GUARD_WINDOW_S: float = 15.0
-_PAUSE_GUARD_CAP_S: float = 20.0
+_PAUSE_GUARD_TTL_S: float = 15.0
+
+# HARD-11 — the calculated_state values the firmware emits when the
+# system is *at rest* (cycle not running). The pause-acknowledgement
+# edge fires on entering ANY of them — not only `HOLD_WEEKLY` — so the
+# guard resolves correctly for robots that are not on an active weekly
+# schedule (which settle to `HOLD_DELAY` or `OFF` instead). All three
+# values are produced by `models/system_details._get_updated_data`:
+# `OFF` is the default fallback when no other branch matches,
+# `HOLD_DELAY` and `HOLD_WEEKLY` come from the matching power-supply
+# branches.
+_PAUSE_ACK_REST_STATES: frozenset[CalculatedState] = frozenset(
+    {
+        CalculatedState.HOLD_WEEKLY,
+        CalculatedState.HOLD_DELAY,
+        CalculatedState.OFF,
+    }
+)
 
 
 class MyDolphinPlusCoordinator(DataUpdateCoordinator):
@@ -1344,18 +1366,21 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     def _reconcile_pause_guard(self) -> None:
         """Clear the start-serialization guard when the pause flow is settled.
 
-        Two clear conditions: cap timeout (the edge may never arrive if the
-        firmware suppressed both the start *and* the pause, so the system
-        never left ``holdWeekly``); or the *entering* transition into
-        ``holdWeekly`` (the firmware acknowledged the pause).
+        Two clear conditions: TTL timeout (the edge may never arrive if
+        the firmware suppressed both the start *and* the pause, so the
+        system never left its at-rest calculated_state); or the *entering*
+        transition into any of the rest states the firmware emits when
+        idle (``HOLD_WEEKLY`` / ``HOLD_DELAY`` / ``OFF`` —
+        :data:`_PAUSE_ACK_REST_STATES`). Hardcoding ``HOLD_WEEKLY`` alone
+        would tie the guard to robots running an active weekly schedule.
 
         When the guard clears, the optimistic overlay is also cleared in
         the same step — that is the only signal that bounds the
         ``Run → Stop-in-gap → firmware-stays-docked`` UX, because the
         vacuum overlay's origin-moved check would never fire in that case
-        (``real == origin == DOCKED`` throughout). The cap therefore
+        (``real == origin == DOCKED`` throughout). The TTL therefore
         doubles as the worst-case overlay-revert horizon in that scenario
-        (~20 s instead of the overlay TTL's 120 s).
+        (~15 s instead of the overlay TTL's 120 s).
         """
         if self._pause_issued_at is None:
             return
@@ -1363,18 +1388,18 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         cleared_reason: str | None = None
         elapsed = time.monotonic() - self._pause_issued_at
 
-        if elapsed >= _PAUSE_GUARD_CAP_S:
-            cleared_reason = "cap"
+        if elapsed >= _PAUSE_GUARD_TTL_S:
+            cleared_reason = "ttl"
         elif self._has_real_data:
             current = self._system_details.calculated_state
             prev = self._last_observed_calculated_state
-            entering_hold_weekly = (
+            entering_rest = (
                 prev is not None
-                and prev != CalculatedState.HOLD_WEEKLY
-                and current == CalculatedState.HOLD_WEEKLY
+                and prev not in _PAUSE_ACK_REST_STATES
+                and current in _PAUSE_ACK_REST_STATES
             )
-            if entering_hold_weekly:
-                cleared_reason = "holdWeekly edge"
+            if entering_rest:
+                cleared_reason = f"rest edge ({current})"
 
         if cleared_reason is not None:
             _LOGGER.debug(
@@ -1385,7 +1410,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             # Tie the optimistic overlay clear to the guard resolution. In
             # the Run → Stop-in-gap case the vacuum overlay's origin-moved
             # check cannot fire (real never left the click-time origin), so
-            # the guard's edge / cap is the only path that bounds the
+            # the guard's edge / TTL is the only path that bounds the
             # `cleaning + Stopping…` lie when the firmware suppressed the
             # start. When no overlay is armed, this is a no-op.
             self._clear_optimistic_overlay()
@@ -1393,7 +1418,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     def _is_start_guard_active(self) -> bool:
         if self._pause_issued_at is None:
             return False
-        return time.monotonic() - self._pause_issued_at < _PAUSE_GUARD_WINDOW_S
+        return time.monotonic() - self._pause_issued_at < _PAUSE_GUARD_TTL_S
 
     @property
     def has_real_data(self) -> bool:
