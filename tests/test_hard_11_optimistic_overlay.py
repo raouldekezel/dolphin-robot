@@ -666,3 +666,67 @@ async def test_guard_lift_and_overlay_clear_coincide():
     ):
         MyDolphinPlusCoordinator._reconcile_pause_guard(stub2)
     assert stub2._pause_issued_at is None
+
+
+@pytest.mark.asyncio
+async def test_run_clears_pause_bookkeeping_so_late_reconcile_cannot_wipe_overlay():
+    """v1.3 — closes the sub-tick residual of fragility #1.
+
+    Even after v1.2 collapsed block and bookkeeping into one threshold,
+    `_is_start_guard_active()` (checked in `_vacuum_start`) and the TTL
+    clear (checked in `_reconcile_pause_guard`) are evaluated at
+    different instants against the same threshold. At `t` slightly past
+    TTL, a Run is allowed and arms a fresh overlay, but if the next
+    coordinator tick fires before any other clear path,
+    `_reconcile_pause_guard` still sees `_pause_issued_at` set and the
+    elapsed past TTL → it clears the guard AND wipes the just-armed
+    overlay.
+
+    The closer: a permitted Run drops the bookkeeping itself, so the
+    next reconcile early-returns and the fresh overlay survives.
+    """
+    stub = _make_coordinator_stub()
+    stub._pause_issued_at = 1000.0
+
+    # Run lands at t slightly past TTL → guard allows.
+    with patch.object(
+        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_TTL_S + 0.5
+    ):
+        await MyDolphinPlusCoordinator._vacuum_start(stub, None, None)
+
+    assert stub._pause_issued_at is None
+    assert stub._optimistic_vacuum_state == VacuumActivity.CLEANING
+    assert stub._optimistic_statut == CalculatedState.STARTING_PENDING
+
+    # Subsequent reconcile inside what would have been the sub-tick race
+    # window — must not touch the fresh overlay.
+    with patch.object(
+        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_TTL_S + 0.6
+    ):
+        MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
+
+    assert stub._optimistic_vacuum_state == VacuumActivity.CLEANING
+    assert stub._optimistic_statut == CalculatedState.STARTING_PENDING
+
+
+@pytest.mark.asyncio
+async def test_pickup_clears_pause_bookkeeping_so_late_reconcile_cannot_wipe_overlay():
+    """Same residual closer applies to `_pickup`, which goes through the
+    same `set_cleaning_mode` primitive and therefore shares the race."""
+    stub = _make_coordinator_stub()
+    stub._pause_issued_at = 1000.0
+
+    with patch.object(
+        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_TTL_S + 0.5
+    ):
+        await MyDolphinPlusCoordinator._pickup(stub, None)
+
+    assert stub._pause_issued_at is None
+    assert stub._optimistic_vacuum_state == VacuumActivity.RETURNING
+
+    with patch.object(
+        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_TTL_S + 0.6
+    ):
+        MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
+
+    assert stub._optimistic_vacuum_state == VacuumActivity.RETURNING
