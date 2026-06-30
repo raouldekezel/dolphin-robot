@@ -1,0 +1,61 @@
+2026-06-30T18:40:54.962507846Z 2026-06-30 20:40:54.959 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: init, Main Unit State: on, Robot State: init
+2026-06-30T18:41:44.936854996Z 2026-06-30 20:41:44.933 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: init, Main Unit State: on, Robot State: init
+2026-06-30T18:41:54.950473195Z 2026-06-30 20:41:54.936 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: cleaning, Main Unit State: on, Robot State: scanning
+2026-06-30T18:42:44.146268825Z 2026-06-30 20:42:44.138 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Pause vacuum, State: cleaning
+2026-06-30T18:42:44.148911323Z 2026-06-30 20:42:44.138 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+2026-06-30T18:42:54.710171668Z 2026-06-30 20:42:54.703 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: holdweekly, Main Unit State: holdWeekly, Robot State: notConnected
+2026-06-30T18:42:54.710857757Z 2026-06-30 20:42:54.703 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — firmware moved cleaning → docked, clearing overlay
+2026-06-30T18:42:54.711303462Z 2026-06-30 20:42:54.703 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — pause guard cleared (rest edge (holdweekly)); dropping overlay too
+2026-06-30T18:46:31.790894127Z 2026-06-30 20:46:31.786 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Start vacuum
+2026-06-30T18:46:31.797858871Z 2026-06-30 20:46:31.787 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'short'}}
+2026-06-30T18:46:32.847135607Z 2026-06-30 20:46:32.845 INFO (Dummy-816) [custom_components.mydolphin_plus.managers.aws_client] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 60}}
+2026-06-30T18:46:34.673438609Z 2026-06-30 20:46:34.666 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: init, Main Unit State: on, Robot State: init
+2026-06-30T18:46:34.678559601Z 2026-06-30 20:46:34.666 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — firmware moved docked → cleaning, clearing overlay
+2026-06-30T18:47:00.483774857Z 2026-06-30 20:47:00.479 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Pause vacuum, State: cleaning
+2026-06-30T18:47:00.484251660Z 2026-06-30 20:47:00.479 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+2026-06-30T18:47:10.483689818Z 2026-06-30 20:47:10.481 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: holdweekly, Main Unit State: holdWeekly, Robot State: notConnected
+2026-06-30T18:47:10.483930494Z 2026-06-30 20:47:10.481 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — firmware moved cleaning → docked, clearing overlay
+2026-06-30T18:47:10.487303798Z 2026-06-30 20:47:10.481 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — pause guard cleared (rest edge (holdweekly)); dropping overlay too
+2026-06-30T18:50:44.740278627Z 2026-06-30 20:50:44.734 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Start vacuum
+2026-06-30T18:50:44.745228197Z 2026-06-30 20:50:44.735 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'short'}}
+2026-06-30T18:50:45.830533755Z 2026-06-30 20:50:45.829 INFO (Dummy-989) [custom_components.mydolphin_plus.managers.aws_client] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 60}}
+2026-06-30T18:50:50.122907354Z 2026-06-30 20:50:50.114 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Pause vacuum, State: cleaning
+2026-06-30T18:50:50.127711398Z 2026-06-30 20:50:50.114 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+2026-06-30T18:50:50.686580209Z 2026-06-30 20:50:50.677 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: init, Main Unit State: on, Robot State: init
+2026-06-30T18:50:50.689118992Z 2026-06-30 20:50:50.677 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — firmware moved docked → cleaning, clearing overlay
+2026-06-30T18:51:00.686730757Z 2026-06-30 20:51:00.680 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: holdweekly, Main Unit State: holdWeekly, Robot State: notConnected
+2026-06-30T18:51:00.687441639Z 2026-06-30 20:51:00.681 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — pause guard cleared (rest edge (holdweekly)); dropping overlay too
+2026-06-30T18:51:17.782215397Z 2026-06-30 20:51:17.766 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Start vacuum
+2026-06-30T18:51:17.782692410Z 2026-06-30 20:51:17.767 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'all'}}
+2026-06-30T18:51:18.835170936Z 2026-06-30 20:51:18.833 INFO (Dummy-1024) [custom_components.mydolphin_plus.managers.aws_client] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+2026-06-30T18:51:26.025251591Z 2026-06-30 20:51:26.018 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: init, Main Unit State: on, Robot State: init
+2026-06-30T18:51:26.027367722Z 2026-06-30 20:51:26.018 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — firmware moved docked → cleaning, clearing overlay
+2026-06-30T18:51:41.670430197Z 2026-06-30 20:51:41.662 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Pause vacuum, State: cleaning
+2026-06-30T18:51:41.672531289Z 2026-06-30 20:51:41.662 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+2026-06-30T18:51:51.683513568Z 2026-06-30 20:51:51.667 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: holdweekly, Main Unit State: holdWeekly, Robot State: notConnected
+2026-06-30T18:51:51.683985483Z 2026-06-30 20:51:51.668 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — firmware moved cleaning → docked, clearing overlay
+2026-06-30T18:51:51.684769649Z 2026-06-30 20:51:51.668 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — pause guard cleared (rest edge (holdweekly)); dropping overlay too
+2026-06-30T18:52:12.800560123Z 2026-06-30 20:52:12.796 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Start vacuum
+2026-06-30T18:52:12.808231017Z 2026-06-30 20:52:12.796 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'all'}}
+2026-06-30T18:52:13.871134407Z 2026-06-30 20:52:13.870 INFO (Dummy-1064) [custom_components.mydolphin_plus.managers.aws_client] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+2026-06-30T18:52:18.225738838Z 2026-06-30 20:52:18.217 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Pause vacuum, State: cleaning
+2026-06-30T18:52:18.228408403Z 2026-06-30 20:52:18.217 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+2026-06-30T18:53:02.621276832Z 2026-06-30 20:53:02.614 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — pause guard cleared (ttl); dropping overlay too
+2026-06-30T18:54:09.688992675Z 2026-06-30 20:54:09.683 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Start vacuum
+2026-06-30T18:54:09.689558742Z 2026-06-30 20:54:09.683 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'all'}}
+2026-06-30T18:54:10.907400485Z 2026-06-30 20:54:10.905 INFO (Dummy-1110) [custom_components.mydolphin_plus.managers.aws_client] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+2026-06-30T18:54:15.725419101Z 2026-06-30 20:54:15.716 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Pause vacuum, State: cleaning
+2026-06-30T18:54:15.729149159Z 2026-06-30 20:54:15.717 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+2026-06-30T18:54:52.628830363Z 2026-06-30 20:54:52.614 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — pause guard cleared (ttl); dropping overlay too
+2026-06-30T19:00:29.665133477Z 2026-06-30 21:00:29.661 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Start vacuum
+2026-06-30T19:00:29.672256392Z 2026-06-30 21:00:29.661 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set cleaning mode, Desired: {'cleaningMode': {'mode': 'all'}}
+2026-06-30T19:00:30.752080000Z 2026-06-30 21:00:30.750 INFO (Dummy-1173) [custom_components.mydolphin_plus.managers.aws_client] Set cycle time, Desired: {'cycleInfo': {'cycleTime': 120}}
+2026-06-30T19:00:42.799467247Z 2026-06-30 21:00:42.788 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: init, Main Unit State: on, Robot State: init
+2026-06-30T19:00:42.799612628Z 2026-06-30 21:00:42.788 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — firmware moved docked → cleaning, clearing overlay
+2026-06-30T19:01:22.704738978Z 2026-06-30 21:01:22.699 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: init, Main Unit State: on, Robot State: init
+2026-06-30T19:01:56.593698001Z 2026-06-30 21:01:56.576 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: cleaning, Main Unit State: on, Robot State: scanning
+2026-06-30T19:03:56.368539661Z 2026-06-30 21:03:56.361 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Pause vacuum, State: cleaning
+2026-06-30T19:03:56.370202720Z 2026-06-30 21:03:56.361 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set power state, Desired: {'systemState': {'pwsState': 'off'}}
+2026-06-30T19:04:06.371398666Z 2026-06-30 21:04:06.365 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] System status recalculated, Calculated State: holdweekly, Main Unit State: holdWeekly, Robot State: notConnected
+2026-06-30T19:04:06.378280645Z 2026-06-30 21:04:06.365 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — firmware moved cleaning → docked, clearing overlay
+2026-06-30T19:04:06.381413448Z 2026-06-30 21:04:06.365 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] HARD-11 — pause guard cleared (rest edge (holdweekly)); dropping overlay too
