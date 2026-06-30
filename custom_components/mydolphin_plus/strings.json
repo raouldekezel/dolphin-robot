@@ -190,7 +190,9 @@
           "programming": "Programming",
           "error": "Error",
           "cleaning": "Cleaning",
-          "init": "Checking Environment"
+          "init": "Checking Environment",
+          "startingpending": "Starting…",
+          "pausingpending": "Stopping…"
         }
       },
       "robot_error": {

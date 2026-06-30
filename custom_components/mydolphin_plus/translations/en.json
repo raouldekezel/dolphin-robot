@@ -263,6 +263,8 @@
       "status": {
         "name": "Status",
         "state": {
+          "startingpending": "Starting…",
+          "pausingpending": "Stopping…",
           "cleaning": "Cleaning",
           "error": "Error",
           "holddelay": "Idle (Delay)",

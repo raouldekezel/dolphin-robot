@@ -270,7 +270,9 @@
           "init": "Verifica dell'ambiente",
           "off": "Spento",
           "on": "Acceso",
-          "programming": "Programmazione"
+          "pausingpending": "Arresto…",
+          "programming": "Programmazione",
+          "startingpending": "Avvio…"
         }
       }
     },

@@ -67,6 +67,15 @@ def _make_coordinator():
     coord._system_details = SystemDetails()
     coord._aws_client = SimpleNamespace(data={})
     coord._has_real_data = False
+    # HARD-11 — the per-tick reconciles inside `_set_system_status_details`
+    # short-circuit on these `None` sentinels; without them, AttributeError
+    # would fire on the very first call.
+    coord._optimistic_vacuum_state = None
+    coord._optimistic_statut = None
+    coord._optimistic_origin_vacuum_state = None
+    coord._optimistic_deadline = None
+    coord._pause_issued_at = None
+    coord._last_observed_calculated_state = None
     return coord
 
 
