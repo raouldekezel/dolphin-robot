@@ -15,6 +15,10 @@ the device behavior.
 - Supports the new Full Coverage cleaning mode of the S2000.
 - Adds read-only sensors for the next scheduled run, mode and cycle time.
 - Prevents a docked robot from starting when the cleaning mode is changed. An explicit start is required.
+- Adds a dropdown to choose the cleaning mode for the next run.
+- Shows the robot as cleaning the moment you press Start for immediate feedback.
+- Transient "Starting…" and "Stopping…" states make clear that a start or stop is in progress even though
+  the robot didnt aknowledge it yet.
 - Reacts only to the commands the integration itself sent, fixing spurious behaviors.
 - Fixes French labels for the cleaning modes and the robot state. Some Italian fixed too.
 - Adds a documented library of real-device traces with their interpretation ([`docs/diag/`](https://github.com/raouldekezel/dolphin-robot/tree/deploy/docs/diag)).
