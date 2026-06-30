@@ -296,7 +296,9 @@
           "init": "Vérification de l'environnement",
           "off": "Éteint",
           "on": "Allumé",
-          "programming": "Programmation"
+          "pausingpending": "Arrêt…",
+          "programming": "Programmation",
+          "startingpending": "Démarrage…"
         }
       }
     },

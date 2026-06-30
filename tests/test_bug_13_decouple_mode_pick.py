@@ -117,6 +117,13 @@ def _make_coordinator_stub(
     # ``aws_data`` is a property on the real class — emulate it.
     stub.aws_data = stub._aws_client.data
     stub.async_update_listeners = MagicMock()
+    # HARD-11 — neutralize the new pre-write helpers so this stub still
+    # exercises the BUG-13 commit semantics. The HARD-11 paths are tested
+    # separately in ``test_hard_11_optimistic_overlay.py``.
+    stub._is_start_guard_active = MagicMock(return_value=False)
+    stub._arm_optimistic_start = MagicMock()
+    stub._optimistic_vacuum_state = None
+    stub._optimistic_statut = None
     return stub
 
 
