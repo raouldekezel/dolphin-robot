@@ -59,8 +59,7 @@ from custom_components.mydolphin_plus.common.clean_modes import CleanModes
 from custom_components.mydolphin_plus.managers import coordinator as coord_mod
 from custom_components.mydolphin_plus.managers.coordinator import (
     _OPTIMISTIC_TTL_S,
-    _PAUSE_GUARD_CAP_S,
-    _PAUSE_GUARD_WINDOW_S,
+    _PAUSE_GUARD_TTL_S,
     MyDolphinPlusCoordinator,
 )
 from homeassistant.components.vacuum import VacuumActivity
@@ -378,14 +377,15 @@ async def test_guard_refuses_pickup_within_window_after_pause():
 
 
 @pytest.mark.asyncio
-async def test_guard_allows_start_after_window():
-    """After the guard window elapses without ``holdWeekly``, allow the
-    Run — the firmware may have dropped the pause echo but we cannot
-    block forever."""
+async def test_guard_allows_start_after_ttl():
+    """After the guard TTL elapses without an acknowledgement edge, allow
+    the Run — the firmware may have dropped the pause echo, but we cannot
+    block forever. v1.2 collapsed block-window and cap-timeout into a
+    single threshold so allow-time and bookkeeping-clear-time coincide."""
     stub = _make_coordinator_stub()
     stub._pause_issued_at = 1000.0
 
-    elapsed = _PAUSE_GUARD_WINDOW_S + 0.5
+    elapsed = _PAUSE_GUARD_TTL_S + 0.5
     with patch.object(coord_mod.time, "monotonic", return_value=1000.0 + elapsed):
         await MyDolphinPlusCoordinator._vacuum_start(stub, None, None)
 
@@ -456,7 +456,7 @@ def test_pause_guard_reconcile_clears_at_cap():
     stub._pause_issued_at = 1000.0
 
     with patch.object(
-        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_CAP_S + 0.1
+        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_TTL_S + 0.1
     ):
         MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
 
@@ -495,7 +495,9 @@ def test_guard_resolution_clears_overlay_at_cap_review_blocker_1():
     while the robot in fact never moved).
 
     The v1.1 fix ties the overlay clear to the guard resolution: when
-    the guard cap fires at 20 s, the optimistic overlay is also dropped.
+    the guard TTL elapses without an edge, the optimistic overlay is
+    also dropped. v1.2 collapsed the prior block-window / cap split so
+    the TTL is now a single threshold.
     """
     stub = _make_coordinator_stub(
         real_vacuum_state=VacuumActivity.DOCKED,
@@ -509,9 +511,9 @@ def test_guard_resolution_clears_overlay_at_cap_review_blocker_1():
     stub._optimistic_deadline = 10_000.0  # TTL far away — must NOT be the signal
     stub._pause_issued_at = 1000.0
 
-    # Cap reached without any edge.
+    # TTL reached without any edge.
     with patch.object(
-        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_CAP_S + 0.1
+        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_TTL_S + 0.1
     ):
         MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
 
@@ -561,3 +563,106 @@ def test_guard_resolution_when_no_overlay_armed_is_noop():
     assert stub._pause_issued_at is None
     assert stub._optimistic_vacuum_state is None
     assert stub._optimistic_statut is None
+
+
+# ---------------------------------------------------------------------------
+# Section 6 — Rest-set edge predicate (v1.2 follow-up #2)
+# ---------------------------------------------------------------------------
+
+
+def test_pause_guard_clears_on_holddelay_edge():
+    """A robot configured without an active weekly schedule settles to
+    `HOLD_DELAY` after a pause, not `HOLD_WEEKLY`. v1.1 hardcoded the
+    `HOLD_WEEKLY` edge so the guard would have ridden to the TTL on such
+    robots; v1.2 widens the predicate to the at-rest set, so the edge
+    fires correctly here."""
+    stub = _make_coordinator_stub(
+        real_calculated_state=CalculatedState.HOLD_DELAY,
+        last_observed_calculated_state=CalculatedState.CLEANING,
+    )
+    stub._pause_issued_at = 1000.0
+
+    with patch.object(coord_mod.time, "monotonic", return_value=1003.0):
+        MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
+
+    assert stub._pause_issued_at is None
+
+
+def test_pause_guard_clears_on_off_edge():
+    """`OFF` is the `_get_updated_data` default — emitted when the
+    firmware reports a `pwsState` outside the known branches. A pause
+    that lands a robot back to `OFF` from `CLEANING` is a valid
+    acknowledgement edge."""
+    stub = _make_coordinator_stub(
+        real_calculated_state=CalculatedState.OFF,
+        last_observed_calculated_state=CalculatedState.CLEANING,
+    )
+    stub._pause_issued_at = 1000.0
+
+    with patch.object(coord_mod.time, "monotonic", return_value=1003.0):
+        MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
+
+    assert stub._pause_issued_at is None
+
+
+def test_pause_guard_does_not_clear_on_pre_existing_rest_state():
+    """Generalisation of v1.1's blocker #2 regression to the wider rest
+    set: a Stop clicked while `prev` is already a rest state (any of
+    HOLD_WEEKLY / HOLD_DELAY / OFF) must not trigger the edge on the
+    very next tick, regardless of which rest state is current."""
+    for state in (
+        CalculatedState.HOLD_WEEKLY,
+        CalculatedState.HOLD_DELAY,
+        CalculatedState.OFF,
+    ):
+        stub = _make_coordinator_stub(
+            real_calculated_state=state,
+            last_observed_calculated_state=state,
+        )
+        stub._pause_issued_at = 1000.0
+
+        with patch.object(coord_mod.time, "monotonic", return_value=1003.0):
+            MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
+
+        assert stub._pause_issued_at == 1000.0, f"unexpected clear for {state}"
+
+
+# ---------------------------------------------------------------------------
+# Section 7 — Single-threshold semantics (v1.2 follow-up #1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_guard_lift_and_overlay_clear_coincide():
+    """v1.1 had a 5 s sliver where `_is_start_guard_active` already
+    returned False (block lifted at 15 s) but `_reconcile_pause_guard`
+    had not yet fired its cap clear (scheduled for 20 s). A Run issued
+    in that sliver armed a fresh overlay that the still-pending cap
+    would then wipe ~4 s into the new Run's life.
+
+    v1.2 collapsed both into a single TTL, so the precise moment the
+    guard lifts coincides with the moment it stops tracking — there is
+    no in-between state where a Run could land and have its fresh
+    overlay invalidated by stale bookkeeping.
+    """
+    # 1 s past TTL: block must lift...
+    stub1 = _make_coordinator_stub()
+    stub1._pause_issued_at = 1000.0
+    with patch.object(
+        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_TTL_S + 1.0
+    ):
+        await MyDolphinPlusCoordinator._vacuum_start(stub1, None, None)
+    stub1._aws_client.set_cleaning_mode.assert_called_once()
+
+    # ...AND the bookkeeping clear must already have happened on the
+    # same reconcile path, so no later tick can pull the rug from the
+    # fresh overlay.
+    stub2 = _make_coordinator_stub(
+        last_observed_calculated_state=CalculatedState.HOLD_WEEKLY,
+    )
+    stub2._pause_issued_at = 1000.0
+    with patch.object(
+        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_TTL_S + 1.0
+    ):
+        MyDolphinPlusCoordinator._reconcile_pause_guard(stub2)
+    assert stub2._pause_issued_at is None
