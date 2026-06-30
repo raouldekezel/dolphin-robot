@@ -159,17 +159,26 @@ Range **2.9 – 13.1 s**, all well below the "60 s" figure carried forward from 
 
 Implication: the overlay's 120 s TTL is generous. The origin-moved clear typically fires within 3–13 s. The TTL only matters in the suppressed-start case (F2), and there it's bounded by the pause-guard TTL (15 s), not the overlay TTL.
 
-### F5 — Stale shadow `desired` survives robot power cycle (out of scope, worth tracking)
+### F5 — Stale shadow `desired` survives robot power cycle (out of scope, filed as BUG-21)
 
 The Cycle 0 boot cycle was triggered by a stale `desired.cleaningMode.mode = short` written 7 min before the robot was powered off. When the firmware came back online, it processed the shadow delta and started the cycle on its own — no operator click was involved.
 
-This is not an HARD-11 bug, but it interferes with diagnostic sessions that use the smart-plug as a clean-state primitive (the standard "power-cycle to reset" workaround). Suggested follow-up: add the integration-side write of `desired:null` on AWS disconnect, or document the expectation. Either way, separate ticket.
+This is not an HARD-11 bug, but it interferes with diagnostic sessions that use the smart-plug as a clean-state primitive (the standard "power-cycle to reset" workaround). Filed separately as **BUG-21** with the candidate fixes outlined there (`desired`-scrub on AWS disconnect; or refuse-start while integration is offline).
 
 ### F6 — Cosmetic: `init` rendered grey in the operator's chip dashboard
 
 Outside HARD-11 scope, but discovered via this session: the operator's `sensor.nono_2_etat_synthetique` template mapped `init` to no color, falling through to `grey`. The 73 s `init` phase therefore looked visually static (grey → grey) between the optimistic-flip blue and the cleaning blue.
 
 Adjustment made out-of-band (added `init` to the blue cluster) so the chip stays a consistent color through `Démarrage… → Analyse → Nettoyage`. Cosmetic only; not in the integration codebase.
+
+### F7 — Stop-display arbitration: honest-linger accepted
+
+The v1 review left open whether `vacuum.activity` should flip optimistically on Stop (= "optimistic-`paused`": instant button-swap, mask the firmware-ack gap with a lie about the activity state) or stay honest-linger (= the v1 choice: button-swap deferred until the firmware actually reports `holdweekly`). This session's data favours honest-linger:
+
+- **Nominal Stop ack (5 cycles): 9.9–10.6 s.** Honest-linger window short enough to be acceptable UX, and the chip's `pausingPending` sub-state ("Arrêt…") covers the gap with a sub-state label rather than a lie about activity.
+- **Suppressed-start Stop (2 cycles, 4 and 5): 37–44 s.** Bounded by the pause-guard TTL tied-clear. Long-ish, but **honest** — the firmware did not in fact stop the cycle (it didn't start one either), and an optimistic-`paused` flip would have claimed `paused` falsely for that entire window.
+
+Decision: keep honest-linger in v1.3. Optimistic-`paused` would have required either (a) deferring the AWS pause write to ride the firmware ack (the original BUG-19-avoidance plan), or (b) accepting that the UI lies about the activity state. Neither is preferable to the current chip-side `pausingPending` sub-state surface, given the v1.3 latencies actually observed in vivo.
 
 ## What HARD-11 v1.3 buys
 
@@ -180,8 +189,8 @@ Adjustment made out-of-band (added `init` to the blue cluster) so the chip stays
 
 ## Raw artifacts in this directory
 
-| File                    | Content                                                                                                    |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `findings.md`           | This document.                                                                                             |
-| `cycles.tsv`            | Per-cycle timing table from the docker-logs slice (one row per cycle, columns matching the catalog above). |
-| `coordinator_trace.log` | Filtered docker-logs slice covering 18:33 UTC → 19:05 UTC (= 20:33 → 21:05 local), filter `Set (cleaning   | power | cycle)\|HARD-11\|refused\|Pause vacuum\|Start vacuum\|System status recalculated`. Redactions: motor unit serial `N4720KMV…`→`REDACTED-MUSN`, wifi SSID → `REDACTED-WIFI-SSID`. |
+| File                   | Content                                                                                                                                                                                                                                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `findings.md`          | This document.                                                                                                                                                                                                                                                                                                           |
+| `cycles.tsv`           | Per-cycle timing table from the docker-logs slice (one row per cycle, columns matching the catalog above).                                                                                                                                                                                                               |
+| `coordinator.mqtt.log` | Filtered docker-logs slice covering 18:33 UTC → 19:05 UTC (= 20:33 → 21:05 local), grep on the union of `Set (cleaning/power/cycle)`, `HARD-11`, `refused`, `Pause vacuum`, `Start vacuum`, `System status recalculated`. Redactions: motor unit serial `N4720KMV…` → `REDACTED-MUSN`, wifi SSID → `REDACTED-WIFI-SSID`. |
