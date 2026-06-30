@@ -2,6 +2,7 @@ from asyncio import sleep
 from datetime import datetime, timedelta
 import logging
 import sys
+import time
 from typing import Callable
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
@@ -132,6 +133,16 @@ from .rest_api import RestAPI
 
 _LOGGER = logging.getLogger(__name__)
 
+# HARD-11 — optimistic-overlay TTL and start-serialization guard windows.
+# TTL covers the worst observed echo gap (~60 s to `pwsState=on`, ~9 s to
+# `holdWeekly` after pause) with margin. Guard window covers the worst
+# observed post-pause `holdWeekly` latency under contention (9.2 s in T3
+# pick #5, 10.5 s in T4 — see `docs/diag/2026-06-26_bug-19_e5a-...`); cap
+# is the hard upper bound on guard lifetime when `holdWeekly` never lands.
+_OPTIMISTIC_TTL_S: float = 120.0
+_PAUSE_GUARD_WINDOW_S: float = 15.0
+_PAUSE_GUARD_CAP_S: float = 20.0
+
 
 class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     """My custom coordinator."""
@@ -197,6 +208,22 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         # a reboot shows the robot's real mode, not a stale unlaunched pick.
         self._desired_clean_mode: str | None = None
         self._last_seen_reported_clean_mode: str | None = None
+
+        # HARD-11 — optimistic overlay masking the firmware echo gap.
+        # vacuum side covers Run only (honest-linger on Stop); statut side
+        # carries the click acknowledgement for both Run and Stop. A single
+        # monotonic deadline applies to both — when it clears, both clear.
+        self._optimistic_vacuum_state: VacuumActivity | None = None
+        self._optimistic_statut: CalculatedState | None = None
+        self._optimistic_origin_vacuum_state: VacuumActivity | None = None
+        self._optimistic_deadline: float | None = None
+
+        # HARD-11 — start-serialization guard. Set when `pause()` is written,
+        # cleared by either a `holdWeekly` echo (firmware acknowledged) or a
+        # cap timeout. New `set_cleaning_mode` writes are refused while the
+        # guard is armed and the window has not elapsed — this is the
+        # load-bearing protection against the BUG-19 / BUG-20 cascade.
+        self._pause_issued_at: float | None = None
 
         self._load_signal_handlers()
 
@@ -445,7 +472,12 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
                     self._last_update_ws = now
 
-                self._set_system_status_details()
+            # HARD-11 — `_set_system_status_details` is now called every tick
+            # so the optimistic-overlay TTL (and the pause-guard cap) fire even
+            # while the firmware is silent or the connection is down. The
+            # existing systemState-shape early-return inside keeps the
+            # pre-HARD-11 behaviour for `_system_details` updates.
+            self._set_system_status_details()
 
             self._refresh_next_scheduled_data()
 
@@ -530,7 +562,9 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         return async_action
 
     def _get_status_data(self, _entity_description) -> dict | None:
-        state = self._system_details.calculated_state
+        # HARD-11 — overlay wins while armed. Pure read; the reconcile in
+        # `_set_system_status_details` is the only path that clears it.
+        state = self._optimistic_statut or self._system_details.calculated_state
 
         result = {
             ATTR_STATE: None if state is None else state.lower(),
@@ -643,7 +677,9 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
             mode = cleaning_mode.get(ATTR_MODE, CleanModes.REGULAR)
 
-        state = self._system_details.vacuum_state
+        # HARD-11 — overlay wins while armed (only set on Run / pickup —
+        # Stop is honest-linger and does not touch this slot). Pure read.
+        state = self._optimistic_vacuum_state or self._system_details.vacuum_state
 
         result = {
             ATTR_STATE: state,
@@ -1018,10 +1054,33 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     async def _pickup(self, _entity_description: EntityDescription):
         _LOGGER.debug("Pickup vacuum")
 
+        # HARD-11 — share the start-serialization guard with `_vacuum_start`:
+        # `pickup` writes via the same `set_cleaning_mode` primitive and
+        # therefore carries the same BUG-19 / BUG-20 race risk.
+        if self._is_start_guard_active():
+            _LOGGER.warning(
+                "Pickup refused: previous pause not yet acknowledged by firmware"
+            )
+            return
+
+        self._arm_optimistic_start(VacuumActivity.RETURNING)
         self._aws_client.pickup()
+        self.async_update_listeners()
 
     async def _vacuum_start(self, _entity_description: EntityDescription, _state):
         _LOGGER.debug("Start vacuum")
+
+        # HARD-11 — refuse a new start while the previous start→stop
+        # mini-cycle is unacknowledged. Load-bearing guard derived from the
+        # E5a reactive-stop session (F9/F11): a fresh `set_cleaning_mode`
+        # firing before the firmware acknowledged the prior `pause()`
+        # triggers the BUG-19 silent restart and the BUG-20 stuck-init
+        # cascade.
+        if self._is_start_guard_active():
+            _LOGGER.warning(
+                "Start refused: previous pause not yet acknowledged by firmware"
+            )
+            return
 
         # BUG-13 (write-on-commit) — Run commits the staged pick. Falls back
         # to the firmware's reported mode (and finally REGULAR) only when
@@ -1034,14 +1093,34 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             cleaning_mode = cycle_info.get(DATA_CYCLE_INFO_CLEANING_MODE, {})
             mode = cleaning_mode.get(ATTR_MODE, CleanModes.REGULAR)
 
+        # HARD-11 — overlay armed before the AWS write so the entities
+        # observe the optimistic state on the same refresh cycle as the
+        # listener push.
+        target = (
+            VacuumActivity.RETURNING
+            if mode == CleanModes.PICKUP
+            else VacuumActivity.CLEANING
+        )
+        self._arm_optimistic_start(target)
+
         self._aws_client.set_cleaning_mode(mode)
+        self.async_update_listeners()
 
     async def _vacuum_pause(self, _entity_description: EntityDescription, state):
         is_idle_state = state == VacuumActivity.DOCKED
         _LOGGER.debug(f"Pause vacuum, State: {state}")
 
-        if not is_idle_state:
-            self._aws_client.pause()
+        if is_idle_state:
+            return
+
+        # HARD-11 — honest-linger on Stop: arm only the statut overlay
+        # (`pausingPending`) so the chip acknowledges the click; the
+        # vacuum activity follows the real state, transitioning to
+        # `docked` only on the firmware's `pwsState=off` echo.
+        self._arm_optimistic_pause()
+        self._pause_issued_at = time.monotonic()
+        self._aws_client.pause()
+        self.async_update_listeners()
 
     async def _vacuum_locate(self, entity_description: EntityDescription):
         led_light_entity = self._get_led_data(None)
@@ -1091,21 +1170,32 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
     def _set_system_status_details(self):
         aws_data = self.aws_data
-        if not aws_data.get(DATA_SECTION_SYSTEM_STATE):
-            return
+        has_system_state = bool(aws_data.get(DATA_SECTION_SYSTEM_STATE))
 
-        self._has_real_data = True
-        updated = self._system_details.update(aws_data)
+        if has_system_state:
+            self._has_real_data = True
+            updated = self._system_details.update(aws_data)
 
-        if updated:
-            _LOGGER.debug(
-                f"System status recalculated, "
-                f"Calculated State: {self._system_details.calculated_state}, "
-                f"Main Unit State: {self._system_details.power_unit_state}, "
-                f"Robot State: {self._system_details.robot_state}"
-            )
+            if updated:
+                _LOGGER.debug(
+                    f"System status recalculated, "
+                    f"Calculated State: {self._system_details.calculated_state}, "
+                    f"Main Unit State: {self._system_details.power_unit_state}, "
+                    f"Robot State: {self._system_details.robot_state}"
+                )
 
-        self._reconcile_desired_clean_mode()
+        # HARD-11 — overlay and pause-guard reconcile run every tick, after
+        # the fresh shadow has been applied (so the firmware-leaves-origin
+        # check sees this tick's data) and before the mode reconcile. Both
+        # are pure mutations against the current `_system_details`
+        # snapshot; the per-tick refresh propagates the result to entities.
+        # They run even when no `systemState` is present so TTL fallback
+        # and guard cap fire while the firmware is silent.
+        self._reconcile_optimistic_overlay()
+        self._reconcile_pause_guard()
+
+        if has_system_state:
+            self._reconcile_desired_clean_mode()
 
     def _reconcile_desired_clean_mode(self):
         """BUG-13 (write-on-commit) — seed at startup and reconcile on foreign
@@ -1152,6 +1242,114 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         if reported != self._last_seen_reported_clean_mode:
             self._last_seen_reported_clean_mode = reported
             self._desired_clean_mode = reported
+
+    # ------------------------------------------------------------------ #
+    # HARD-11 — optimistic overlay and start-serialization guard         #
+    # ------------------------------------------------------------------ #
+
+    def _arm_optimistic_start(self, target_vacuum: VacuumActivity) -> None:
+        """Arm the overlay for a Run / pickup.
+
+        Sets the click-time vacuum target (CLEANING or RETURNING) and the
+        ``startingPending`` statut acknowledgement; records the click-time
+        real vacuum state as origin so the reconcile can detect the
+        firmware moving away from where it was at the click; refreshes the
+        TTL.
+        """
+        self._optimistic_vacuum_state = target_vacuum
+        self._optimistic_statut = CalculatedState.STARTING_PENDING
+        self._optimistic_origin_vacuum_state = self._system_details.vacuum_state
+        self._optimistic_deadline = time.monotonic() + _OPTIMISTIC_TTL_S
+
+    def _arm_optimistic_pause(self) -> None:
+        """Arm the overlay for a Stop.
+
+        Honest-linger: leave the vacuum overlay untouched (real ``cleaning``
+        keeps showing until the ``pwsState=off`` echo) and add only the
+        ``pausingPending`` statut acknowledgement. Origin is the current
+        real vacuum state at the click (typically ``cleaning``) — the
+        reconcile clears once the firmware moves away from it. TTL is
+        refreshed even when a Run overlay was already armed: the click is
+        the new reference instant.
+        """
+        self._optimistic_statut = CalculatedState.PAUSING_PENDING
+        if self._optimistic_origin_vacuum_state is None:
+            self._optimistic_origin_vacuum_state = self._system_details.vacuum_state
+        self._optimistic_deadline = time.monotonic() + _OPTIMISTIC_TTL_S
+
+    def _clear_optimistic_overlay(self) -> None:
+        self._optimistic_vacuum_state = None
+        self._optimistic_statut = None
+        self._optimistic_origin_vacuum_state = None
+        self._optimistic_deadline = None
+
+    def _reconcile_optimistic_overlay(self) -> None:
+        """Clear the overlay when it is no longer load-bearing.
+
+        Conditions (any one): TTL expired; firmware reports ERROR;
+        firmware vacuum state moved away from the click-time origin (the
+        Run or Stop reached the firmware, whatever the exact target). The
+        getters stay pure reads — the reconcile is the *only* place that
+        clears.
+        """
+        if self._optimistic_deadline is None:
+            return
+
+        now = time.monotonic()
+
+        if now >= self._optimistic_deadline:
+            _LOGGER.debug("HARD-11 — optimistic overlay TTL expired, clearing")
+            self._clear_optimistic_overlay()
+            return
+
+        if not self._has_real_data:
+            # Without a systemState snapshot we cannot reason about the
+            # firmware's authority; only TTL applies.
+            return
+
+        real_vacuum = self._system_details.vacuum_state
+
+        if real_vacuum == VacuumActivity.ERROR:
+            _LOGGER.debug("HARD-11 — firmware reports ERROR, clearing overlay")
+            self._clear_optimistic_overlay()
+            return
+
+        origin = self._optimistic_origin_vacuum_state
+        if origin is not None and real_vacuum != origin:
+            _LOGGER.debug(
+                "HARD-11 — firmware moved %s → %s, clearing overlay",
+                origin,
+                real_vacuum,
+            )
+            self._clear_optimistic_overlay()
+
+    def _reconcile_pause_guard(self) -> None:
+        """Clear the start-serialization guard when it is no longer needed.
+
+        Two clear conditions: cap timeout (``holdWeekly`` may never arrive
+        if the robot was already idle or the connection dropped); or the
+        firmware acknowledged the pause by entering ``holdWeekly``.
+        """
+        if self._pause_issued_at is None:
+            return
+
+        elapsed = time.monotonic() - self._pause_issued_at
+        if elapsed >= _PAUSE_GUARD_CAP_S:
+            _LOGGER.debug("HARD-11 — pause guard cap reached, clearing")
+            self._pause_issued_at = None
+            return
+
+        if (
+            self._has_real_data
+            and self._system_details.calculated_state == CalculatedState.HOLD_WEEKLY
+        ):
+            _LOGGER.debug("HARD-11 — holdWeekly observed, clearing pause guard")
+            self._pause_issued_at = None
+
+    def _is_start_guard_active(self) -> bool:
+        if self._pause_issued_at is None:
+            return False
+        return time.monotonic() - self._pause_issued_at < _PAUSE_GUARD_WINDOW_S
 
     @property
     def has_real_data(self) -> bool:
