@@ -34,6 +34,7 @@ def _bare_coordinator_with(pause_lambda):
     coordinator._optimistic_origin_vacuum_state = None
     coordinator._optimistic_deadline = None
     coordinator._pause_issued_at = None
+    coordinator._last_observed_calculated_state = None
     coordinator.async_update_listeners = MagicMock()
     return coordinator
 

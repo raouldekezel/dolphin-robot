@@ -74,6 +74,7 @@ def _make_coordinator_stub(
     *,
     real_vacuum_state: VacuumActivity = VacuumActivity.DOCKED,
     real_calculated_state: CalculatedState = CalculatedState.HOLD_WEEKLY,
+    last_observed_calculated_state: CalculatedState | None = None,
     is_active: bool = False,
     desired_mode: str | None = "all",
     has_real_data: bool = True,
@@ -83,7 +84,8 @@ def _make_coordinator_stub(
     Exposes exactly the surface the methods under test read:
     ``_system_details`` (vacuum_state / calculated_state / is_active),
     ``_aws_client`` (pause / pickup / set_cleaning_mode), the BUG-13
-    staged mode, the HARD-11 overlay slots, and the start-guard slot.
+    staged mode, the HARD-11 overlay slots, the start-guard slot, and
+    the v1.1 edge tracker.
     """
     stub = MagicMock()
     stub._desired_clean_mode = desired_mode
@@ -106,6 +108,10 @@ def _make_coordinator_stub(
     stub._optimistic_origin_vacuum_state = None
     stub._optimistic_deadline = None
     stub._pause_issued_at = None
+    # HARD-11 v1.1 — edge tracker for the pause-acknowledgement signal.
+    # Defaults to None ("no prior observation"); tests that exercise the
+    # edge predicate seed it explicitly.
+    stub._last_observed_calculated_state = last_observed_calculated_state
 
     return stub
 
@@ -397,10 +403,17 @@ async def test_guard_allows_start_when_unarmed():
     stub._aws_client.set_cleaning_mode.assert_called_once()
 
 
-def test_pause_guard_reconcile_clears_on_hold_weekly_observation():
-    """holdWeekly echo arrived → the firmware acknowledged the pause; the
-    guard can drop and a subsequent Run is allowed."""
-    stub = _make_coordinator_stub(real_calculated_state=CalculatedState.HOLD_WEEKLY)
+def test_pause_guard_reconcile_clears_on_holdweekly_edge():
+    """Entering-`holdWeekly` transition observed since the pause → the
+    firmware acknowledged. The guard drops and a subsequent Run is allowed.
+    Note the explicit ``last_observed_calculated_state=CLEANING`` —
+    without that *non-`holdWeekly`* prior, the edge predicate cannot fire
+    by construction (see ``test_pause_guard_does_not_clear_...`` below for
+    the regression that pinned this)."""
+    stub = _make_coordinator_stub(
+        real_calculated_state=CalculatedState.HOLD_WEEKLY,
+        last_observed_calculated_state=CalculatedState.CLEANING,
+    )
     stub._pause_issued_at = 1000.0
 
     with patch.object(coord_mod.time, "monotonic", return_value=1003.0):
@@ -409,12 +422,37 @@ def test_pause_guard_reconcile_clears_on_hold_weekly_observation():
     assert stub._pause_issued_at is None
 
 
+def test_pause_guard_does_not_clear_on_pre_existing_holdweekly_review_blocker_2():
+    """Regression for PR #110 review blocker #2.
+
+    A Stop clicked during the start echo gap (firmware has not yet flipped
+    ``pwsState=on``, so ``calculated_state`` is still ``HOLD_WEEKLY``) must
+    not clear the guard on the very next tick. Level-triggering on
+    ``current == HOLD_WEEKLY`` would defeat the guard in exactly the
+    BUG-19 / BUG-20 window it exists to cover. The edge predicate forbids
+    the clear unless the system *left* ``HOLD_WEEKLY`` first.
+    """
+    stub = _make_coordinator_stub(
+        real_calculated_state=CalculatedState.HOLD_WEEKLY,
+        last_observed_calculated_state=CalculatedState.HOLD_WEEKLY,
+    )
+    stub._pause_issued_at = 1000.0
+
+    with patch.object(coord_mod.time, "monotonic", return_value=1003.0):
+        MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
+
+    assert stub._pause_issued_at == 1000.0
+
+
 def test_pause_guard_reconcile_clears_at_cap():
     """holdWeekly never arrives → cap kicks in at 20 s, the guard drops,
     a new Run is allowed. Without this the guard could stick forever if
     the connection dropped between the pause write and the holdWeekly
     echo."""
-    stub = _make_coordinator_stub(real_calculated_state=CalculatedState.CLEANING)
+    stub = _make_coordinator_stub(
+        real_calculated_state=CalculatedState.CLEANING,
+        last_observed_calculated_state=CalculatedState.CLEANING,
+    )
     stub._pause_issued_at = 1000.0
 
     with patch.object(
@@ -427,10 +465,99 @@ def test_pause_guard_reconcile_clears_at_cap():
 
 def test_pause_guard_reconcile_keeps_guard_while_in_window_and_not_acknowledged():
     """No holdWeekly yet, still in window → guard stays armed."""
-    stub = _make_coordinator_stub(real_calculated_state=CalculatedState.CLEANING)
+    stub = _make_coordinator_stub(
+        real_calculated_state=CalculatedState.CLEANING,
+        last_observed_calculated_state=CalculatedState.CLEANING,
+    )
     stub._pause_issued_at = 1000.0
 
     with patch.object(coord_mod.time, "monotonic", return_value=1005.0):
         MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
 
     assert stub._pause_issued_at == 1000.0
+
+
+# ---------------------------------------------------------------------------
+# Section 5 — Guard resolution drops the overlay (review blocker #1 fix)
+# ---------------------------------------------------------------------------
+
+
+def test_guard_resolution_clears_overlay_at_cap_review_blocker_1():
+    """Regression for PR #110 review blocker #1.
+
+    Run → Stop within the start echo gap → firmware suppresses the start
+    (pause beats the start, or both are ignored). The vacuum overlay
+    (`CLEANING`, from the Run) and the statut overlay (`PAUSING_PENDING`,
+    from the Stop) share `origin == DOCKED` from the Run. The firmware
+    never leaves `DOCKED` / `HOLD_WEEKLY`, so the vacuum overlay's
+    origin-moved check cannot fire. Without HARD-11 v1.1 the overlay
+    stays armed for the full 120 s TTL (UI claims "cleaning + Stopping…"
+    while the robot in fact never moved).
+
+    The v1.1 fix ties the overlay clear to the guard resolution: when
+    the guard cap fires at 20 s, the optimistic overlay is also dropped.
+    """
+    stub = _make_coordinator_stub(
+        real_vacuum_state=VacuumActivity.DOCKED,
+        real_calculated_state=CalculatedState.HOLD_WEEKLY,
+        last_observed_calculated_state=CalculatedState.HOLD_WEEKLY,
+    )
+    # Overlay armed as if Run had just been clicked, then Stop in the gap.
+    stub._optimistic_vacuum_state = VacuumActivity.CLEANING
+    stub._optimistic_statut = CalculatedState.PAUSING_PENDING
+    stub._optimistic_origin_vacuum_state = VacuumActivity.DOCKED
+    stub._optimistic_deadline = 10_000.0  # TTL far away — must NOT be the signal
+    stub._pause_issued_at = 1000.0
+
+    # Cap reached without any edge.
+    with patch.object(
+        coord_mod.time, "monotonic", return_value=1000.0 + _PAUSE_GUARD_CAP_S + 0.1
+    ):
+        MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
+
+    assert stub._pause_issued_at is None
+    assert stub._optimistic_vacuum_state is None
+    assert stub._optimistic_statut is None
+    assert stub._optimistic_origin_vacuum_state is None
+    assert stub._optimistic_deadline is None
+
+
+def test_guard_resolution_clears_overlay_on_holdweekly_edge():
+    """Stop clicked while the robot was actually running → firmware acks
+    by returning to `holdWeekly`. The edge fires and the optimistic
+    statut (`PAUSING_PENDING`) is dropped together with the guard, so
+    the chip reverts to "En attente (hebdomadaire)" without waiting for
+    the TTL."""
+    stub = _make_coordinator_stub(
+        real_calculated_state=CalculatedState.HOLD_WEEKLY,
+        last_observed_calculated_state=CalculatedState.CLEANING,
+    )
+    stub._optimistic_statut = CalculatedState.PAUSING_PENDING
+    stub._optimistic_origin_vacuum_state = VacuumActivity.CLEANING
+    stub._optimistic_deadline = 10_000.0
+    stub._pause_issued_at = 1000.0
+
+    with patch.object(coord_mod.time, "monotonic", return_value=1003.0):
+        MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
+
+    assert stub._pause_issued_at is None
+    assert stub._optimistic_statut is None
+
+
+def test_guard_resolution_when_no_overlay_armed_is_noop():
+    """Edge clear path must be idempotent on overlay slots already
+    `None` — covers the corner where the guard outlives the overlay
+    (which cleared earlier via the origin-moved check)."""
+    stub = _make_coordinator_stub(
+        real_calculated_state=CalculatedState.HOLD_WEEKLY,
+        last_observed_calculated_state=CalculatedState.CLEANING,
+    )
+    stub._pause_issued_at = 1000.0
+    # Overlay slots stay None.
+
+    with patch.object(coord_mod.time, "monotonic", return_value=1003.0):
+        MyDolphinPlusCoordinator._reconcile_pause_guard(stub)
+
+    assert stub._pause_issued_at is None
+    assert stub._optimistic_vacuum_state is None
+    assert stub._optimistic_statut is None
