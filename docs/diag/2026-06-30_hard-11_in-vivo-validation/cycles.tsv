@@ -1,0 +1,8 @@
+cycle	trigger	run_local	stop_local	delta_run_stop_s	start_echo_s	stop_ack_s	clear_path	rturnoncount
+0	firmware boot stale shadow	~20:40:54	20:42:44.138	~110	n/a	10.6	rest-edge holdweekly	80->81
+1	HA Run	20:46:31.787	20:47:00.479	28.7	2.9	10.0	rest-edge holdweekly	-
+2	HA Run	20:50:44.735	20:50:50.114	5.4	5.9	9.9	rest-edge holdweekly	-
+3	HA Run (mode all)	20:51:17.767	20:51:41.662	23.9	8.3	10.0	rest-edge holdweekly	-
+4	HA Run (mode all)	20:52:12.796	20:52:18.217	5.4	never	—	TTL (+44.4s)	-
+5	HA Run	20:54:09.683	20:54:15.717	6.0	never	—	TTL (+36.9s)	-
+6	HA Run (mode all) nominal	21:00:29.661	21:03:56.361	206.7	13.1	10.0	rest-edge holdweekly	81->82
