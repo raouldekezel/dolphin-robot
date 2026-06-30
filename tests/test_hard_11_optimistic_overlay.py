@@ -53,17 +53,17 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from homeassistant.components.vacuum import VacuumActivity
 
 from custom_components.mydolphin_plus.common.calculated_state import CalculatedState
 from custom_components.mydolphin_plus.common.clean_modes import CleanModes
 from custom_components.mydolphin_plus.managers import coordinator as coord_mod
 from custom_components.mydolphin_plus.managers.coordinator import (
-    MyDolphinPlusCoordinator,
     _OPTIMISTIC_TTL_S,
     _PAUSE_GUARD_CAP_S,
     _PAUSE_GUARD_WINDOW_S,
+    MyDolphinPlusCoordinator,
 )
+from homeassistant.components.vacuum import VacuumActivity
 
 # ---------------------------------------------------------------------------
 # Stub builder
