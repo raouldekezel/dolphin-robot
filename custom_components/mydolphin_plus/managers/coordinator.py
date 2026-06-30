@@ -219,11 +219,20 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._optimistic_deadline: float | None = None
 
         # HARD-11 — start-serialization guard. Set when `pause()` is written,
-        # cleared by either a `holdWeekly` echo (firmware acknowledged) or a
-        # cap timeout. New `set_cleaning_mode` writes are refused while the
-        # guard is armed and the window has not elapsed — this is the
-        # load-bearing protection against the BUG-19 / BUG-20 cascade.
+        # cleared by either a *transition* into `holdWeekly` (firmware
+        # acknowledged) or a cap timeout. New `set_cleaning_mode` writes
+        # are refused while the guard is armed and the window has not
+        # elapsed — this is the load-bearing protection against the BUG-19
+        # / BUG-20 cascade.
         self._pause_issued_at: float | None = None
+        # HARD-11 v1.1 — edge tracker for the pause-acknowledgement signal.
+        # Level-triggering on `calculated_state == HOLD_WEEKLY` would clear
+        # the guard on the very next tick whenever the firmware was *already*
+        # at HOLD_WEEKLY at click time (i.e. pause clicked during the start
+        # echo gap, before `pwsState=on` flipped) — defeating the guard in
+        # exactly the window it exists to cover. The edge predicate fires
+        # only on the *entering* transition, which cannot pre-exist.
+        self._last_observed_calculated_state: CalculatedState | None = None
 
         self._load_signal_handlers()
 
@@ -1197,6 +1206,15 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         if has_system_state:
             self._reconcile_desired_clean_mode()
 
+        # HARD-11 v1.1 — update the edge tracker at the end of the tick so
+        # the *next* tick's `_reconcile_pause_guard` can detect the entering
+        # transition into `holdWeekly`. Snapshot the calculated_state we
+        # just decided was current — gated on `has_real_data` so a tick
+        # that did not apply a fresh shadow does not poison the edge with
+        # a stale `None`.
+        if self._has_real_data:
+            self._last_observed_calculated_state = self._system_details.calculated_state
+
     def _reconcile_desired_clean_mode(self):
         """BUG-13 (write-on-commit) — seed at startup and reconcile on foreign
         change.
@@ -1324,27 +1342,53 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             self._clear_optimistic_overlay()
 
     def _reconcile_pause_guard(self) -> None:
-        """Clear the start-serialization guard when it is no longer needed.
+        """Clear the start-serialization guard when the pause flow is settled.
 
-        Two clear conditions: cap timeout (``holdWeekly`` may never arrive
-        if the robot was already idle or the connection dropped); or the
-        firmware acknowledged the pause by entering ``holdWeekly``.
+        Two clear conditions: cap timeout (the edge may never arrive if the
+        firmware suppressed both the start *and* the pause, so the system
+        never left ``holdWeekly``); or the *entering* transition into
+        ``holdWeekly`` (the firmware acknowledged the pause).
+
+        When the guard clears, the optimistic overlay is also cleared in
+        the same step — that is the only signal that bounds the
+        ``Run → Stop-in-gap → firmware-stays-docked`` UX, because the
+        vacuum overlay's origin-moved check would never fire in that case
+        (``real == origin == DOCKED`` throughout). The cap therefore
+        doubles as the worst-case overlay-revert horizon in that scenario
+        (~20 s instead of the overlay TTL's 120 s).
         """
         if self._pause_issued_at is None:
             return
 
+        cleared_reason: str | None = None
         elapsed = time.monotonic() - self._pause_issued_at
-        if elapsed >= _PAUSE_GUARD_CAP_S:
-            _LOGGER.debug("HARD-11 — pause guard cap reached, clearing")
-            self._pause_issued_at = None
-            return
 
-        if (
-            self._has_real_data
-            and self._system_details.calculated_state == CalculatedState.HOLD_WEEKLY
-        ):
-            _LOGGER.debug("HARD-11 — holdWeekly observed, clearing pause guard")
+        if elapsed >= _PAUSE_GUARD_CAP_S:
+            cleared_reason = "cap"
+        elif self._has_real_data:
+            current = self._system_details.calculated_state
+            prev = self._last_observed_calculated_state
+            entering_hold_weekly = (
+                prev is not None
+                and prev != CalculatedState.HOLD_WEEKLY
+                and current == CalculatedState.HOLD_WEEKLY
+            )
+            if entering_hold_weekly:
+                cleared_reason = "holdWeekly edge"
+
+        if cleared_reason is not None:
+            _LOGGER.debug(
+                "HARD-11 — pause guard cleared (%s); dropping overlay too",
+                cleared_reason,
+            )
             self._pause_issued_at = None
+            # Tie the optimistic overlay clear to the guard resolution. In
+            # the Run → Stop-in-gap case the vacuum overlay's origin-moved
+            # check cannot fire (real never left the click-time origin), so
+            # the guard's edge / cap is the only path that bounds the
+            # `cleaning + Stopping…` lie when the firmware suppressed the
+            # start. When no overlay is armed, this is a no-op.
+            self._clear_optimistic_overlay()
 
     def _is_start_guard_active(self) -> bool:
         if self._pause_issued_at is None:

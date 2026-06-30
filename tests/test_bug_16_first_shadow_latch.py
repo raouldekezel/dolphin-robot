@@ -75,6 +75,7 @@ def _make_coordinator():
     coord._optimistic_origin_vacuum_state = None
     coord._optimistic_deadline = None
     coord._pause_issued_at = None
+    coord._last_observed_calculated_state = None
     return coord
 
 
