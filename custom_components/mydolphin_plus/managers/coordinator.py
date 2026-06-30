@@ -1094,6 +1094,12 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             )
             return
 
+        # HARD-11 v1.3 — a permitted start makes the guard moot. Drop the
+        # bookkeeping immediately so no later tick of `_reconcile_pause_guard`
+        # can wipe this start's fresh overlay via the TTL path (closes the
+        # sub-tick race between block-lift and the next reconcile tick).
+        self._pause_issued_at = None
+
         self._arm_optimistic_start(VacuumActivity.RETURNING)
         self._aws_client.pickup()
         self.async_update_listeners()
@@ -1112,6 +1118,12 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
                 "Start refused: previous pause not yet acknowledged by firmware"
             )
             return
+
+        # HARD-11 v1.3 — a permitted Run makes the guard moot. Drop the
+        # bookkeeping immediately so no later tick of `_reconcile_pause_guard`
+        # can wipe this Run's fresh overlay via the TTL path (closes the
+        # sub-tick race between block-lift and the next reconcile tick).
+        self._pause_issued_at = None
 
         # BUG-13 (write-on-commit) — Run commits the staged pick. Falls back
         # to the firmware's reported mode (and finally REGULAR) only when
