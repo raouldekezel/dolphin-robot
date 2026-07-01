@@ -145,6 +145,9 @@ max-line-length-suggestions = 72
 testpaths = [
     "tests",
 ]
+python_files = [
+    "test_*.py",
+]
 pythonpath = [
     ".",
 ]
