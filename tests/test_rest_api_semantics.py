@@ -9,16 +9,7 @@ import pytest
 from custom_components.mydolphin_plus.common.connectivity_status import (
     ConnectivityStatus,
 )
-from custom_components.mydolphin_plus.common.consts import (
-    API_TOKEN_FIELDS,
-    AWS_CREDENTIALS_EXPIRY,
-    STORAGE_DATA_ID_TOKEN,
-    STORAGE_DATA_ID_TOKEN_EXPIRES_AT,
-    STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH,
-    STORAGE_DATA_LAST_TOKEN_FETCH,
-    STORAGE_DATA_REFRESH_TOKEN,
-)
-from custom_components.mydolphin_plus.managers.config_manager import ConfigManager
+from custom_components.mydolphin_plus.common.consts import API_TOKEN_FIELDS
 import custom_components.mydolphin_plus.managers.rest_api as rest_api_module
 from custom_components.mydolphin_plus.managers.rest_api import (
     RestAPI,
@@ -89,12 +80,8 @@ class DummyConfigManager:
         self.id_token_expires_at = now + 3600
         self.serial_number = None
         self.motor_unit_serial = None
-        self.aws_credentials_expiry = 0
         self.last_token_fetch = now
-        self.last_aws_credentials_fetch = 0
         self.entry_id = "entry-id"
-        self.updated_aws_fetch = None
-        self.updated_aws_expiry = None
 
     @property
     def config_data(self):
@@ -111,14 +98,6 @@ class DummyConfigManager:
 
     async def update_motor_unit_serial(self, motor_unit_serial: str):
         self.motor_unit_serial = motor_unit_serial
-
-    async def update_last_aws_credentials_fetch(self, timestamp: float):
-        self.updated_aws_fetch = timestamp
-        self.last_aws_credentials_fetch = timestamp
-
-    async def update_aws_credentials_expiry(self, expiry: float):
-        self.updated_aws_expiry = expiry
-        self.aws_credentials_expiry = expiry
 
 
 @pytest.mark.asyncio
@@ -157,67 +136,18 @@ async def test_fetch_aws_credentials_sets_user_agent():
 
 
 @pytest.mark.asyncio
-async def test_update_tokens_does_not_touch_aws_fetch_timestamp():
-    """Token refresh timestamp is decoupled from AWS fetch timestamp."""
-    manager = ConfigManager(None)
-    manager._data = {
-        "last-token-fetch": 0,
-        "last-aws-credentials-fetch": 99,
-    }
-
-    async def noop_save():
-        return None
-
-    manager._save = noop_save
-
-    await manager.update_tokens("id", "refresh", 1234567890)
-
-    assert manager.last_aws_credentials_fetch == 99
-
-
-@pytest.mark.asyncio
-async def test_stale_aws_cache_metadata_does_not_clear_login_tokens():
-    """Expired AWS cache metadata on startup should not force Cognito reauth."""
-    now = datetime.now().timestamp()
-    manager = ConfigManager(None)
-    manager._data = {
-        STORAGE_DATA_ID_TOKEN: "id-token",
-        STORAGE_DATA_REFRESH_TOKEN: "refresh-token",
-        STORAGE_DATA_ID_TOKEN_EXPIRES_AT: now + 3600,
-        STORAGE_DATA_LAST_TOKEN_FETCH: now,
-        STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH: now - 7200,
-        AWS_CREDENTIALS_EXPIRY: now - 60,
-    }
-    saved = {"called": False}
-
-    async def mark_saved():
-        saved["called"] = True
-
-    manager._save = mark_saved
-
-    await manager._validate_cached_credentials()
-
-    assert manager.id_token == "id-token"
-    assert manager.refresh_token == "refresh-token"
-    assert manager.last_aws_credentials_fetch == 0
-    assert manager.aws_credentials_expiry == 0
-    assert saved["called"] is True
-
-
-@pytest.mark.asyncio
-async def test_refresh_aws_credentials_uses_aws_fetch_timestamp(monkeypatch):
-    """Recent token refresh should not throttle AWS credential fetch."""
+async def test_refresh_aws_credentials_records_in_memory_fetch_timestamp(monkeypatch):
+    """After a successful fetch, RestAPI records the timestamp in memory (BUG-17)."""
     cfg = DummyConfigManager()
     cfg.last_token_fetch = datetime.now().timestamp()
-    cfg.last_aws_credentials_fetch = 0
     api = RestAPI(None, cfg)
     api._session = object()
     api.set_local_async_dispatcher_send(lambda *_args: None)
 
-    called = {"fetch": False}
+    assert api._last_aws_credentials_fetch == 0.0
+    assert api._aws_credentials_expiry == 0.0
 
     async def fake_fetch_aws_credentials(_session, _id_token, integration_info=None):
-        called["fetch"] = True
         assert integration_info is not None
         return {
             "Token": "t",
@@ -229,20 +159,20 @@ async def test_refresh_aws_credentials_uses_aws_fetch_timestamp(monkeypatch):
 
     await api._refresh_aws_credentials()
 
-    assert called["fetch"] is True
-    assert cfg.updated_aws_fetch is not None
+    assert api._last_aws_credentials_fetch > 0
+    assert api._aws_credentials_expiry > api._last_aws_credentials_fetch
 
 
 @pytest.mark.asyncio
 async def test_rate_limited_with_expired_cache_sets_failed():
-    """Rate-limited path should not claim connected with expired cache."""
+    """Rate-limited path should not claim connected with expired cache (BUG-17: fields now on RestAPI)."""
     cfg = DummyConfigManager()
-    now = datetime.now().timestamp()
-    cfg.last_aws_credentials_fetch = now
-    cfg.aws_credentials_expiry = now - 60
     api = RestAPI(None, cfg)
     api._session = object()
     api.set_local_async_dispatcher_send(lambda *_args: None)
+    now = datetime.now().timestamp()
+    api._last_aws_credentials_fetch = now
+    api._aws_credentials_expiry = now - 60
     for field in API_TOKEN_FIELDS:
         api.data[field] = f"cached-{field}"
 
