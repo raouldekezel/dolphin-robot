@@ -20,14 +20,12 @@ from ..common.clean_modes import (
     get_clean_mode_cycle_time_key,
 )
 from ..common.consts import (
-    AWS_CREDENTIALS_EXPIRY,
     CONFIGURATION_FILE,
     DEFAULT_NAME,
     DOMAIN,
     INVALID_TOKEN_SECTION,
     STORAGE_DATA_ID_TOKEN,
     STORAGE_DATA_ID_TOKEN_EXPIRES_AT,
-    STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH,
     STORAGE_DATA_LAST_TOKEN_FETCH,
     STORAGE_DATA_LOCATING,
     STORAGE_DATA_MOTOR_UNIT_SERIAL,
@@ -133,16 +131,6 @@ class ConfigManager:
     def last_token_fetch(self) -> float:
         timestamp = self._data.get(STORAGE_DATA_LAST_TOKEN_FETCH, 0) or 0
         return timestamp
-
-    @property
-    def last_aws_credentials_fetch(self) -> float:
-        timestamp = self._data.get(STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH, 0) or 0
-        return timestamp
-
-    @property
-    def aws_credentials_expiry(self) -> float:
-        expiry = self._data.get(AWS_CREDENTIALS_EXPIRY, 0) or 0
-        return expiry
 
     @property
     def config_data(self) -> ConfigData:
@@ -258,21 +246,6 @@ class ConfigManager:
 
         await self._save()
 
-    async def _validate_cached_credentials(self):
-        """Clear stale AWS cache metadata without clearing Cognito login tokens."""
-        last_fetch = self._data.get(STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH, 0) or 0
-        expiry = self._data.get(AWS_CREDENTIALS_EXPIRY, 0) or 0
-
-        if last_fetch == 0 or expiry > datetime.now().timestamp():
-            return
-
-        _LOGGER.debug(
-            "Stored AWS credential metadata expired. Clearing cache metadata."
-        )
-        self._data[STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH] = 0
-        self._data[AWS_CREDENTIALS_EXPIRY] = 0
-        await self._save()
-
     async def update_tokens(
         self,
         id_token: str,
@@ -313,16 +286,6 @@ class ConfigManager:
     async def update_last_token_fetch(self, timestamp: float):
         if timestamp is not None:
             self._data[STORAGE_DATA_LAST_TOKEN_FETCH] = timestamp
-            await self._save()
-
-    async def update_last_aws_credentials_fetch(self, timestamp: float):
-        if timestamp is not None:
-            self._data[STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH] = timestamp
-            await self._save()
-
-    async def update_aws_credentials_expiry(self, expiry: float):
-        if expiry is not None:
-            self._data[AWS_CREDENTIALS_EXPIRY] = expiry
             await self._save()
 
     def get_debug_data(self) -> dict:
@@ -367,16 +330,14 @@ class ConfigManager:
             _LOGGER.info("updated")
             await self._save()
 
-        # Validate cached AWS credential metadata without invalidating login tokens.
-        await self._validate_cached_credentials()
+        # BUG-17: pre-fix installs may still carry `last-aws-credentials-fetch`
+        # and `aws_credentials_expiry` keys here. Inert now (no reader), ignored.
 
     @staticmethod
     def _get_defaults() -> dict:
         data = {
             STORAGE_DATA_LOCATING: False,
             STORAGE_DATA_LAST_TOKEN_FETCH: 0,
-            STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH: 0,
-            AWS_CREDENTIALS_EXPIRY: 0,
         }
 
         for clean_mode in list(CleanModes):
