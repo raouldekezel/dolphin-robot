@@ -23,12 +23,12 @@ Live re-check of [BUG-14 (#48)](https://github.com/raouldekezel/dolphin-robot/is
 
 Four actions in sequence, no dashboard picker interaction between them (mode stays `all` in `_desired_clean_mode` throughout actions 2–4):
 
-| # | Trigger | Mode written | HA number | Expected shadow (post-echo) |
-| - | ------- | ------------ | --------- | --------------------------- |
-| 1 | HA Run "Sol" (via dashboard select then Run) | `floor` | 120 | catalog `floor: 120`, cycle time 120 |
-| 2 | HA Stop, then Run "Complet" | `all`   | 75  | catalog `all: 75`, cycle time 75 |
-| 3 | Stop from HA, Run "Complet" from **MyDolphin app** (user picks 2 h preset) | `all` (app-initiated) | 75 (ignored — token not ours) | catalog `all: 120`, cycle time 120 |
-| 4 | Stop from app, **Run "Complet" from HA** — the same-mode start | `all` | 75 | catalog `all: 75`, cycle time 75 |
+| #   | Trigger                                                                    | Mode written          | HA number                     | Expected shadow (post-echo)          |
+| --- | -------------------------------------------------------------------------- | --------------------- | ----------------------------- | ------------------------------------ |
+| 1   | HA Run "Sol" (via dashboard select then Run)                               | `floor`               | 120                           | catalog `floor: 120`, cycle time 120 |
+| 2   | HA Stop, then Run "Complet"                                                | `all`                 | 75                            | catalog `all: 75`, cycle time 75     |
+| 3   | Stop from HA, Run "Complet" from **MyDolphin app** (user picks 2 h preset) | `all` (app-initiated) | 75 (ignored — token not ours) | catalog `all: 120`, cycle time 120   |
+| 4   | Stop from app, **Run "Complet" from HA** — the same-mode start             | `all`                 | 75                            | catalog `all: 75`, cycle time 75     |
 
 Action 4 is the load-bearing test: firmware mode `all` unchanged since action 3, catalog seeded to 120 by the app, HA `number = 75`. If BUG-14 persists, the firmware sees `desired.mode = all` (no delta) and either drops the update or fails to chain `cycleTime`; the app-pushed 120 stays in place. If BUG-14 is fixed, HA re-writes `cycleTime = 75` and the catalog + `cycleInfo.cleaningMode.cycleTime` flip to 75.
 
@@ -92,21 +92,21 @@ Catalog `all` flipped **120 → 75** in the same ~1.1 s window. MyDolphin, check
 
 Replayed the same three-step protocol on `stairs` a few minutes later (15:44 → 15:47) to confirm the fix is not `all`-specific. `number.nono_2_cycle_time_stairs` was left at 75 for the test (default is 150 per FEAT-01).
 
-| # | Trigger | `Set cleaning mode` | `Set cycle time` | Δ | Post-echo `cycleInfo.cycleTime` |
-| - | ------- | ------------------- | ---------------- | - | ------------------------------ |
-| 1 | HA "Couverture complète" (mode-change) | 15:44:50.703 `stairs` | 15:44:51.766 `75` | 1.063 s | 75 (shadow v2160) |
-| 2 | MyDolphin app "Couverture complète 2 h" | ø | ø | — | 120 (shadow v2171, app-pushed) |
-| 3 | **HA "Couverture complète" — same-mode** | 15:46:50.352 `stairs` | 15:46:51.450 `75` | 1.098 s | **75** (shadow v2184) |
+| #   | Trigger                                  | `Set cleaning mode`   | `Set cycle time`  | Δ       | Post-echo `cycleInfo.cycleTime` |
+| --- | ---------------------------------------- | --------------------- | ----------------- | ------- | ------------------------------- |
+| 1   | HA "Couverture complète" (mode-change)   | 15:44:50.703 `stairs` | 15:44:51.766 `75` | 1.063 s | 75 (shadow v2160)               |
+| 2   | MyDolphin app "Couverture complète 2 h"  | ø                     | ø                 | —       | 120 (shadow v2171, app-pushed)  |
+| 3   | **HA "Couverture complète" — same-mode** | 15:46:50.352 `stairs` | 15:46:51.450 `75` | 1.098 s | **75** (shadow v2184)           |
 
 `cycleInfo.cleaningMode.cycleTime` goes **120 → 75** on the same-mode HA Run — same shape as the `all` result, same conclusion: BUG-14 fixed for `stairs` too. Operator reports MyDolphin displays 1 h 15, matching the shadow.
 
-**Side observation — catalog immutability on `stairs`.** Unlike `all`, `cleaningModes.stairs` **stays at 150 throughout** — every one of the three shadow snapshots reports `"stairs": 150`, whether after HA writes 75 or after the app pushes 120. The **run-active** value (`cycleInfo.cleaningMode.cycleTime`) tracks the writes correctly (75 / 120 / 75), so the visible behaviour is unaffected. Best explanation given the data: the firmware treats `stairs`' catalog entry as a hard-default (150 min = 2 h 30, matching the FEAT-01 default and the middle preset in the app's "Couverture complète" picker) and refuses to update it in place, while still honouring writes to `cycleInfo.cycleTime` for the running cycle. This is a small but real divergence from `all`, which has a mutable catalog entry that mirrors the last write; worth noting for future MAP-* work but not a bug — MyDolphin reads `cycleInfo.cleaningMode.cycleTime`, not the catalog, for the running-cycle display.
+**Side observation — catalog immutability on `stairs`.** Unlike `all`, `cleaningModes.stairs` **stays at 150 throughout** — every one of the three shadow snapshots reports `"stairs": 150`, whether after HA writes 75 or after the app pushes 120. The **run-active** value (`cycleInfo.cleaningMode.cycleTime`) tracks the writes correctly (75 / 120 / 75), so the visible behaviour is unaffected. Best explanation given the data: the firmware treats `stairs`' catalog entry as a hard-default (150 min = 2 h 30, matching the FEAT-01 default and the middle preset in the app's "Couverture complète" picker) and refuses to update it in place, while still honouring writes to `cycleInfo.cycleTime` for the running cycle. This is a small but real divergence from `all`, which has a mutable catalog entry that mirrors the last write; worth noting for future MAP-\* work but not a bug — MyDolphin reads `cycleInfo.cleaningMode.cycleTime`, not the catalog, for the running-cycle display.
 
 ## Why the regression is gone (code walk on `raoul.19`)
 
 Two design changes since the [2026-06-13 session that pinned BUG-14](https://github.com/raouldekezel/dolphin-robot/issues/48) remove every path that could skip the `Set cycle time` chain on same-mode start:
 
-1. **BUG-13 write-on-commit ([PR #100](https://github.com/raouldekezel/dolphin-robot/pull/100))** — picking a mode from the HA select no longer writes to AWS. The pick only stages `_desired_clean_mode` in coordinator memory. That closed the historical *"picker wrote the mode; Run then wrote power only, and the chain didn't refire"* path.
+1. **BUG-13 write-on-commit ([PR #100](https://github.com/raouldekezel/dolphin-robot/pull/100))** — picking a mode from the HA select no longer writes to AWS. The pick only stages `_desired_clean_mode` in coordinator memory. That closed the historical _"picker wrote the mode; Run then wrote power only, and the chain didn't refire"_ path.
 2. **HARD-12 ([PR #105](https://github.com/raouldekezel/dolphin-robot/pull/105))** — even the running-path `_set_cleaning_mode` no longer writes to AWS. That closed the fallback where a repeat pick during a cycle would touch the shadow.
 
 After both, the **only** producer of `desired.cleaningMode.mode` is `_vacuum_start` (`coordinator.py:1149`, invoked on every `vacuum.start`):
@@ -118,7 +118,7 @@ self.async_update_listeners()
 
 Any HA Run — mode-change or same-mode — triggers the same shadow-write. The shadow ack (`_on_update_accepted`) sees `desired.cleaningMode.mode` present + `_event_is_ours = True`, sleeps 1 s, publishes `_set_cycle_time(mode)`. The firmware records `cleaningModes[mode] = HA_configured` and starts the cycle at that duration. BUG-14 disappears as a side-effect of the write-on-commit pivot.
 
-The chain sequence itself (`aws_client.py:482–499`) is unchanged from what the [BUG-08 SPIKE-02 session](https://github.com/raouldekezel/dolphin-robot/issues/17) established — `sleep(1)` between the two writes (v2143 – v2141 delta ≈ 1.15 s in this session, matching the +1.06/+1.15 s seen in the [2026-06-12/13 sessions](https://github.com/raouldekezel/dolphin-robot/pull/41)). Nothing about BUG-08 was fixed; BUG-14 was a *distinct* symptom rooted in a picker-side write path that no longer exists.
+The chain sequence itself (`aws_client.py:482–499`) is unchanged from what the [BUG-08 SPIKE-02 session](https://github.com/raouldekezel/dolphin-robot/issues/17) established — `sleep(1)` between the two writes (v2143 – v2141 delta ≈ 1.15 s in this session, matching the +1.06/+1.15 s seen in the [2026-06-12/13 sessions](https://github.com/raouldekezel/dolphin-robot/pull/41)). Nothing about BUG-08 was fixed; BUG-14 was a _distinct_ symptom rooted in a picker-side write path that no longer exists.
 
 ## Verdict
 
