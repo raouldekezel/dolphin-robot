@@ -148,5 +148,3 @@ async def test_two_rapid_refresh_calls_within_session_hit_in_memory_limit(monkey
     # The self-bypass string must still be unreachable — self.data is populated.
     joined = "\n".join(rec.getMessage() for rec in caplog.records)
     assert "attempting fetch despite rate limit" not in joined
-
-
