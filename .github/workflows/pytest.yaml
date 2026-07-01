@@ -4,7 +4,10 @@ name: pytest
 on:
   pull_request:
   push:
-    branches: [deploy]
+    branches: [deploy, main]
+
+permissions:
+  contents: read
 
 jobs:
   pytest:
