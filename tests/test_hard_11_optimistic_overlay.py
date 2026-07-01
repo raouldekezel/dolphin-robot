@@ -86,7 +86,10 @@ def _make_coordinator_stub(
     staged mode, the HARD-11 overlay slots, the start-guard slot, and
     the v1.1 edge tracker.
     """
-    stub = MagicMock()
+    # A real class instance (not a MagicMock) so `self._is_start_guard_active()`,
+    # `self._arm_optimistic_start()`, `self._clear_optimistic_overlay()` etc.
+    # dispatch to the real helpers under test instead of returning child mocks.
+    stub = MyDolphinPlusCoordinator.__new__(MyDolphinPlusCoordinator)
     stub._desired_clean_mode = desired_mode
     stub._last_seen_reported_clean_mode = desired_mode
     stub._system_details = SimpleNamespace(
@@ -98,7 +101,8 @@ def _make_coordinator_stub(
     stub._has_real_data = has_real_data
     stub._aws_client = MagicMock()
     stub._aws_client.data = {}
-    stub.aws_data = stub._aws_client.data
+    # `aws_data` is a @property backed by `_aws_client.data` — no setter, so it
+    # cannot be assigned; the @property reads through to the mock's `.data`.
     stub.async_update_listeners = MagicMock()
 
     # HARD-11 overlay slots — initially unarmed.
@@ -209,7 +213,7 @@ def test_get_vacuum_data_returns_optimistic_when_armed():
     """While the Run overlay is armed, ``_get_vacuum_data`` returns the
     optimistic CLEANING even though the real firmware state is still
     DOCKED. This is what makes the more-info card swap Start → Pause."""
-    from custom_components.mydolphin_plus.common.consts import ATTR_STATE
+    from homeassistant.const import ATTR_STATE
 
     stub = _make_coordinator_stub()
     stub._optimistic_vacuum_state = VacuumActivity.CLEANING
@@ -220,7 +224,7 @@ def test_get_vacuum_data_returns_optimistic_when_armed():
 
 
 def test_get_vacuum_data_falls_back_to_real_when_unarmed():
-    from custom_components.mydolphin_plus.common.consts import ATTR_STATE
+    from homeassistant.const import ATTR_STATE
 
     stub = _make_coordinator_stub(real_vacuum_state=VacuumActivity.CLEANING)
 
@@ -233,7 +237,7 @@ def test_get_status_data_returns_optimistic_statut_when_armed():
     """Chip side: ``startingPending`` / ``pausingPending`` surface as the
     statut sub-state, lowercase (the StrEnum value is already
     lowercase but ``_get_status_data`` applies ``.lower()`` defensively)."""
-    from custom_components.mydolphin_plus.common.consts import ATTR_STATE
+    from homeassistant.const import ATTR_STATE
 
     stub = _make_coordinator_stub()
     stub._optimistic_statut = CalculatedState.STARTING_PENDING
@@ -244,7 +248,7 @@ def test_get_status_data_returns_optimistic_statut_when_armed():
 
 
 def test_get_status_data_falls_back_to_real_when_unarmed():
-    from custom_components.mydolphin_plus.common.consts import ATTR_STATE
+    from homeassistant.const import ATTR_STATE
 
     stub = _make_coordinator_stub(real_calculated_state=CalculatedState.CLEANING)
 
@@ -444,11 +448,12 @@ def test_pause_guard_does_not_clear_on_pre_existing_holdweekly_review_blocker_2(
     assert stub._pause_issued_at == 1000.0
 
 
-def test_pause_guard_reconcile_clears_at_cap():
-    """holdWeekly never arrives → cap kicks in at 20 s, the guard drops,
-    a new Run is allowed. Without this the guard could stick forever if
-    the connection dropped between the pause write and the holdWeekly
-    echo."""
+def test_pause_guard_reconcile_clears_on_ttl():
+    """holdWeekly never arrives → the single TTL kicks in, the guard
+    drops, a new Run is allowed. Without this the guard could stick
+    forever if the connection dropped between the pause write and the
+    holdWeekly echo. v1.2 collapsed the prior block-window / cap-timeout
+    split into a single `_PAUSE_GUARD_TTL_S` threshold."""
     stub = _make_coordinator_stub(
         real_calculated_state=CalculatedState.CLEANING,
         last_observed_calculated_state=CalculatedState.CLEANING,
@@ -482,7 +487,7 @@ def test_pause_guard_reconcile_keeps_guard_while_in_window_and_not_acknowledged(
 # ---------------------------------------------------------------------------
 
 
-def test_guard_resolution_clears_overlay_at_cap_review_blocker_1():
+def test_guard_resolution_clears_overlay_on_ttl_review_blocker_1():
     """Regression for PR #110 review blocker #1.
 
     Run → Stop within the start echo gap → firmware suppresses the start
