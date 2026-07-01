@@ -448,11 +448,12 @@ def test_pause_guard_does_not_clear_on_pre_existing_holdweekly_review_blocker_2(
     assert stub._pause_issued_at == 1000.0
 
 
-def test_pause_guard_reconcile_clears_at_cap():
-    """holdWeekly never arrives → cap kicks in at 20 s, the guard drops,
-    a new Run is allowed. Without this the guard could stick forever if
-    the connection dropped between the pause write and the holdWeekly
-    echo."""
+def test_pause_guard_reconcile_clears_on_ttl():
+    """holdWeekly never arrives → the single TTL kicks in, the guard
+    drops, a new Run is allowed. Without this the guard could stick
+    forever if the connection dropped between the pause write and the
+    holdWeekly echo. v1.2 collapsed the prior block-window / cap-timeout
+    split into a single `_PAUSE_GUARD_TTL_S` threshold."""
     stub = _make_coordinator_stub(
         real_calculated_state=CalculatedState.CLEANING,
         last_observed_calculated_state=CalculatedState.CLEANING,
@@ -486,7 +487,7 @@ def test_pause_guard_reconcile_keeps_guard_while_in_window_and_not_acknowledged(
 # ---------------------------------------------------------------------------
 
 
-def test_guard_resolution_clears_overlay_at_cap_review_blocker_1():
+def test_guard_resolution_clears_overlay_on_ttl_review_blocker_1():
     """Regression for PR #110 review blocker #1.
 
     Run → Stop within the start echo gap → firmware suppresses the start
