@@ -8,6 +8,7 @@ Live re-check of [BUG-14 (#48)](https://github.com/raouldekezel/dolphin-robot/is
 - **BUG-08 chain fires on same-mode start**: yes, `Set cycle time` published 1.15 s after `Set cleaning mode`.
 - **Firmware honors HA's cycleTime, not the pre-existing catalog value**: yes — catalog `all` goes 120 (from app) → 75 (from HA) inside 1.1 s, `cycleInfo.cleaningMode.cycleTime` = 75, MyDolphin displays 1 h 15.
 - **Root cause of the fix**: incidental, from [BUG-13 write-on-commit (#100)](https://github.com/raouldekezel/dolphin-robot/pull/100) + [HARD-12 (#105)](https://github.com/raouldekezel/dolphin-robot/pull/105). The UI select no longer writes to AWS at all; the only path to the firmware is `_vacuum_start`, which always writes `set_cleaning_mode(mode)` regardless of the current firmware mode, so the shadow accepts, `_event_is_ours` is true, and `_set_cycle_time` is chained.
+- **Mode-agnostic**: the same protocol on `stairs` produces the same result — `cycleInfo.cleaningMode.cycleTime` goes 120 (app) → 75 (HA same-mode). Side observation: `cleaningModes.stairs` stays immutable at 150 in the catalog while the run-active value tracks the writes correctly.
 
 ## Context
 
@@ -86,6 +87,20 @@ Post-app-echo, catalog snapshot advanced to `all: 120` (visible in the shadow pa
 ```
 
 Catalog `all` flipped **120 → 75** in the same ~1.1 s window. MyDolphin, checked live by the operator: displays **1 h 15**, not 2 h. **Distinctive proof: BUG-14 is fixed.**
+
+### Sub-test — mode `stairs` (same protocol, generalises the verdict)
+
+Replayed the same three-step protocol on `stairs` a few minutes later (15:44 → 15:47) to confirm the fix is not `all`-specific. `number.nono_2_cycle_time_stairs` was left at 75 for the test (default is 150 per FEAT-01).
+
+| # | Trigger | `Set cleaning mode` | `Set cycle time` | Δ | Post-echo `cycleInfo.cycleTime` |
+| - | ------- | ------------------- | ---------------- | - | ------------------------------ |
+| 1 | HA "Couverture complète" (mode-change) | 15:44:50.703 `stairs` | 15:44:51.766 `75` | 1.063 s | 75 (shadow v2160) |
+| 2 | MyDolphin app "Couverture complète 2 h" | ø | ø | — | 120 (shadow v2171, app-pushed) |
+| 3 | **HA "Couverture complète" — same-mode** | 15:46:50.352 `stairs` | 15:46:51.450 `75` | 1.098 s | **75** (shadow v2184) |
+
+`cycleInfo.cleaningMode.cycleTime` goes **120 → 75** on the same-mode HA Run — same shape as the `all` result, same conclusion: BUG-14 fixed for `stairs` too. Operator reports MyDolphin displays 1 h 15, matching the shadow.
+
+**Side observation — catalog immutability on `stairs`.** Unlike `all`, `cleaningModes.stairs` **stays at 150 throughout** — every one of the three shadow snapshots reports `"stairs": 150`, whether after HA writes 75 or after the app pushes 120. The **run-active** value (`cycleInfo.cleaningMode.cycleTime`) tracks the writes correctly (75 / 120 / 75), so the visible behaviour is unaffected. Best explanation given the data: the firmware treats `stairs`' catalog entry as a hard-default (150 min = 2 h 30, matching the FEAT-01 default and the middle preset in the app's "Couverture complète" picker) and refuses to update it in place, while still honouring writes to `cycleInfo.cycleTime` for the running cycle. This is a small but real divergence from `all`, which has a mutable catalog entry that mirrors the last write; worth noting for future MAP-* work but not a bug — MyDolphin reads `cycleInfo.cleaningMode.cycleTime`, not the catalog, for the running-cycle display.
 
 ## Why the regression is gone (code walk on `raoul.19`)
 
