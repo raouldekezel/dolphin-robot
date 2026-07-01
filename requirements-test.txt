@@ -1,0 +1,14 @@
+# CHORE-03 — pytest CI dependencies.
+#
+# Pinning the harness is the safety anchor: pytest-homeassistant-custom-component
+# transitively pins Home Assistant (0.13.205 -> HA 2025.1.4) plus pytest and
+# pytest-asyncio, so a floating version could silently pull a newer HA and break
+# import. Everything else is on top:
+#   - awsiotsdk: manifest.json runtime dep; brings awscrt (only external module
+#     imported at top level of custom_components/mydolphin_plus/managers/aws_client.py)
+#   - aiofiles: imported at top level of aws_client.py (reads the AWS CA cert)
+#
+# flatten_json and python-slugify are HA core deps and come via the harness.
+pytest-homeassistant-custom-component==0.13.205
+awsiotsdk
+aiofiles
