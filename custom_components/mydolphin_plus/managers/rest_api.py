@@ -246,6 +246,12 @@ class RestAPI:
             self._session = None
             self._device_loaded = False
             self._local_async_dispatcher_send = None
+            # BUG-17: rate-limiter is session-scoped. Both fields start at 0.0
+            # on every RestAPI construction; a fresh instance therefore takes
+            # the "no prior fetch" branch of _refresh_aws_credentials without
+            # tripping the 5 min limit against a stale persisted timestamp.
+            self._last_aws_credentials_fetch: float = 0.0
+            self._aws_credentials_expiry: float = 0.0
 
         except Exception as ex:
             exc_type, exc_obj, tb = sys.exc_info()
@@ -484,7 +490,7 @@ class RestAPI:
 
         # Rate limit fresh fetches; fall back to (potentially stale) cache when limited
         now = datetime.now().timestamp()
-        last_fetch = self._config_manager.last_aws_credentials_fetch or 0
+        last_fetch = self._last_aws_credentials_fetch
         time_since_last = now - last_fetch
 
         if (
@@ -530,8 +536,8 @@ class RestAPI:
 
         now = datetime.now().timestamp()
         expiry = now + AWS_CREDENTIALS_TTL.total_seconds()
-        await self._config_manager.update_last_aws_credentials_fetch(now)
-        await self._config_manager.update_aws_credentials_expiry(expiry)
+        self._last_aws_credentials_fetch = now
+        self._aws_credentials_expiry = expiry
 
         _LOGGER.info(
             f"Successfully fetched AWS IoT credentials. "
@@ -545,7 +551,7 @@ class RestAPI:
         if not self._has_cached_credentials():
             return False
 
-        expiry = self._config_manager.aws_credentials_expiry
+        expiry = self._aws_credentials_expiry
         now = datetime.now().timestamp()
 
         is_valid = expiry > now

@@ -151,12 +151,10 @@ RECONNECT_MAX_ATTEMPTS_BEFORE_MAX = (
 AWS_CREDENTIALS_TTL = timedelta(
     hours=1, minutes=50
 )  # AWS IoT credentials valid for 2h, use 1h50m for safety
-AWS_CREDENTIALS_EXPIRY = "aws_credentials_expiry"
 
 # Rate limiting for token fetches
 MIN_TOKEN_FETCH_INTERVAL = timedelta(minutes=5)  # Minimum time between token API calls
 STORAGE_DATA_LAST_TOKEN_FETCH = "last-token-fetch"
-STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH = "last-aws-credentials-fetch"
 
 WS_LAST_UPDATE = "last-update"
 
@@ -352,11 +350,9 @@ TOKEN_PARAMS = [
     STORAGE_DATA_ID_TOKEN,
     STORAGE_DATA_REFRESH_TOKEN,
     STORAGE_DATA_ID_TOKEN_EXPIRES_AT,
-    STORAGE_DATA_LAST_AWS_CREDENTIALS_FETCH,
     STORAGE_DATA_SERIAL_NUMBER,
     STORAGE_DATA_MOTOR_UNIT_SERIAL,
     STORAGE_DATA_LAST_TOKEN_FETCH,
-    AWS_CREDENTIALS_EXPIRY,
 ]
 
 TO_REDACT = [
