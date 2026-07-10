@@ -13,6 +13,12 @@ class CleanModes(StrEnum):
     STAIRS = "stairs"
 
 
+# FEAT-03 — the curated set the operator can hide/show from the pick-list.
+# Kept as a tuple so iteration order is deterministic (fan_speed_list and
+# select.options preserve this order after filtering).
+KNOWN_LABELED_MODES: tuple[str, ...] = tuple(str(m) for m in CleanModes)
+
+
 CLEAN_MODES_CYCLE_TIME = {
     CleanModes.REGULAR: 120,
     CleanModes.FAST_MODE: 60,

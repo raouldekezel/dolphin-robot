@@ -302,14 +302,27 @@
       "invalid_server_details": "Invalid server details",
       "otp_send_failed": "Failed to send login code, check the email and try again"
     },
+    "selector": {
+      "visible_modes": {
+        "options": {
+          "all": "Regular",
+          "floor": "Floor only",
+          "pickup": "Pickup",
+          "short": "Fast mode",
+          "stairs": "Full Coverage",
+          "ultra": "Ultra clean",
+          "water": "Water line"
+        }
+      }
+    },
     "step": {
       "init": {
-        "data": {
-          "title": "Title",
-          "username": "Email"
+        "description": "Choose an action.",
+        "menu_options": {
+          "preferences": "Cleaning modes visible in the picker",
+          "reauth": "Re-authenticate MyDolphin Plus"
         },
-        "description": "Enter your MyDolphin Plus email to receive a fresh login code.",
-        "title": "Re-authenticate MyDolphin Plus"
+        "title": "MyDolphin Plus options"
       },
       "otp": {
         "data": {
@@ -317,6 +330,21 @@
         },
         "description": "Enter the login code sent to your email.",
         "title": "Confirm OTP"
+      },
+      "preferences": {
+        "data": {
+          "visible_modes": "Modes to show"
+        },
+        "description": "Uncheck a mode to hide it from the vacuum picker and from the desired-clean-mode selector. Hidden modes' cycle-time controls disappear from the default views but remain reachable via Settings → Entities. Leaving every mode unchecked resets the picker to the full set.",
+        "title": "Cleaning modes visible in the picker"
+      },
+      "reauth": {
+        "data": {
+          "title": "Title",
+          "username": "Email"
+        },
+        "description": "Enter your MyDolphin Plus email to receive a fresh login code.",
+        "title": "Re-authenticate MyDolphin Plus"
       }
     }
   }

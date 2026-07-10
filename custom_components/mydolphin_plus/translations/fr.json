@@ -35,6 +35,14 @@
   "options": {
     "step": {
       "init": {
+        "title": "Options MyDolphin Plus",
+        "description": "Choisissez une action.",
+        "menu_options": {
+          "reauth": "Réauthentifier MyDolphin Plus",
+          "preferences": "Modes de nettoyage visibles dans le sélecteur"
+        }
+      },
+      "reauth": {
         "title": "Réauthentifier MyDolphin Plus",
         "description": "Saisissez votre adresse e-mail MyDolphin Plus pour recevoir un nouveau code de connexion.",
         "data": {
@@ -47,6 +55,26 @@
         "description": "Saisissez le code de connexion envoyé à votre adresse e-mail.",
         "data": {
           "otp": "Code de connexion"
+        }
+      },
+      "preferences": {
+        "title": "Modes de nettoyage visibles dans le sélecteur",
+        "description": "Décochez un mode pour le masquer du sélecteur du robot et du sélecteur du mode souhaité. Les entités de durée de cycle des modes masqués disparaissent des vues par défaut mais restent accessibles via Paramètres → Entités. Décocher tous les modes rétablit le sélecteur complet.",
+        "data": {
+          "visible_modes": "Modes à afficher"
+        }
+      }
+    },
+    "selector": {
+      "visible_modes": {
+        "options": {
+          "all": "Complet",
+          "short": "Rapide",
+          "floor": "Sol uniquement",
+          "water": "Ligne d'eau",
+          "ultra": "Ultra propre",
+          "pickup": "Ramassage",
+          "stairs": "Couverture complète"
         }
       }
     },
