@@ -137,8 +137,6 @@ DEFAULT_TIME_PART = 255
 
 UPDATE_API_INTERVAL = timedelta(hours=1)
 UPDATE_WS_INTERVAL = timedelta(seconds=30)
-API_RECONNECT_INTERVAL = timedelta(minutes=1)
-WS_RECONNECT_INTERVAL = timedelta(minutes=1)
 
 # Reconnection backoff settings
 RECONNECT_BACKOFF_BASE = timedelta(minutes=1)  # Initial retry interval
