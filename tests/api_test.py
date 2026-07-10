@@ -13,11 +13,15 @@ from custom_components.mydolphin_plus.common.connectivity_status import (
     ConnectivityStatus,
 )
 from custom_components.mydolphin_plus.common.consts import (
-    API_RECONNECT_INTERVAL,
     SIGNAL_API_STATUS,
     SIGNAL_AWS_CLIENT_STATUS,
-    WS_RECONNECT_INTERVAL,
 )
+
+# BUG-24 — dev harness only. Retry cadence inlined here after the
+# unused-in-prod `API_RECONNECT_INTERVAL` / `WS_RECONNECT_INTERVAL`
+# consts were removed; the real integration now drives retries from
+# the coordinator tick and does not read either value.
+_HARNESS_RECONNECT_SECONDS = 60
 from custom_components.mydolphin_plus.common.joystick_direction import JoystickDirection
 from custom_components.mydolphin_plus.managers.aws_client import AWSClient
 from custom_components.mydolphin_plus.managers.config_manager import ConfigManager
@@ -198,13 +202,13 @@ class APITest:
         elif status == ConnectivityStatus.FAILED:
             await self._aws_client.terminate()
 
-            await sleep(API_RECONNECT_INTERVAL.total_seconds())
+            await sleep(_HARNESS_RECONNECT_SECONDS)
 
             await self._api.initialize()
 
     async def _on_aws_status_changed(self, status: ConnectivityStatus):
         if status == ConnectivityStatus.FAILED:
-            await sleep(WS_RECONNECT_INTERVAL.total_seconds())
+            await sleep(_HARNESS_RECONNECT_SECONDS)
 
             await self._api.initialize()
 

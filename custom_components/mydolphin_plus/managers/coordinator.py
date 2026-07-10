@@ -1,4 +1,3 @@
-from asyncio import sleep
 from datetime import datetime, timedelta
 import logging
 import sys
@@ -165,6 +164,22 @@ _PAUSE_ACK_REST_STATES: frozenset[CalculatedState] = frozenset(
     }
 )
 
+# BUG-24 — statuses whose recovery requires user action, not tick-driven
+# reconnection. EXPIRED_TOKEN needs the OTP flow (retrying just re-hits
+# "no refresh token stored" forever and can race the reauth); INVALID_*
+# and MISSING_API_KEY need the operator to fix credentials. Neither the
+# seed (`_handle_connection_failure`) nor the tick driver
+# (`_maybe_reconnect`) should schedule or fire retries while the API is
+# in one of these states.
+_NEEDS_USER_STATUSES: frozenset[ConnectivityStatus] = frozenset(
+    {
+        ConnectivityStatus.EXPIRED_TOKEN,
+        ConnectivityStatus.INVALID_CREDENTIALS,
+        ConnectivityStatus.INVALID_ACCOUNT,
+        ConnectivityStatus.MISSING_API_KEY,
+    }
+)
+
 
 class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     """My custom coordinator."""
@@ -200,6 +215,16 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._last_update_api = 0
         self._last_update_ws = 0
         self._reconnection_attempts = 0
+        # BUG-24 — timestamp of the next scheduled reconnect. The tick in
+        # `_async_update_data` drives retries via `_maybe_reconnect`: fires
+        # `_api.initialize()` when the integration is not fully connected,
+        # the API is not in a user-action state (`_NEEDS_USER_STATUSES`),
+        # `_next_retry_at > 0` (seed present), and `now >= _next_retry_at`.
+        # Seeded by `_handle_connection_failure` on entering-disconnected
+        # dispatches (except user-action ones) and bumped inside
+        # `_maybe_reconnect` after every attempt that did not recover.
+        # Reset to `0.0` on a CONNECTED transition on either side.
+        self._next_retry_at: float = 0.0
 
         # MQTT debouncing
         self._mqtt_debouncer = Debouncer(
@@ -378,6 +403,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         if status == ConnectivityStatus.CONNECTED:
             self._reconnection_attempts = 0  # Reset backoff counter on success
+            self._next_retry_at = 0.0  # BUG-24 — reset tick-driven schedule
 
             await self._api.update()
 
@@ -424,6 +450,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         if status == ConnectivityStatus.CONNECTED:
             self._reconnection_attempts = 0  # Reset backoff counter on success
+            self._next_retry_at = 0.0  # BUG-24 — reset tick-driven schedule
             await self._aws_client.update()
 
         if status in [ConnectivityStatus.FAILED, ConnectivityStatus.NOT_CONNECTED]:
@@ -457,24 +484,122 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         await self.async_request_refresh()
         _LOGGER.debug("Executed debounced MQTT refresh")
 
-    async def _handle_connection_failure(self):
-        await self._aws_client.terminate()
+    def _schedule_next_retry(self, now: float) -> None:
+        """Bump the attempt counter and set the next retry timestamp.
 
-        # Calculate exponential backoff: 1min, 2min, 4min, 8min, 15min (max)
+        BUG-24 — replaces the old `sleep + initialize` pair inside
+        `_handle_connection_failure`. Called from two sites:
+
+        - `_handle_connection_failure` on the entering-disconnected
+          dispatch (initial seed, when the status is not in
+          `_NEEDS_USER_STATUSES`).
+        - `_maybe_reconnect` when a tick-driven retry has just been
+          fired and the integration is still not fully connected — the
+          no-dispatch halt case that caused the original bug.
+        """
+        # Exponential backoff: 1, 2, 4, 8, 15 min (capped).
         backoff_minutes = min(
-            2**self._reconnection_attempts, RECONNECT_BACKOFF_MAX.total_seconds() / 60
+            2**self._reconnection_attempts,
+            RECONNECT_BACKOFF_MAX.total_seconds() / 60,
         )
-        backoff_interval = timedelta(minutes=backoff_minutes)
-
         self._reconnection_attempts += 1
+        self._next_retry_at = now + backoff_minutes * 60
 
         _LOGGER.warning(
-            f"Connection failure - reconnection attempt #{self._reconnection_attempts}, "
-            f"waiting {backoff_minutes} minute(s) before retry"
+            f"Connection failure - reconnection attempt "
+            f"#{self._reconnection_attempts} scheduled in "
+            f"{backoff_minutes:g} minute(s)"
         )
 
-        await sleep(backoff_interval.total_seconds())
-        await self._api.initialize()
+    def _aws_status(self) -> ConnectivityStatus:
+        """Return the AWS client's status if the client exists.
+
+        `_aws_client` is typed as ``AWSClient | None`` and can be ``None``
+        during the very early setup window before ``__init__`` finishes.
+        Treat that as `NOT_CONNECTED` for the purposes of the
+        fully-connected predicate.
+        """
+        if self._aws_client is None:
+            return ConnectivityStatus.NOT_CONNECTED
+        return self._aws_client.status
+
+    def _is_fully_connected(self) -> bool:
+        """Both the API and the AWS client report `CONNECTED`."""
+        return (
+            self._api.status == ConnectivityStatus.CONNECTED
+            and self._aws_status() == ConnectivityStatus.CONNECTED
+        )
+
+    async def _handle_connection_failure(self):
+        """Dispatch-driven entry point on a disconnected transition.
+
+        BUG-24 — no longer sleeps or calls `_api.initialize()`; those
+        live in the tick (`_maybe_reconnect`) so a subsequent failed
+        retry that leaves the status unchanged (no dispatch) still gets
+        a new attempt at the next tick boundary. Always terminates the
+        AWS client; seeds the retry schedule only when the API status
+        is retryable — i.e. not one of the statuses that need user
+        action, which would just bump the attempt counter uselessly.
+        """
+        await self._aws_client.terminate()
+        if self._api.status in _NEEDS_USER_STATUSES:
+            return
+        self._schedule_next_retry(datetime.now().timestamp())
+
+    async def _maybe_reconnect(self, now: float) -> None:
+        """Tick-driven retry driver (BUG-24, sole driver).
+
+        Fires `_api.initialize()` when the integration is **not fully
+        connected** and the scheduled backoff has elapsed. Considers
+        both sides:
+
+        - **API-side FAILED / NOT_CONNECTED** — the direct case: the
+          coordinator kicks the login pipeline.
+        - **AWS/MQTT-side FAILED with API still CONNECTED** — the
+          MQTT-timeout case that started the #120 incident: gating on
+          `_api.status` alone would miss it (regression flagged in the
+          #122 review). Re-driving `_api.initialize()` re-runs
+          `_login`, which flips API through TEMPORARY_CONNECTED →
+          CONNECTED, which cascades to `_aws_client.initialize()` via
+          the CONNECTED dispatch — that's how AWS recovers.
+
+        Skips when:
+
+        - the integration is fully connected;
+        - the API is in a user-action state (`_NEEDS_USER_STATUSES`);
+        - the schedule was never seeded (`_next_retry_at <= 0`); or
+        - the scheduled retry time has not yet been reached.
+        """
+        if self._is_fully_connected():
+            return
+        if self._api.status in _NEEDS_USER_STATUSES:
+            return
+        if self._next_retry_at <= 0 or now < self._next_retry_at:
+            return
+
+        _LOGGER.info(f"Firing reconnection attempt #{self._reconnection_attempts}")
+        try:
+            await self._api.initialize()
+        except Exception as ex:
+            # Most `_login` paths swallow their exceptions and set
+            # `FAILED` themselves, but not all (config-manager storage
+            # writes and unexpected errors can escape). Swallow here so
+            # the coordinator tick keeps ticking rather than reporting
+            # `UpdateFailed` to HA; the `finally` block below still
+            # schedules the next attempt, keeping the backoff intact.
+            _LOGGER.warning(f"Reconnection attempt raised: {ex}")
+        finally:
+            # Reschedule unless the retry actually recovered (API
+            # `CONNECTED` → the CONNECTED dispatch owns the AWS cascade
+            # + counter reset) or surfaced a user-action state (wait
+            # for OTP). Runs even if `initialize()` raised — otherwise
+            # the backoff would silently collapse to the 30 s tick
+            # cadence for repeated exceptions (F5 review finding).
+            if (
+                self._api.status != ConnectivityStatus.CONNECTED
+                and self._api.status not in _NEEDS_USER_STATUSES
+            ):
+                self._schedule_next_retry(now)
 
     async def _async_update_data(self):
         """Fetch parameters from API endpoint.
@@ -483,6 +608,11 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         so entities can quickly look up their parameters.
         """
         try:
+            # BUG-24 — the coordinator tick is the sole retry driver.
+            # Runs before the normal ready-branch so a healing network is
+            # picked up as soon as the backoff elapses.
+            await self._maybe_reconnect(datetime.now().timestamp())
+
             api_connected = self._api.status == ConnectivityStatus.CONNECTED
             aws_client_connected = (
                 self._aws_client.status == ConnectivityStatus.CONNECTED
