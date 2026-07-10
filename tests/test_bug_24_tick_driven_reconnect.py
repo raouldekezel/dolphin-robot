@@ -428,6 +428,38 @@ async def test_aws_only_outage_recovers_via_tick():
 
 
 @pytest.mark.asyncio
+async def test_maybe_reconnect_reschedules_even_when_initialize_raises():
+    """F5 regression guard from the fable review of #122.
+
+    Most ``_login`` paths swallow their exceptions and set ``FAILED``
+    themselves, but not all (config-manager storage writes, unexpected
+    errors). If an exception escaped ``_api.initialize()`` the
+    ``_schedule_next_retry`` call would be skipped, ``_next_retry_at``
+    would stay in the past, and the next 30 s tick would fire another
+    retry immediately — the backoff would silently collapse to tick
+    cadence. This test pins that we reschedule via ``finally``."""
+    stub = _stub_coordinator(
+        api_status=ConnectivityStatus.FAILED,
+        aws_status=ConnectivityStatus.NOT_CONNECTED,
+    )
+    stub._next_retry_at = 1_000_000.0
+    now = 1_000_001.0
+
+    async def blows_up():
+        raise RuntimeError("unexpected storage failure")
+
+    stub._api.initialize.side_effect = blows_up
+
+    # The wrapper catches the exception; the call must NOT propagate.
+    await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
+
+    stub._api.initialize.assert_awaited_once()
+    # Reschedule ran via `finally` — backoff advanced.
+    assert stub._reconnection_attempts == 1
+    assert stub._next_retry_at > now
+
+
+@pytest.mark.asyncio
 async def test_recovery_stops_the_retry_loop():
     """Once a tick-retry succeeds and the CONNECTED cascade re-inits
     AWS, the dispatch handler (not exercised here) resets counters.

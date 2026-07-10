@@ -216,11 +216,14 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._last_update_ws = 0
         self._reconnection_attempts = 0
         # BUG-24 — timestamp of the next scheduled reconnect. The tick in
-        # `_async_update_data` drives retries: it fires `_api.initialize()`
-        # only when the status is in `_RETRYABLE_STATUSES` and
-        # `now >= self._next_retry_at`. Seeded by `_handle_connection_failure`
-        # on the entering FAILED transition and bumped inside `_maybe_reconnect`
-        # after every failed attempt. Reset to `0.0` on a CONNECTED transition.
+        # `_async_update_data` drives retries via `_maybe_reconnect`: fires
+        # `_api.initialize()` when the integration is not fully connected,
+        # the API is not in a user-action state (`_NEEDS_USER_STATUSES`),
+        # `_next_retry_at > 0` (seed present), and `now >= _next_retry_at`.
+        # Seeded by `_handle_connection_failure` on entering-disconnected
+        # dispatches (except user-action ones) and bumped inside
+        # `_maybe_reconnect` after every attempt that did not recover.
+        # Reset to `0.0` on a CONNECTED transition on either side.
         self._next_retry_at: float = 0.0
 
         # MQTT debouncing
@@ -575,26 +578,28 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             return
 
         _LOGGER.info(f"Firing reconnection attempt #{self._reconnection_attempts}")
-        await self._api.initialize()
-
-        # If the retry succeeded (API is CONNECTED), the CONNECTED
-        # dispatch cascades to `_aws_client.initialize()` asynchronously
-        # and its handler will reset the retry schedule when the AWS
-        # side reports CONNECTED. Don't reschedule here — doing so would
-        # fire another `initialize()` in ~1 min while the AWS side is
-        # still catching up.
-        if self._api.status == ConnectivityStatus.CONNECTED:
-            return
-        # User-action state entered mid-retry (e.g. Cognito rejected the
-        # refresh token → EXPIRED_TOKEN). Don't reschedule; wait for the
-        # user to complete OTP reauth.
-        if self._api.status in _NEEDS_USER_STATUSES:
-            return
-        # Retry failed and left the API in a retryable disconnected
-        # state (no dispatch since status is unchanged). Schedule the
-        # next attempt from here — this is exactly the case the
-        # pre-BUG-24 single-shot design missed.
-        self._schedule_next_retry(now)
+        try:
+            await self._api.initialize()
+        except Exception as ex:
+            # Most `_login` paths swallow their exceptions and set
+            # `FAILED` themselves, but not all (config-manager storage
+            # writes and unexpected errors can escape). Swallow here so
+            # the coordinator tick keeps ticking rather than reporting
+            # `UpdateFailed` to HA; the `finally` block below still
+            # schedules the next attempt, keeping the backoff intact.
+            _LOGGER.warning(f"Reconnection attempt raised: {ex}")
+        finally:
+            # Reschedule unless the retry actually recovered (API
+            # `CONNECTED` → the CONNECTED dispatch owns the AWS cascade
+            # + counter reset) or surfaced a user-action state (wait
+            # for OTP). Runs even if `initialize()` raised — otherwise
+            # the backoff would silently collapse to the 30 s tick
+            # cadence for repeated exceptions (F5 review finding).
+            if (
+                self._api.status != ConnectivityStatus.CONNECTED
+                and self._api.status not in _NEEDS_USER_STATUSES
+            ):
+                self._schedule_next_retry(now)
 
     async def _async_update_data(self):
         """Fetch parameters from API endpoint.
