@@ -42,6 +42,7 @@ import custom_components.mydolphin_plus.managers.rest_api as rest_api_module
 from custom_components.mydolphin_plus.managers.rest_api import (
     RestAPI,
     _cognito_call,
+    cognito_refresh,
 )
 from custom_components.mydolphin_plus.models.exceptions import (
     LoginError,
@@ -177,6 +178,22 @@ async def test_cognito_call_malformed_2xx_body_raises_transient():
         await _cognito_call(
             session, "InitiateAuth", {}, integration_info=_DummyIntegrationInfo()
         )
+
+
+@pytest.mark.asyncio
+async def test_cognito_refresh_200_without_authentication_result_is_terminal():
+    """A 200 response without ``AuthenticationResult`` is a protocol-level
+    reject (``rest_api.py:167``): the refresh token is genuinely dead and
+    must trigger OTP reauth. This test pins that the reject is a plain
+    ``LoginError`` — not the retryable ``TransientAuthError`` subclass —
+    so a future drift can't accidentally route it into the fail-safe
+    transient path and retry forever on a dead token."""
+    session = _FakeSession(response=_FakeResponse(200, {"ChallengeName": "OTP"}))
+    with pytest.raises(LoginError) as ei:
+        await cognito_refresh(
+            session, "some-refresh-token", integration_info=_DummyIntegrationInfo()
+        )
+    assert not isinstance(ei.value, TransientAuthError)
 
 
 # ---------------------------------------------------------------------------
@@ -345,10 +362,9 @@ async def test_flow_manager_user_step_catches_transient_via_login_error(
     """Transient network failure during ``async_step_user`` (email entry)
     must be caught by the existing ``except LoginError`` — the form is
     re-shown with ``otp_send_failed`` and no exception escapes."""
-    from homeassistant.const import CONF_USERNAME
-
     from custom_components.mydolphin_plus.common.consts import CONF_TITLE
     from custom_components.mydolphin_plus.managers import flow_manager as fm_module
+    from homeassistant.const import CONF_USERNAME
 
     async def failing_initiate(*_args, **_kwargs):
         raise TransientAuthError("Cognito InitiateAuth network failure: dns")

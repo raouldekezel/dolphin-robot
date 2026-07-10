@@ -96,9 +96,7 @@ async def _cognito_call(
                     f"Cognito {target} transient failure, "
                     f"Status: {response.status}, Body: {text}"
                 )
-                raise TransientAuthError(
-                    f"Cognito {target} returned {response.status}"
-                )
+                raise TransientAuthError(f"Cognito {target} returned {response.status}")
             if response.status >= 400:
                 _LOGGER.debug(
                     f"Cognito {target} failed, Status: {response.status}, Body: {text}"
@@ -111,17 +109,13 @@ async def _cognito_call(
         raise
     except (ClientConnectorError, ClientOSError, asyncio.TimeoutError) as ex:
         _LOGGER.debug(f"Cognito {target} network failure, Error: {ex}")
-        raise TransientAuthError(
-            f"Cognito {target} network failure: {ex}"
-        ) from ex
+        raise TransientAuthError(f"Cognito {target} network failure: {ex}") from ex
     except Exception as ex:
         # Fail-safe default: unknown error → transient. Wiping stored
         # credentials is destructive and must be gated on positive
         # evidence of rejection, not on our uncertainty (BUG-23).
         _LOGGER.debug(f"Cognito {target} unexpected error, Error: {ex}")
-        raise TransientAuthError(
-            f"Cognito {target} request failed: {ex}"
-        ) from ex
+        raise TransientAuthError(f"Cognito {target} request failed: {ex}") from ex
 
 
 async def cognito_initiate_auth(
