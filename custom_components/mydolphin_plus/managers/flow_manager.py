@@ -46,6 +46,7 @@ class IntegrationFlowManager:
         flow_handler: FlowHandler,
         entry: ConfigEntry | None = None,
         source: str | None = None,
+        flow_id_override: str | None = None,
     ):
         self._hass = hass
         self._flow_handler = flow_handler
@@ -54,7 +55,14 @@ class IntegrationFlowManager:
             source if source is not None else getattr(flow_handler, "source", None)
         )
         self._is_reauth = self._source == SOURCE_REAUTH
-        self._flow_id = "user" if entry is None or self._is_reauth else "init"
+        # FEAT-03 — `flow_id_override` lets the OptionsFlow menu's reauth
+        # branch emit a form step_id that doesn't collide with
+        # `async_step_init` (the menu). Without it, the OTP email form
+        # would submit back to `async_step_init` and re-show the menu.
+        if flow_id_override is not None:
+            self._flow_id = flow_id_override
+        else:
+            self._flow_id = "user" if entry is None or self._is_reauth else "init"
         self._integration_info = IntegrationInfo()
 
     async def async_step(self, user_input: dict | None = None):
