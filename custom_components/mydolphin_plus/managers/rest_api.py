@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 import json
 import logging
@@ -7,7 +8,12 @@ import sys
 import time
 from typing import Any
 
-from aiohttp import ClientResponseError, ClientSession
+from aiohttp import (
+    ClientConnectorError,
+    ClientOSError,
+    ClientResponseError,
+    ClientSession,
+)
 from aiohttp.hdrs import METH_GET, METH_POST
 
 from homeassistant.core import HomeAssistant
@@ -43,7 +49,7 @@ from ..common.consts import (
 )
 from ..common.integration_info import IntegrationInfo
 from ..models.config_data import ConfigData
-from ..models.exceptions import LoginError
+from ..models.exceptions import LoginError, TransientAuthError
 from .config_manager import ConfigManager
 
 _LOGGER = logging.getLogger(__name__)
@@ -85,6 +91,14 @@ async def _cognito_call(
             COGNITO_ENDPOINT, headers=headers, data=json.dumps(body)
         ) as response:
             text = await response.text()
+            if 500 <= response.status < 600 or response.status == 429:
+                _LOGGER.debug(
+                    f"Cognito {target} transient failure, "
+                    f"Status: {response.status}, Body: {text}"
+                )
+                raise TransientAuthError(
+                    f"Cognito {target} returned {response.status}"
+                )
             if response.status >= 400:
                 _LOGGER.debug(
                     f"Cognito {target} failed, Status: {response.status}, Body: {text}"
@@ -92,10 +106,22 @@ async def _cognito_call(
                 raise LoginError(f"Cognito {target} returned {response.status}")
             return json.loads(text)
     except LoginError:
+        # Covers both LoginError and TransientAuthError (subclass) raised
+        # inside the try body — let them propagate unwrapped.
         raise
+    except (ClientConnectorError, ClientOSError, asyncio.TimeoutError) as ex:
+        _LOGGER.debug(f"Cognito {target} network failure, Error: {ex}")
+        raise TransientAuthError(
+            f"Cognito {target} network failure: {ex}"
+        ) from ex
     except Exception as ex:
-        _LOGGER.debug(f"Cognito {target} request failed, Error: {ex}")
-        raise LoginError(f"Cognito {target} request failed: {ex}") from ex
+        # Fail-safe default: unknown error → transient. Wiping stored
+        # credentials is destructive and must be gated on positive
+        # evidence of rejection, not on our uncertainty (BUG-23).
+        _LOGGER.debug(f"Cognito {target} unexpected error, Error: {ex}")
+        raise TransientAuthError(
+            f"Cognito {target} request failed: {ex}"
+        ) from ex
 
 
 async def cognito_initiate_auth(
@@ -381,7 +407,21 @@ class RestAPI:
                 refresh_token,
                 integration_info=self._integration_info,
             )
+        except TransientAuthError as ex:
+            # Presumed retryable (network/timeout/5xx/429/unknown). Keep
+            # the stored refresh token intact; the coordinator's backoff
+            # (FAILED → _handle_connection_failure) retries with the
+            # same credentials when the network heals. Downgraded to
+            # WARNING so a sustained outage doesn't spam ERROR (BUG-23).
+            self._set_status(
+                ConnectivityStatus.FAILED,
+                f"refresh transient failure ({ex}) — will retry",
+                force_log_level=logging.WARNING,
+            )
+            return False
         except LoginError as ex:
+            # Server-side reject of the refresh token. It is dead —
+            # wipe stored credentials and force an OTP reauth.
             await self._config_manager.reset_login_details()
             self._set_status(
                 ConnectivityStatus.EXPIRED_TOKEN,
