@@ -105,7 +105,17 @@ class DomainOptionsFlowHandler(config_entries.OptionsFlow):
         return await flow_manager.async_step_user(user_input)
 
     async def async_step_otp(self, user_input=None):
-        flow_manager = IntegrationFlowManager(self.hass, self, self.config_entry)
+        # Same `flow_id_override="reauth"` as `async_step_reauth` so a
+        # lost-state fallback (`async_step_user(None)` inside
+        # `flow_manager.async_step_otp`) re-shows the email form with
+        # step_id="reauth" instead of "init" — landing on the menu
+        # would be a dead-end from the OTP form.
+        flow_manager = IntegrationFlowManager(
+            self.hass,
+            self,
+            self.config_entry,
+            flow_id_override="reauth",
+        )
         return await flow_manager.async_step_otp(user_input)
 
     async def async_step_preferences(self, user_input=None):

@@ -65,9 +65,13 @@ class PreferencesFlowManager:
         if coordinator is not None:
             await coordinator.async_set_visible_modes(new_visible)
 
+        # `async_create_entry` on an OptionsFlow REPLACES `entry.options`
+        # with `data`. Merge the current options into the write so any
+        # unrelated key (present or future) survives. Also self-documents
+        # that `visible_modes` is one option among possibly many.
         return self._flow_handler.async_create_entry(
             title="",
-            data={CONF_VISIBLE_MODES: sorted(new_visible)},
+            data={**self._entry.options, CONF_VISIBLE_MODES: sorted(new_visible)},
         )
 
     def _current_visible_modes(self) -> frozenset[str]:

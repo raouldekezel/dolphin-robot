@@ -176,7 +176,14 @@ class IntegrationFlowManager:
                 },
             )
             self._hass.config_entries.async_schedule_reload(self._entry.entry_id)
-            return self._flow_handler.async_create_entry(title="", data={})
+            # FEAT-03 — `async_create_entry` on an OptionsFlow REPLACES
+            # `entry.options` with `data`. Passing an empty dict here
+            # wipes any operator preference (e.g. `visible_modes`).
+            # Preserve the current options to avoid silent preference
+            # loss on a reauth-via-options-menu flow.
+            return self._flow_handler.async_create_entry(
+                title="", data=dict(self._entry.options)
+            )
 
         return self._flow_handler.async_create_entry(
             title=state["title"],

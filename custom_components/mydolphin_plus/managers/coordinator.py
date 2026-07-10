@@ -382,35 +382,32 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         )
 
     async def async_set_visible_modes(self, new_visible: frozenset[str]) -> None:
-        """Persist and propagate a new visible-modes set.
+        """Propagate a new visible-modes set to the running coordinator.
 
-        Called from the options-flow preferences step. Does three things
-        atomically (from HA's viewpoint — single event loop turn):
+        Called from the options-flow preferences step (which owns the
+        persistence). Does three things:
 
-        1. Updates `entry.options[CONF_VISIBLE_MODES]` so the change
-           survives restart (persisted by HA's config-entries store).
+        1. Updates the in-memory `_visible_modes` set.
         2. Toggles `hidden_by = RegistryEntryHider.INTEGRATION` on every
-           `number.cycle_time_<mode>` whose mode is now hidden, and
-           clears it on every mode that is now visible. `hidden_by`
-           removes the entity from default UI surfaces without a
-           registry reload (contrast with `disabled_by`, rejected in
-           the FEAT-03 design thread for that reason).
-        3. Refreshes coordinator listeners so
-           `vacuum.fan_speed_list` and `select.desired_clean_mode.options`
-           re-evaluate on the next tick via `cached_properties` (design
-           R1 — no entity reload).
+           `number.cycle_time_<mode>` whose mode is now hidden, clears
+           it on every mode that is now visible. `hidden_by` removes
+           the entity from default UI surfaces without a registry
+           reload (contrast with `disabled_by`, rejected in the FEAT-03
+           design thread for that reason).
+        3. Refreshes coordinator listeners so `vacuum.fan_speed_list`
+           and `select.desired_clean_mode.options` re-evaluate on the
+           next tick via `cached_properties` (design R1 — no entity
+           reload).
+
+        Does NOT write `entry.options` — the flow finalize
+        (`async_create_entry(data=...)`) owns persistence. Doing both
+        would clobber unrelated option keys, because
+        `async_create_entry` REPLACES options with `data` wholesale.
         """
         clean = frozenset(m for m in new_visible if m in KNOWN_LABELED_MODES)
         if not clean:
             clean = frozenset(KNOWN_LABELED_MODES)
         self._visible_modes = clean
-
-        entry = self.config_manager.entry
-        if entry is not None:
-            self.hass.config_entries.async_update_entry(
-                entry,
-                options={**entry.options, CONF_VISIBLE_MODES: sorted(clean)},
-            )
 
         self._apply_visible_modes_to_registry(clean)
         self.async_update_listeners()

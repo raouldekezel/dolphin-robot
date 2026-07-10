@@ -83,8 +83,8 @@ def _stub_coordinator(entry_options: dict | None = None):
     stub.async_update_listeners = MagicMock()
 
     # Bind the real methods so state advances are observable.
-    stub._seed_visible_modes = (
-        lambda e: MyDolphinPlusCoordinator._seed_visible_modes(stub, e)
+    stub._seed_visible_modes = lambda e: MyDolphinPlusCoordinator._seed_visible_modes(
+        stub, e
     )
     stub._apply_visible_modes_to_registry = (
         lambda visible: MyDolphinPlusCoordinator._apply_visible_modes_to_registry(
@@ -126,28 +126,32 @@ def test_seed_visible_modes_empty_falls_back_to_full():
 
 
 @pytest.mark.asyncio
-async def test_async_set_visible_modes_updates_persists_registry_and_notifies(
+async def test_async_set_visible_modes_updates_registry_and_notifies_no_persist(
     monkeypatch,
 ):
-    """The one mutator: updates in-memory set, writes to entry.options,
-    toggles registry hidden_by, calls `async_update_listeners`."""
+    """The mutator updates in-memory set, toggles registry `hidden_by`,
+    and calls `async_update_listeners`. It must NOT write
+    `entry.options` — the flow finalize
+    (`async_create_entry(data={**entry.options, …})`) owns persistence;
+    double-writing would race with `async_create_entry`'s wholesale
+    replace and could clobber unrelated option keys."""
     stub, entry = _stub_coordinator()
-    stub.async_set_visible_modes = MyDolphinPlusCoordinator.async_set_visible_modes.__get__(
-        stub, MyDolphinPlusCoordinator
+    stub.async_set_visible_modes = (
+        MyDolphinPlusCoordinator.async_set_visible_modes.__get__(
+            stub, MyDolphinPlusCoordinator
+        )
     )
 
     apply_calls: list[frozenset] = []
-    stub._apply_visible_modes_to_registry = lambda visible: apply_calls.append(
-        visible
-    )
+    stub._apply_visible_modes_to_registry = lambda visible: apply_calls.append(visible)
 
     new_visible = frozenset({"all", "short"})
     await stub.async_set_visible_modes(new_visible)
 
     assert stub._visible_modes == new_visible
-    stub.hass.config_entries.async_update_entry.assert_called_once()
-    (_call_args, call_kwargs) = stub.hass.config_entries.async_update_entry.call_args
-    assert call_kwargs["options"] == {CONF_VISIBLE_MODES: ["all", "short"]}
+    # Persistence is the flow finalize's job — the coordinator mutator
+    # must not touch entry.options directly.
+    stub.hass.config_entries.async_update_entry.assert_not_called()
     assert apply_calls == [new_visible]
     stub.async_update_listeners.assert_called_once()
 
@@ -157,8 +161,10 @@ async def test_async_set_visible_modes_empty_input_restores_full_set():
     """Guard against locking the picker to zero modes even if the caller
     passes an empty set. See #51 → decisions Q1/Q3."""
     stub, entry = _stub_coordinator()
-    stub.async_set_visible_modes = MyDolphinPlusCoordinator.async_set_visible_modes.__get__(
-        stub, MyDolphinPlusCoordinator
+    stub.async_set_visible_modes = (
+        MyDolphinPlusCoordinator.async_set_visible_modes.__get__(
+            stub, MyDolphinPlusCoordinator
+        )
     )
     stub._apply_visible_modes_to_registry = MagicMock()
 
@@ -170,8 +176,10 @@ async def test_async_set_visible_modes_empty_input_restores_full_set():
 @pytest.mark.asyncio
 async def test_async_set_visible_modes_drops_unknown_values():
     stub, entry = _stub_coordinator()
-    stub.async_set_visible_modes = MyDolphinPlusCoordinator.async_set_visible_modes.__get__(
-        stub, MyDolphinPlusCoordinator
+    stub.async_set_visible_modes = (
+        MyDolphinPlusCoordinator.async_set_visible_modes.__get__(
+            stub, MyDolphinPlusCoordinator
+        )
     )
     stub._apply_visible_modes_to_registry = MagicMock()
 
@@ -218,16 +226,16 @@ def test_apply_visible_modes_hides_only_invisible_modes(monkeypatch):
     cycle_time_keys = {
         get_clean_mode_cycle_time_key(CleanModes(m)): m for m in KNOWN_LABELED_MODES
     }
-    entries = [
-        _FakeRegistryEntry(f"number.foo_{key}", key) for key in cycle_time_keys
-    ]
+    entries = [_FakeRegistryEntry(f"number.foo_{key}", key) for key in cycle_time_keys]
     # An unrelated number entity (e.g. `number.foo_led_intensity`) must
     # be ignored — its `translation_key` doesn't match any cycle_time key.
     entries.append(_FakeRegistryEntry("number.foo_led_intensity", "led_intensity"))
     # A sensor entity that happens to share a translation_key must be
     # ignored — we only touch `number.*`.
     cycle_time_all_key = get_clean_mode_cycle_time_key(CleanModes.REGULAR)
-    entries.append(_FakeRegistryEntry(f"sensor.foo_{cycle_time_all_key}", cycle_time_all_key))
+    entries.append(
+        _FakeRegistryEntry(f"sensor.foo_{cycle_time_all_key}", cycle_time_all_key)
+    )
 
     registry = _FakeRegistry(entries)
 
@@ -256,9 +264,9 @@ def test_apply_visible_modes_hides_only_invisible_modes(monkeypatch):
     for key, mode in cycle_time_keys.items():
         entity_id = f"number.foo_{key}"
         if mode in visible:
-            assert entity_id not in entity_ids_updated, (
-                f"{mode} already-visible entity should not be re-written"
-            )
+            assert (
+                entity_id not in entity_ids_updated
+            ), f"{mode} already-visible entity should not be re-written"
         else:
             assert per_entity[entity_id] == RegistryEntryHider.INTEGRATION
 
@@ -429,9 +437,7 @@ async def test_preferences_flow_save_calls_coordinator_and_creates_entry():
     )
 
     mgr = PreferencesFlowManager(hass, flow_handler, entry)
-    result = await mgr.async_step_preferences(
-        {CONF_VISIBLE_MODES: ["all", "short"]}
-    )
+    result = await mgr.async_step_preferences({CONF_VISIBLE_MODES: ["all", "short"]})
 
     coordinator.async_set_visible_modes.assert_awaited_once_with(
         frozenset({"all", "short"})
@@ -469,6 +475,38 @@ async def test_preferences_flow_empty_selection_falls_back_to_full():
         frozenset(KNOWN_LABELED_MODES)
     )
     assert result["data"] == {CONF_VISIBLE_MODES: sorted(KNOWN_LABELED_MODES)}
+
+
+@pytest.mark.asyncio
+async def test_preferences_flow_save_merges_existing_entry_options():
+    """`async_create_entry(data=...)` on OptionsFlow REPLACES
+    `entry.options` with `data`. The preferences flow must merge the
+    current options into `data` so any unrelated key survives (must-fix
+    #3 in the fable review of PR #124)."""
+    from custom_components.mydolphin_plus.managers.preferences_flow import (
+        PreferencesFlowManager,
+    )
+
+    hass = MagicMock()
+    entry = MagicMock()
+    entry.entry_id = "e1"
+    entry.options = {"unrelated_future_key": "keep-me", CONF_VISIBLE_MODES: []}
+
+    coordinator = MagicMock()
+    coordinator.visible_modes = frozenset(KNOWN_LABELED_MODES)
+    coordinator.async_set_visible_modes = AsyncMock()
+    hass.data = {DOMAIN: {entry.entry_id: coordinator}}
+
+    flow_handler = MagicMock()
+    flow_handler.async_create_entry = MagicMock(
+        side_effect=lambda **kwargs: {"type": "create_entry", **kwargs}
+    )
+
+    mgr = PreferencesFlowManager(hass, flow_handler, entry)
+    result = await mgr.async_step_preferences({CONF_VISIBLE_MODES: ["all"]})
+
+    assert result["data"]["unrelated_future_key"] == "keep-me"
+    assert result["data"][CONF_VISIBLE_MODES] == ["all"]
 
 
 @pytest.mark.asyncio
@@ -517,3 +555,169 @@ async def test_options_flow_init_shows_menu_with_two_branches():
     assert result["type"] == "menu"
     assert result["step_id"] == "init"
     assert sorted(result["menu_options"]) == ["preferences", "reauth"]
+
+
+# ---------------------------------------------------------------------------
+# P1 — reauth via the options menu must NOT wipe visible_modes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_options_reauth_via_flow_manager_preserves_visible_modes(monkeypatch):
+    """On the OTP finalize path used by the options menu's reauth branch
+    (`self._entry is not None`, not `_is_reauth`), the flow used to
+    finalize with `async_create_entry(data={})`, which HA translates
+    into `entry.options = {}` — silently wiping any saved
+    `visible_modes`. This test drives the real
+    `IntegrationFlowManager.async_step_otp` code path and asserts the
+    current options are preserved on the create_entry finalize."""
+    from custom_components.mydolphin_plus.managers import flow_manager as fm_module
+    from custom_components.mydolphin_plus.managers.flow_manager import (
+        _FLOW_STATE_ATTR,
+        IntegrationFlowManager,
+    )
+
+    monkeypatch.setattr(
+        fm_module,
+        "cognito_respond_otp",
+        AsyncMock(
+            return_value={
+                "IdToken": "id",
+                "RefreshToken": "refresh",
+                "ExpiresIn": 3600,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        fm_module,
+        "fetch_user_profile",
+        AsyncMock(return_value={"Sernum": "s1", "eSERNUM": "e1"}),
+    )
+    monkeypatch.setattr(fm_module, "async_get_clientsession", lambda _hass: object())
+
+    hass = MagicMock()
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_update_entry = MagicMock()
+    hass.config_entries.async_schedule_reload = MagicMock()
+
+    entry = MagicMock()
+    entry.options = {CONF_VISIBLE_MODES: ["all", "short"]}
+    entry.title = "Nono"
+
+    handler = MagicMock()
+    handler.async_create_entry = MagicMock(
+        side_effect=lambda **kwargs: {"type": "create_entry", **kwargs}
+    )
+    setattr(
+        handler,
+        _FLOW_STATE_ATTR,
+        {"title": "Nono", "email": "user@example.com", "cognito_session": "sess"},
+    )
+
+    mgr = IntegrationFlowManager(hass, handler, entry)
+
+    # Stub the async initialize on the manager's IntegrationInfo — the
+    # real one touches HA storage.
+    async def _noop_init(_hass):
+        return None
+
+    mgr._integration_info.initialize = _noop_init  # type: ignore[attr-defined]
+
+    result = await mgr.async_step_otp({"otp": "123456"})
+
+    assert result["type"] == "create_entry"
+    # The load-bearing assertion — options must survive the finalize.
+    assert result["data"].get(CONF_VISIBLE_MODES) == ["all", "short"]
+
+
+# ---------------------------------------------------------------------------
+# P2 — options OTP lost-state fallback must NOT land on the menu
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_options_otp_lost_state_reroutes_to_reauth_not_menu(monkeypatch):
+    """If a user hits the OTP submit after the intermediate state has
+    been cleared, `flow_manager.async_step_otp` falls back to
+    `async_step_user(None)` which shows the email form. With
+    `flow_id_override="reauth"` (matching `async_step_reauth`), the
+    form's `step_id` is `"reauth"` — not `"init"`, which would collide
+    with the menu and dead-end the user."""
+    from custom_components.mydolphin_plus.config_flow import DomainOptionsFlowHandler
+    from custom_components.mydolphin_plus.managers import flow_manager as fm_module
+
+    monkeypatch.setattr(fm_module, "async_get_clientsession", lambda _hass: object())
+
+    handler = DomainOptionsFlowHandler()
+    handler.hass = MagicMock()
+    # No _FLOW_STATE_ATTR on the handler → async_step_otp falls back to
+    # async_step_user(None).
+    handler.async_show_form = MagicMock(
+        side_effect=lambda **kwargs: {"type": "form", **kwargs}
+    )
+    entry = MagicMock()
+    entry.title = "Nono"
+    entry.data = {}
+    # DomainOptionsFlowHandler exposes `config_entry` via the OptionsFlow
+    # base; stub it.
+    type(handler).config_entry = property(lambda _self: entry)
+
+    result = await handler.async_step_otp(user_input={"otp": "1234"})
+
+    assert result["type"] == "form"
+    # Must NOT be "init" (the menu step_id).
+    assert result["step_id"] == "reauth"
+
+
+# ---------------------------------------------------------------------------
+# P3 — anchor seam tests on real ENTITY_DESCRIPTIONS (de-tautologize)
+# ---------------------------------------------------------------------------
+
+
+def test_registry_matcher_covers_real_cycle_time_number_translation_keys():
+    """The registry `hidden_by` toggle matches `number.*` entities by
+    their `translation_key`. If either the matcher key or the entity
+    description's `translation_key` drifts, the toggle silently no-ops.
+    Anchor the invariant on the shipped `ENTITY_DESCRIPTIONS` list so a
+    rename on either side breaks this test — not the FEAT-03 fixture
+    which used to synthesize both ends of the seam."""
+    from custom_components.mydolphin_plus.common.entity_descriptions import (
+        ENTITY_DESCRIPTIONS,
+    )
+    from homeassistant.const import Platform
+
+    real_number_tks = {
+        ed.translation_key
+        for ed in ENTITY_DESCRIPTIONS
+        if ed.platform == Platform.NUMBER and ed.translation_key is not None
+    }
+    matcher_keys = {
+        get_clean_mode_cycle_time_key(CleanModes(m)) for m in KNOWN_LABELED_MODES
+    }
+
+    # Every mode our matcher looks up must exist as a real number entity
+    # description in the integration.
+    missing = matcher_keys - real_number_tks
+    assert not missing, (
+        f"registry matcher references cycle_time keys with no matching "
+        f"number entity description: {missing}"
+    )
+
+
+def test_select_filter_key_matches_a_real_select_description():
+    """The `desired_clean_mode` filter in `select.py` gates on the
+    entity description's `key`. Anchor on the shipped descriptions so a
+    key rename on either side breaks this test."""
+    from custom_components.mydolphin_plus.common.entity_descriptions import (
+        ENTITY_DESCRIPTIONS,
+    )
+    from custom_components.mydolphin_plus.select import _DESIRED_CLEAN_MODE_KEY
+    from homeassistant.const import Platform
+
+    select_keys = {
+        ed.key for ed in ENTITY_DESCRIPTIONS if ed.platform == Platform.SELECT
+    }
+    assert _DESIRED_CLEAN_MODE_KEY in select_keys, (
+        f"select filter key {_DESIRED_CLEAN_MODE_KEY!r} does not match "
+        f"any real select description ({sorted(select_keys)})"
+    )
