@@ -17,7 +17,7 @@
         }
       },
       "reauth_confirm": {
-        "title": "[%key:common::config_flow::title::reauth%]",
+        "title": "Réauthentifier MyDolphin Plus",
         "description": "Votre session MyDolphin Plus a expiré. Continuez pour vous reconnecter avec un nouveau code de connexion."
       }
     },
@@ -29,7 +29,7 @@
       "already_configured": "Intégration déjà configurée avec ce nom"
     },
     "abort": {
-      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+      "reauth_successful": "Ré-authentification réussie"
     }
   },
   "options": {
