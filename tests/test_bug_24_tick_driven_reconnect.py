@@ -2,7 +2,7 @@
 
 Pre-fix ``_handle_connection_failure`` was single-shot per status
 transition: it slept the backoff and called ``_api.initialize()``
-exactly once, then returned. On a retry that left the API status
+exactly once, then returned. On a retry that left the status
 unchanged (``FAILED`` → ``FAILED``, ``EXPIRED_TOKEN`` →
 ``EXPIRED_TOKEN``), ``_set_status``'s state-change guard skipped the
 dispatch, no new ``_handle_connection_failure`` fired, and the
@@ -11,20 +11,24 @@ integration stayed dormant until reload. Confirmed empirically on
 at #2 and never advanced to #3/#4/#5 despite the network healing.
 
 Post-fix, ``_handle_connection_failure`` no longer sleeps or calls
-``initialize`` — it just terminates the AWS client and seeds the retry
-schedule. The coordinator's ~30 s tick (``_async_update_data``) drives
-retries via ``_maybe_reconnect``:
+``initialize`` — it just terminates the AWS client and (when the API
+is not in a user-action state) seeds the retry schedule. The
+coordinator's ~30 s tick (``_async_update_data``) drives retries via
+``_maybe_reconnect``:
 
-* fires ``_api.initialize()`` when the status is in the narrow
-  ``{FAILED, NOT_CONNECTED}`` set and the scheduled backoff has
-  elapsed, then
+* fires ``_api.initialize()`` when the integration is not fully
+  connected AND the API is not in a user-action state AND the
+  scheduled backoff has elapsed;
 * schedules the next attempt (``1 → 2 → 4 → 8 → 15`` min capped) so
-  that the no-dispatch halt case can never park the integration.
+  the no-dispatch halt case can never park the integration.
 
-Predicate is deliberately narrower than ``is_disconnected()``:
-``EXPIRED_TOKEN`` and ``INVALID_*`` are excluded so a tick-retry never
-re-hits "no refresh token stored" forever, races the OTP reauth flow,
-or spams the API on a fatal state that needs user action.
+Critically, the predicate considers **both** the API and the AWS
+client — an AWS-only failure (MQTT drop with API still CONNECTED)
+also triggers a retry, because re-driving ``_api.initialize()``
+cascades to ``_aws_client.initialize()`` via the CONNECTED dispatch.
+The PR-first version of BUG-24 gated on ``_api.status`` alone and
+regressed AWS/MQTT recovery entirely — this test file covers the
+combined predicate to prevent that.
 """
 
 from __future__ import annotations
@@ -37,32 +41,42 @@ from custom_components.mydolphin_plus.common.connectivity_status import (
     ConnectivityStatus,
 )
 from custom_components.mydolphin_plus.managers.coordinator import (
-    _RETRYABLE_STATUSES,
+    _NEEDS_USER_STATUSES,
     MyDolphinPlusCoordinator,
 )
 
 
-def _stub_coordinator(status: ConnectivityStatus = ConnectivityStatus.FAILED):
+def _stub_coordinator(
+    api_status: ConnectivityStatus = ConnectivityStatus.FAILED,
+    aws_status: ConnectivityStatus = ConnectivityStatus.DISCONNECTED,
+):
     """Minimum coordinator stand-in for the BUG-24 methods under test.
 
     ``_handle_connection_failure`` / ``_maybe_reconnect`` /
-    ``_schedule_next_retry`` only touch ``_api``, ``_aws_client``,
-    ``_reconnection_attempts`` and ``_next_retry_at``.
+    ``_schedule_next_retry`` / ``_is_fully_connected`` / ``_aws_status``
+    only touch ``_api``, ``_aws_client``, ``_reconnection_attempts`` and
+    ``_next_retry_at``.
     """
     stub = MagicMock(spec=MyDolphinPlusCoordinator)
     stub._api = MagicMock()
-    stub._api.status = status
+    stub._api.status = api_status
     stub._api.initialize = AsyncMock()
     stub._aws_client = MagicMock()
+    stub._aws_client.status = aws_status
     stub._aws_client.terminate = AsyncMock()
     stub._reconnection_attempts = 0
     stub._next_retry_at = 0.0
-    # Bind the real ``_schedule_next_retry`` so counter / timestamp writes
-    # are observable when ``_handle_connection_failure`` and
-    # ``_maybe_reconnect`` call ``self._schedule_next_retry(...)``.
-    # Without this, MagicMock replaces it and the side effects vanish.
-    stub._schedule_next_retry = lambda now: MyDolphinPlusCoordinator._schedule_next_retry(
-        stub, now
+
+    # Bind the real helpers so state advances are observable when
+    # `_handle_connection_failure` / `_maybe_reconnect` call them via
+    # `self`. Without this, MagicMock replaces them and side-effects
+    # (counter bumps, predicate reads) vanish.
+    stub._schedule_next_retry = (
+        lambda now: MyDolphinPlusCoordinator._schedule_next_retry(stub, now)
+    )
+    stub._aws_status = lambda: MyDolphinPlusCoordinator._aws_status(stub)
+    stub._is_fully_connected = lambda: MyDolphinPlusCoordinator._is_fully_connected(
+        stub
     )
     return stub
 
@@ -72,24 +86,22 @@ def _stub_coordinator(status: ConnectivityStatus = ConnectivityStatus.FAILED):
 # ---------------------------------------------------------------------------
 
 
-def test_retryable_statuses_are_narrow():
-    """The tick-retry predicate is limited to ``FAILED`` and
-    ``NOT_CONNECTED``. Widening it to ``is_disconnected()`` would
-    tick-retry ``EXPIRED_TOKEN`` (needs OTP flow, never recovers by
-    itself) and ``INVALID_*`` (need user action) — pointless and
-    interfering with the reauth flow."""
-    assert _RETRYABLE_STATUSES == frozenset(
-        {ConnectivityStatus.FAILED, ConnectivityStatus.NOT_CONNECTED}
+def test_needs_user_statuses_are_correct():
+    """User-action states must NOT trigger tick-retry:
+    ``EXPIRED_TOKEN`` needs OTP flow, ``INVALID_*`` and
+    ``MISSING_API_KEY`` need the operator. Retrying just re-hits the
+    same fatal state (and, for EXPIRED_TOKEN, can race the reauth)."""
+    assert _NEEDS_USER_STATUSES == frozenset(
+        {
+            ConnectivityStatus.EXPIRED_TOKEN,
+            ConnectivityStatus.INVALID_CREDENTIALS,
+            ConnectivityStatus.INVALID_ACCOUNT,
+            ConnectivityStatus.MISSING_API_KEY,
+        }
     )
-    for s in [
-        ConnectivityStatus.EXPIRED_TOKEN,
-        ConnectivityStatus.INVALID_CREDENTIALS,
-        ConnectivityStatus.INVALID_ACCOUNT,
-        ConnectivityStatus.MISSING_API_KEY,
-        ConnectivityStatus.DISCONNECTED,
-        ConnectivityStatus.API_NOT_FOUND,
-    ]:
-        assert s not in _RETRYABLE_STATUSES, f"{s} must not be tick-retried"
+    # FAILED and NOT_CONNECTED must be retryable — that's the whole point.
+    for s in [ConnectivityStatus.FAILED, ConnectivityStatus.NOT_CONNECTED]:
+        assert s not in _NEEDS_USER_STATUSES
 
 
 # ---------------------------------------------------------------------------
@@ -98,11 +110,12 @@ def test_retryable_statuses_are_narrow():
 
 
 @pytest.mark.asyncio
-async def test_handle_connection_failure_terminates_and_seeds_only():
+async def test_handle_connection_failure_terminates_and_seeds_on_retryable():
     """The dispatch entry point must NOT call ``_api.initialize()``
     itself — doing both here and in the tick would race two concurrent
-    initialize() calls. It must only terminate and seed the schedule."""
-    stub = _stub_coordinator()
+    initialize() calls. It must terminate and seed when the API status
+    is retryable."""
+    stub = _stub_coordinator(api_status=ConnectivityStatus.FAILED)
 
     await MyDolphinPlusCoordinator._handle_connection_failure(stub)
 
@@ -112,14 +125,43 @@ async def test_handle_connection_failure_terminates_and_seeds_only():
     assert stub._next_retry_at > 0.0
 
 
+@pytest.mark.asyncio
+async def test_handle_connection_failure_skips_seed_on_needs_user():
+    """On EXPIRED_TOKEN / INVALID_* the retry schedule must NOT be
+    seeded — the tick can't fix these and the counter would just tick
+    up pointlessly, cluttering the log."""
+    stub = _stub_coordinator(api_status=ConnectivityStatus.EXPIRED_TOKEN)
+
+    await MyDolphinPlusCoordinator._handle_connection_failure(stub)
+
+    stub._aws_client.terminate.assert_awaited_once()
+    stub._api.initialize.assert_not_awaited()
+    assert stub._reconnection_attempts == 0
+    assert stub._next_retry_at == 0.0
+
+
 # ---------------------------------------------------------------------------
 # _maybe_reconnect — tick-driven retry
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
+async def test_maybe_reconnect_skips_when_unseeded():
+    """Fresh startup: ``_next_retry_at == 0.0`` before any failure has
+    seeded the schedule. Even with API at NOT_CONNECTED the tick must
+    NOT fire — the initial `initialize()` is driven by
+    ``coordinator.initialize()``, not by the tick."""
+    stub = _stub_coordinator(api_status=ConnectivityStatus.NOT_CONNECTED)
+    stub._next_retry_at = 0.0
+
+    await MyDolphinPlusCoordinator._maybe_reconnect(stub, now=100.0)
+
+    stub._api.initialize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_maybe_reconnect_skips_when_backoff_not_elapsed():
-    stub = _stub_coordinator(ConnectivityStatus.FAILED)
+    stub = _stub_coordinator(api_status=ConnectivityStatus.FAILED)
     stub._next_retry_at = 1_000_000.0
     now = 999_999.0  # 1 s before the scheduled retry
 
@@ -129,81 +171,144 @@ async def test_maybe_reconnect_skips_when_backoff_not_elapsed():
 
 
 @pytest.mark.asyncio
-async def test_maybe_reconnect_fires_on_failed_when_backoff_elapsed():
-    stub = _stub_coordinator(ConnectivityStatus.FAILED)
+async def test_maybe_reconnect_fires_on_api_failed():
+    stub = _stub_coordinator(api_status=ConnectivityStatus.FAILED)
     stub._next_retry_at = 1_000_000.0
     now = 1_000_001.0
 
-    # Simulate: initialize() ran but left status FAILED (persistent outage).
-    async def failing_initialize():
+    # Persistent outage: initialize() runs but leaves status FAILED.
+    async def failing():
         stub._api.status = ConnectivityStatus.FAILED
 
-    stub._api.initialize.side_effect = failing_initialize
+    stub._api.initialize.side_effect = failing
 
     await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
 
     stub._api.initialize.assert_awaited_once()
-    # Failed retry must schedule the next attempt (this is the load-bearing
-    # anti-halt behaviour — pre-fix, the halt happened right here).
+    # Failed retry must schedule the next attempt (this is the load-
+    # bearing anti-halt behaviour — pre-fix, the halt happened right
+    # here).
     assert stub._reconnection_attempts == 1
     assert stub._next_retry_at > now
 
 
 @pytest.mark.asyncio
-async def test_maybe_reconnect_does_not_reschedule_after_success():
-    """After a successful retry the API dispatches ``CONNECTED`` and
-    ``_on_api_status_changed`` resets both counters. ``_maybe_reconnect``
-    itself must NOT bump / reschedule when the retry recovered."""
-    stub = _stub_coordinator(ConnectivityStatus.FAILED)
+async def test_maybe_reconnect_fires_on_aws_only_failure_with_api_connected():
+    """Regression guard for the #122 review finding.
+
+    A pure MQTT drop leaves the API at CONNECTED and only the AWS
+    client goes to FAILED. The pre-review version of BUG-24 gated on
+    ``_api.status`` alone and never fired here — the integration got
+    stuck with API "connected", MQTT dead, no data, until reload.
+
+    Post-review: the tick fires an `_api.initialize()` even though the
+    API is CONNECTED, because that's what triggers the CONNECTED
+    cascade that re-inits the AWS client.
+    """
+    stub = _stub_coordinator(
+        api_status=ConnectivityStatus.CONNECTED,
+        aws_status=ConnectivityStatus.FAILED,
+    )
+    # AWS-side dispatch would have called `_handle_connection_failure`
+    # which seeded the schedule; simulate that seeded state directly.
+    stub._reconnection_attempts = 1
+    stub._next_retry_at = 1_000_000.0
+    now = 1_000_001.0
+
+    # Simulate a healthy re-init: the CONNECTED cascade would then
+    # re-init the AWS client via `_on_api_status_changed(CONNECTED)`.
+    async def healthy():
+        stub._api.status = ConnectivityStatus.CONNECTED
+
+    stub._api.initialize.side_effect = healthy
+
+    await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
+
+    stub._api.initialize.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_maybe_reconnect_does_not_reschedule_after_api_becomes_connected():
+    """After a successful retry, the API is CONNECTED. The CONNECTED
+    dispatch cascades to ``_aws_client.initialize()`` asynchronously
+    and its handler will reset the retry schedule. ``_maybe_reconnect``
+    must NOT reschedule from here — doing so would fire another
+    `initialize()` in ~1 min while AWS is still catching up."""
+    stub = _stub_coordinator(api_status=ConnectivityStatus.FAILED)
     stub._next_retry_at = 1_000_000.0
     stub._reconnection_attempts = 3
     initial_next = stub._next_retry_at
     now = 1_000_001.0
 
-    async def healthy_initialize():
+    async def healthy():
         stub._api.status = ConnectivityStatus.CONNECTED
 
-    stub._api.initialize.side_effect = healthy_initialize
+    stub._api.initialize.side_effect = healthy
 
     await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
 
     stub._api.initialize.assert_awaited_once()
-    # Reset is the responsibility of the dispatch handler
-    # (`_on_api_status_changed(CONNECTED)`), not of `_maybe_reconnect`.
     assert stub._reconnection_attempts == 3
     assert stub._next_retry_at == initial_next
 
 
+@pytest.mark.asyncio
+async def test_maybe_reconnect_does_not_reschedule_after_needs_user():
+    """If the retry surfaces a user-action state (e.g. Cognito
+    rejected the refresh token → EXPIRED_TOKEN), the tick must NOT
+    reschedule — the recovery path is the OTP reauth flow, not
+    another `initialize()`."""
+    stub = _stub_coordinator(api_status=ConnectivityStatus.FAILED)
+    stub._next_retry_at = 1_000_000.0
+    stub._reconnection_attempts = 2
+    initial_next = stub._next_retry_at
+    now = 1_000_001.0
+
+    async def rejected():
+        stub._api.status = ConnectivityStatus.EXPIRED_TOKEN
+
+    stub._api.initialize.side_effect = rejected
+
+    await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
+
+    stub._api.initialize.assert_awaited_once()
+    assert stub._reconnection_attempts == 2
+    assert stub._next_retry_at == initial_next
+
+
 @pytest.mark.parametrize(
-    "status,should_fire",
+    "api_status,should_fire",
     [
         (ConnectivityStatus.FAILED, True),
         (ConnectivityStatus.NOT_CONNECTED, True),
+        (ConnectivityStatus.DISCONNECTED, True),  # aws-terminate side-effect
+        (ConnectivityStatus.CONNECTING, True),  # incomplete init, seed present
+        (ConnectivityStatus.TEMPORARY_CONNECTED, True),  # login mid-way
+        (ConnectivityStatus.API_NOT_FOUND, True),  # server hostname, retry harmless
         (ConnectivityStatus.EXPIRED_TOKEN, False),
         (ConnectivityStatus.INVALID_CREDENTIALS, False),
         (ConnectivityStatus.INVALID_ACCOUNT, False),
         (ConnectivityStatus.MISSING_API_KEY, False),
-        (ConnectivityStatus.DISCONNECTED, False),
-        (ConnectivityStatus.API_NOT_FOUND, False),
-        (ConnectivityStatus.CONNECTED, False),
-        (ConnectivityStatus.CONNECTING, False),
-        (ConnectivityStatus.TEMPORARY_CONNECTED, False),
+        (ConnectivityStatus.CONNECTED, True),  # w/ aws NOT CONNECTED, must fire
     ],
     ids=lambda s: str(s) if isinstance(s, ConnectivityStatus) else str(s),
 )
 @pytest.mark.asyncio
-async def test_maybe_reconnect_predicate(status, should_fire):
-    """Only FAILED and NOT_CONNECTED trigger a tick retry. In particular
-    EXPIRED_TOKEN must not — retry re-hits 'no refresh token stored'
-    forever and can interfere with an active OTP reauth flow."""
-    stub = _stub_coordinator(status)
-    stub._next_retry_at = 0.0  # trivially elapsed
+async def test_maybe_reconnect_predicate_api_side(api_status, should_fire):
+    """Sweep API statuses with AWS held at NOT_CONNECTED (the state
+    after a terminate/failure). Only the user-action statuses must
+    suppress the tick; every other non-fully-connected combination
+    should fire so we cover both API- and AWS-triggered failures."""
+    stub = _stub_coordinator(
+        api_status=api_status, aws_status=ConnectivityStatus.NOT_CONNECTED
+    )
+    stub._next_retry_at = 1.0  # seeded, trivially elapsed
     now = 100.0
 
-    async def keep_status():
-        pass  # don't mutate _api.status
+    async def noop():
+        pass  # don't mutate status
 
-    stub._api.initialize.side_effect = keep_status
+    stub._api.initialize.side_effect = noop
 
     await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
 
@@ -211,6 +316,20 @@ async def test_maybe_reconnect_predicate(status, should_fire):
         stub._api.initialize.assert_awaited_once()
     else:
         stub._api.initialize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_maybe_reconnect_skips_when_fully_connected():
+    """Both sides connected → the tick must be a no-op."""
+    stub = _stub_coordinator(
+        api_status=ConnectivityStatus.CONNECTED,
+        aws_status=ConnectivityStatus.CONNECTED,
+    )
+    stub._next_retry_at = 1.0  # even seeded, must not fire
+
+    await MyDolphinPlusCoordinator._maybe_reconnect(stub, now=100.0)
+
+    stub._api.initialize.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +369,10 @@ async def test_repeated_failures_keep_advancing_never_halts():
     the integration stayed dormant. Post-fix, ticks keep firing at
     each backoff boundary until the network heals or the integration
     is unloaded."""
-    stub = _stub_coordinator(ConnectivityStatus.FAILED)
+    stub = _stub_coordinator(
+        api_status=ConnectivityStatus.FAILED,
+        aws_status=ConnectivityStatus.NOT_CONNECTED,
+    )
 
     async def keep_failing():
         stub._api.status = ConnectivityStatus.FAILED
@@ -262,10 +384,9 @@ async def test_repeated_failures_keep_advancing_never_halts():
     assert stub._reconnection_attempts == 1
     assert stub._api.initialize.await_count == 0  # seed does NOT fire
 
-    # Simulate five ticks — each just past the previously scheduled retry.
+    # Simulate five ticks — each just at the previously scheduled retry.
     fires = 0
     for _ in range(5):
-        # Tick fires exactly at the scheduled time (accepted by `>=` guard).
         now = stub._next_retry_at
         await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
         fires += 1
@@ -273,33 +394,60 @@ async def test_repeated_failures_keep_advancing_never_halts():
             f"tick #{fires} must fire initialize (halt regression)"
         )
 
-    # Attempts have advanced past #2 — this is exactly what the pre-fix
-    # code could not do.
     assert stub._reconnection_attempts >= 6
 
 
 @pytest.mark.asyncio
-async def test_recovery_stops_the_retry_loop():
-    """Once a tick-retry succeeds, `_api` dispatches CONNECTED; the
-    dispatch handler (not exercised here) resets the counters. This
-    test validates the observable at the ``_maybe_reconnect`` layer:
-    the successful tick does NOT itself schedule a next retry."""
-    stub = _stub_coordinator(ConnectivityStatus.FAILED)
+async def test_aws_only_outage_recovers_via_tick():
+    """End-to-end for the MQTT-timeout scenario from the #122 review:
+    AWS drops with API still CONNECTED, the tick must eventually
+    re-drive `_api.initialize()` (which cascades to AWS reconnect via
+    the CONNECTED dispatch)."""
+    stub = _stub_coordinator(
+        api_status=ConnectivityStatus.CONNECTED,
+        aws_status=ConnectivityStatus.FAILED,
+    )
 
-    # Seed one attempt.
+    # AWS-side dispatch would seed the schedule.
+    await MyDolphinPlusCoordinator._handle_connection_failure(stub)
+    assert stub._reconnection_attempts == 1
+    assert stub._next_retry_at > 0.0
+
+    # Tick fires at the scheduled time — initialize succeeds.
+    async def healthy():
+        stub._api.status = ConnectivityStatus.CONNECTED  # no change, but signals recovery
+
+    stub._api.initialize.side_effect = healthy
+    now = stub._next_retry_at
+    await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
+
+    stub._api.initialize.assert_awaited_once()
+    # No further scheduling — the CONNECTED dispatch owns the AWS
+    # re-init and the counter reset.
+    assert stub._reconnection_attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_recovery_stops_the_retry_loop():
+    """Once a tick-retry succeeds and the CONNECTED cascade re-inits
+    AWS, the dispatch handler (not exercised here) resets counters.
+    ``_maybe_reconnect`` itself must NOT schedule another retry."""
+    stub = _stub_coordinator(
+        api_status=ConnectivityStatus.FAILED,
+        aws_status=ConnectivityStatus.NOT_CONNECTED,
+    )
+
     await MyDolphinPlusCoordinator._handle_connection_failure(stub)
     assert stub._reconnection_attempts == 1
 
-    # First tick fires, network is back.
-    async def healthy_initialize():
+    async def healthy():
         stub._api.status = ConnectivityStatus.CONNECTED
 
-    stub._api.initialize.side_effect = healthy_initialize
+    stub._api.initialize.side_effect = healthy
     initial_next = stub._next_retry_at
 
     await MyDolphinPlusCoordinator._maybe_reconnect(stub, initial_next)
 
     stub._api.initialize.assert_awaited_once()
-    # No fresh scheduling because status is CONNECTED after initialize().
     assert stub._reconnection_attempts == 1
     assert stub._next_retry_at == initial_next
