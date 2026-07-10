@@ -27,12 +27,21 @@ from homeassistant.core import Event, callback
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
+from homeassistant.helpers.entity_registry import (
+    RegistryEntryHider,
+    async_entries_for_config_entry,
+    async_get as async_get_entity_registry,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import slugify
 import homeassistant.util.dt as dt_util
 
 from ..common.calculated_state import CalculatedState
-from ..common.clean_modes import CleanModes, get_clean_mode_cycle_time_key
+from ..common.clean_modes import (
+    KNOWN_LABELED_MODES,
+    CleanModes,
+    get_clean_mode_cycle_time_key,
+)
 from ..common.connectivity_status import ConnectivityStatus
 from ..common.consts import (
     ATTR_ACTIONS,
@@ -45,6 +54,7 @@ from ..common.consts import (
     CLOCK_HOURS_ICON,
     CLOCK_HOURS_NONE,
     CLOCK_HOURS_TEXT,
+    CONF_VISIBLE_MODES,
     CONFIGURATION_URL,
     DATA_CYCLE_INFO_CLEANING_MODE,
     DATA_CYCLE_INFO_CLEANING_MODE_DURATION,
@@ -215,6 +225,16 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._last_update_api = 0
         self._last_update_ws = 0
         self._reconnection_attempts = 0
+        # FEAT-03 — visible cleaning modes. Single source of truth for
+        # `vacuum.fan_speed_list`, `select.desired_clean_mode.options`, and
+        # the `hidden_by` state of the per-mode `number.cycle_time_<mode>`
+        # entities. Seeded from `entry.options[CONF_VISIBLE_MODES]` on
+        # setup (`_seed_visible_modes`) and mutated only through
+        # `async_set_visible_modes`, which also updates the entity
+        # registry and calls `async_update_listeners` to propagate the new
+        # `fan_speed_list` / `select.options` via `cached_properties`
+        # without an entity reload (design R1).
+        self._visible_modes: frozenset[str] = frozenset(KNOWN_LABELED_MODES)
         # BUG-24 — timestamp of the next scheduled reconnect. The tick in
         # `_async_update_data` drives retries via `_maybe_reconnect`: fires
         # `_api.initialize()` when the integration is not fully connected,
@@ -320,6 +340,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._build_data_mapping()
 
         entry = self.config_manager.entry
+        self._seed_visible_modes(entry)
         await self.hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
         _LOGGER.info(f"Start loading {DOMAIN} integration, Entry ID: {entry.entry_id}")
@@ -327,6 +348,104 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         await self.async_request_refresh()
 
         await self._api.initialize()
+
+    @property
+    def visible_modes(self) -> frozenset[str]:
+        """Cleaning modes the operator has chosen to expose.
+
+        FEAT-03 — read by `vacuum.fan_speed_list` and
+        `select.desired_clean_mode.options` every tick; also gates the
+        `hidden_by` flag of the per-mode `number.cycle_time_<mode>`
+        entities on options-flow save. Defaults to the full curated set
+        (`KNOWN_LABELED_MODES`) when the user has not yet saved a
+        preference — matches R2 (first-boot shows everything).
+        """
+        return self._visible_modes
+
+    def _seed_visible_modes(self, entry) -> None:
+        """Seed `_visible_modes` from persisted options at setup time.
+
+        Any value stored under `CONF_VISIBLE_MODES` that is not part of
+        the curated `KNOWN_LABELED_MODES` set is dropped defensively.
+        An empty saved set falls back to the full curated set so the
+        operator can never lock themselves into an empty pick-list by
+        accident (a stray `[]` in `.storage` should not brick the
+        integration).
+        """
+        stored = entry.options.get(CONF_VISIBLE_MODES) if entry is not None else None
+        if stored is None:
+            self._visible_modes = frozenset(KNOWN_LABELED_MODES)
+            return
+        clean = {m for m in stored if m in KNOWN_LABELED_MODES}
+        self._visible_modes = (
+            frozenset(clean) if clean else frozenset(KNOWN_LABELED_MODES)
+        )
+
+    async def async_set_visible_modes(self, new_visible: frozenset[str]) -> None:
+        """Propagate a new visible-modes set to the running coordinator.
+
+        Called from the options-flow preferences step (which owns the
+        persistence). Does three things:
+
+        1. Updates the in-memory `_visible_modes` set.
+        2. Toggles `hidden_by = RegistryEntryHider.INTEGRATION` on every
+           `number.cycle_time_<mode>` whose mode is now hidden, clears
+           it on every mode that is now visible. `hidden_by` removes
+           the entity from default UI surfaces without a registry
+           reload (contrast with `disabled_by`, rejected in the FEAT-03
+           design thread for that reason).
+        3. Refreshes coordinator listeners so `vacuum.fan_speed_list`
+           and `select.desired_clean_mode.options` re-evaluate on the
+           next tick via `cached_properties` (design R1 — no entity
+           reload).
+
+        Does NOT write `entry.options` — the flow finalize
+        (`async_create_entry(data=...)`) owns persistence. Doing both
+        would clobber unrelated option keys, because
+        `async_create_entry` REPLACES options with `data` wholesale.
+        """
+        clean = frozenset(m for m in new_visible if m in KNOWN_LABELED_MODES)
+        if not clean:
+            clean = frozenset(KNOWN_LABELED_MODES)
+        self._visible_modes = clean
+
+        self._apply_visible_modes_to_registry(clean)
+        self.async_update_listeners()
+
+    def _apply_visible_modes_to_registry(self, visible: frozenset[str]) -> None:
+        """Toggle `hidden_by` on each `number.cycle_time_<mode>` entity.
+
+        FEAT-03 — hide the per-mode number when its mode is invisible,
+        show it otherwise. Uses `RegistryEntryHider.INTEGRATION` (not
+        `USER`) so the user can still un-hide the entity manually from
+        Settings; on the next options-flow save we override that (the
+        preferences form is the authoritative source).
+
+        Entities are matched by their `translation_key`, which we control
+        (it's the entity description's `key` at construction time). That
+        avoids reconstructing the unique_id, which depends on the user's
+        currently-active display name.
+        """
+        entry = self.config_manager.entry
+        if entry is None:
+            return
+        registry = async_get_entity_registry(self.hass)
+
+        # translation_key -> mode string
+        per_mode_translation_keys = {
+            get_clean_mode_cycle_time_key(CleanModes(m)): m for m in KNOWN_LABELED_MODES
+        }
+
+        for reg_entry in async_entries_for_config_entry(registry, entry.entry_id):
+            if not reg_entry.entity_id.startswith("number."):
+                continue
+            mode = per_mode_translation_keys.get(reg_entry.translation_key or "")
+            if mode is None:
+                continue
+            target = None if mode in visible else RegistryEntryHider.INTEGRATION
+            if reg_entry.hidden_by == target:
+                continue
+            registry.async_update_entity(reg_entry.entity_id, hidden_by=target)
 
     def _load_signal_handlers(self):
         # BUG-09: the previous code called `.__await__()` on a freshly created

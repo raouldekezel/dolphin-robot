@@ -46,6 +46,7 @@ class IntegrationFlowManager:
         flow_handler: FlowHandler,
         entry: ConfigEntry | None = None,
         source: str | None = None,
+        flow_id_override: str | None = None,
     ):
         self._hass = hass
         self._flow_handler = flow_handler
@@ -54,7 +55,14 @@ class IntegrationFlowManager:
             source if source is not None else getattr(flow_handler, "source", None)
         )
         self._is_reauth = self._source == SOURCE_REAUTH
-        self._flow_id = "user" if entry is None or self._is_reauth else "init"
+        # FEAT-03 — `flow_id_override` lets the OptionsFlow menu's reauth
+        # branch emit a form step_id that doesn't collide with
+        # `async_step_init` (the menu). Without it, the OTP email form
+        # would submit back to `async_step_init` and re-show the menu.
+        if flow_id_override is not None:
+            self._flow_id = flow_id_override
+        else:
+            self._flow_id = "user" if entry is None or self._is_reauth else "init"
         self._integration_info = IntegrationInfo()
 
     async def async_step(self, user_input: dict | None = None):
@@ -168,7 +176,14 @@ class IntegrationFlowManager:
                 },
             )
             self._hass.config_entries.async_schedule_reload(self._entry.entry_id)
-            return self._flow_handler.async_create_entry(title="", data={})
+            # FEAT-03 — `async_create_entry` on an OptionsFlow REPLACES
+            # `entry.options` with `data`. Passing an empty dict here
+            # wipes any operator preference (e.g. `visible_modes`).
+            # Preserve the current options to avoid silent preference
+            # loss on a reauth-via-options-menu flow.
+            return self._flow_handler.async_create_entry(
+                title="", data=dict(self._entry.options)
+            )
 
         return self._flow_handler.async_create_entry(
             title=state["title"],

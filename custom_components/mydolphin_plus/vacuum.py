@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .common.base_entity import MyDolphinPlusBaseEntity, async_setup_entities
+from .common.clean_modes import KNOWN_LABELED_MODES
 from .common.consts import ATTR_ATTRIBUTES, SIGNAL_DEVICE_NEW
 from .common.entity_descriptions import MyDolphinPlusVacuumEntityDescription
 from .managers.coordinator import MyDolphinPlusCoordinator
@@ -68,6 +69,19 @@ class MyDolphinPlusVacuumEntity(MyDolphinPlusBaseEntity, StateVacuumEntity, ABC)
     def activity(self) -> VacuumActivity | None:
         """Return the current activity of the vacuum."""
         return self._attr_activity
+
+    @property
+    def fan_speed_list(self) -> list[str]:
+        """Return the list of cleaning modes exposed to the operator.
+
+        FEAT-03 — dynamic filter over `coordinator.visible_modes`.
+        Iterates `KNOWN_LABELED_MODES` so the canonical order is
+        preserved (`all`, `short`, `floor`, `water`, `ultra`, `pickup`,
+        `stairs`) — hiding / un-hiding a mode does not scramble the
+        picker for the operator.
+        """
+        visible = self._local_coordinator.visible_modes
+        return [m for m in KNOWN_LABELED_MODES if m in visible]
 
     async def async_return_to_base(self, **kwargs: Any) -> None:
         """Set the vacuum cleaner to return to the dock."""

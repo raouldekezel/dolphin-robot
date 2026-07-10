@@ -13,6 +13,9 @@ INVALID_TOKEN_SECTION = "https://github.com/sh00t2kill/dolphin-robot#invalid-tok
 
 CONF_TITLE = "title"
 CONF_OTP = "otp"
+# FEAT-03 — list of user-visible cleaning modes, persisted in
+# `entry.options`. When absent, defaults to the full curated set.
+CONF_VISIBLE_MODES = "visible_modes"
 
 INITIAL_TOKENS_KEY = "__initial_tokens__"
 
