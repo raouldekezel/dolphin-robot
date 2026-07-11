@@ -327,11 +327,14 @@ class RestAPI:
         # cleared even if aiohttp cleanup raises.
         #
         # HA-mode sessions are created via ``async_create_clientsession`` and
-        # share HA's global aiohttp connector; calling ``close()`` on them can
-        # tear down that shared connector and affect other integrations.
-        # HA's own cleanup path calls ``detach()`` (synchronous) which drops
-        # the connector reference without closing it. Standalone sessions own
-        # their connector and must be ``close()``d.
+        # share HA's global aiohttp connector; calling ``close()`` on them
+        # would tear down that shared connector and affect other integrations.
+        # HA's own cleanup path calls ``detach()`` (synchronous), which sets
+        # the session's connector reference to ``None`` — the session's
+        # ``.closed`` property then reports ``True`` (so ``is_connected``
+        # returns ``False`` immediately), but the shared connector itself
+        # keeps running for the rest of the process. Standalone sessions own
+        # their connector and must be ``await session.close()``d.
         session = self._session
         try:
             if session is not None and not session.closed:

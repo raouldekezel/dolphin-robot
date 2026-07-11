@@ -734,27 +734,36 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._schedule_next_retry(now_mono)
 
     def _schedule_next_retry(self, now_mono: float | None = None) -> None:
-        """Bump the attempt counter and set the next retry deadline.
+        """Low-level counter and deadline update for the retry state machine.
 
-        BUG-24 (follow-up) — single-writer semantics. Called from two
-        sites:
+        Normal callers should use the idempotent scheduling helper
+        (``_ensure_retry_scheduled``) rather than reaching in here.
+        Since BUG-24 (review r2) every external caller does:
 
-        - `_handle_connection_failure` on the entering-disconnected
-          dispatch (initial seed, when the status is not in
-          `_NEEDS_USER_STATUSES`).
-        - `_maybe_reconnect`'s `finally` when a tick-driven retry has
-          just been fired and the integration is still not fully
-          connected.
+        - ``_handle_connection_failure`` on the entering-disconnected
+          dispatch;
+        - ``_maybe_reconnect``'s ``finally`` when the tick-driven retry
+          has just fired and the integration is still not fully
+          connected;
+        - the ``_on_api_status_changed(CONNECTED)`` watchdog path when
+          the compound state is not yet healthy after the awaited
+          cascade.
 
-        While a retry attempt is in flight (`_reconnect_in_progress`),
-        this method no-ops. This prevents the failure-callback path
-        (`_on_api_status_changed(FAILED)` → `_handle_connection_failure`
-        → here) from double-counting the same attempt when the
-        `finally` block is also about to schedule. The `finally` block
-        clears `_reconnect_in_progress` before it calls into here, so
-        it is the sole scheduler for its own attempt.
+        The idempotence checks live in ``_ensure_retry_scheduled``: it
+        returns early when a deadline is already armed
+        (``_next_retry_at > 0``) or an attempt is in flight
+        (``_reconnect_in_progress``). This method is the second half —
+        it bumps ``_reconnection_attempts`` and computes the next
+        monotonic deadline.
 
-        Uses `time.monotonic()` when no explicit clock is passed:
+        This method also no-ops when ``_reconnect_in_progress`` — the
+        same guard the helper uses. That protects against a failure
+        callback fired during ``_maybe_reconnect``'s awaited
+        ``_api.initialize()`` racing the ``finally`` block: the
+        ``finally`` clears ``_reconnect_in_progress`` before scheduling,
+        so it stays the sole scheduler for its own attempt.
+
+        Uses ``time.monotonic()`` when no explicit clock is passed:
         wall-clock jumps (NTP correction, DST) must not skip retries or
         fire them early. Callers that already captured a monotonic
         instant (typically end-of-attempt) pass it in to avoid a second
