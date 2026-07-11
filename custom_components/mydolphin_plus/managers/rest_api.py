@@ -312,29 +312,44 @@ class RestAPI:
         _LOGGER.info("Initializing MyDolphin API")
 
         await self._integration_info.initialize(self._hass)
-        await self._initialize_session()
+        # F4: stop before _login() when session construction failed. Otherwise
+        # _login() would run with ``self._session is None`` and the AttributeError
+        # from the first ``self._session.post(...)`` would overwrite the original
+        # FAILED status set by _initialize_session().
+        if not await self._initialize_session():
+            return
         await self._login()
 
     async def terminate(self):
         # F4: keep termination idempotent so a repeat call (double-shutdown,
         # cleanup after a failed setup) does not double-close the session or
         # leave a dangling reference. try/finally guarantees ``_session`` is
-        # cleared even if aiohttp's close() raises.
+        # cleared even if aiohttp cleanup raises.
+        #
+        # HA-mode sessions are created via ``async_create_clientsession`` and
+        # share HA's global aiohttp connector; calling ``close()`` on them can
+        # tear down that shared connector and affect other integrations.
+        # HA's own cleanup path calls ``detach()`` (synchronous) which drops
+        # the connector reference without closing it. Standalone sessions own
+        # their connector and must be ``close()``d.
         session = self._session
         try:
             if session is not None and not session.closed:
-                await session.close()
+                if self._is_home_assistant:
+                    session.detach()
+                else:
+                    await session.close()
         finally:
             self._session = None
             self._set_status(ConnectivityStatus.DISCONNECTED, "terminate requested")
 
-    async def _initialize_session(self):
+    async def _initialize_session(self) -> bool:
         # F4: reuse an existing open session across reconnect attempts.
         # BUG-24 turned the retry into a tick-driven loop that re-enters
         # initialize() every failed cycle; without this guard, a sustained
         # outage would leak one ClientSession per attempt.
         if self._session is not None and not self._session.closed:
-            return
+            return True
 
         try:
             if self._is_home_assistant:
@@ -354,6 +369,9 @@ class RestAPI:
             # Do not leave a partially initialized reference behind.
             self._session = None
             self._set_status(ConnectivityStatus.FAILED, message)
+            return False
+
+        return True
 
     async def update(self):
         if self._status != ConnectivityStatus.CONNECTED:

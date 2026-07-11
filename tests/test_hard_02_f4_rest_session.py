@@ -48,17 +48,26 @@ from custom_components.mydolphin_plus.managers.rest_api import REST_API_TIMEOUT,
 class FakeSession:
     """Async-close-able stand-in for ``aiohttp.ClientSession``.
 
-    Tracks ``close()`` invocations so the tests can prove idempotence.
+    Tracks ``close()`` **and** ``detach()`` invocations separately so the
+    tests can pin the ownership split: HA-mode sessions must be detached
+    (they share HA's global connector), standalone sessions must be closed
+    (they own their connector). ``detach()`` on real aiohttp does not flip
+    ``closed`` — the fake mirrors that so termination remains idempotent
+    against a re-entry that only inspects ``self._session``.
     """
 
     def __init__(self, timeout: ClientTimeout | None = None):
         self.timeout = timeout
         self.closed = False
         self.close_calls = 0
+        self.detach_calls = 0
 
     async def close(self) -> None:
         self.close_calls += 1
         self.closed = True
+
+    def detach(self) -> None:
+        self.detach_calls += 1
 
 
 class DummyConfigManager:
@@ -313,8 +322,14 @@ async def test_replacement_session_receives_explicit_timeout(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_terminate_closes_open_session_once(monkeypatch):
-    """terminate() closes the open session exactly one time."""
+async def test_terminate_ha_mode_detaches_and_does_not_close(monkeypatch):
+    """HA-mode terminate() calls detach() (sync) and never close().
+
+    HA-mode sessions share HA's global aiohttp connector. Closing them can
+    tear down the shared connector and affect other integrations. HA's own
+    cleanup path calls detach() — this test pins that ownership split.
+    """
+
     def fake_create_clientsession(*, hass, timeout=None, **_kwargs):
         return FakeSession(timeout=timeout)
 
@@ -330,13 +345,38 @@ async def test_terminate_closes_open_session_once(monkeypatch):
 
     await api.terminate()
 
+    assert session.detach_calls == 1
+    assert session.close_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_terminate_standalone_mode_closes_and_does_not_detach(monkeypatch):
+    """Standalone terminate() calls close() (async) and never detach().
+
+    A standalone ClientSession owns its connector and must be closed to
+    release the underlying sockets.
+    """
+
+    def fake_client_session(*_args, timeout=None, **_kwargs):
+        return FakeSession(timeout=timeout)
+
+    monkeypatch.setattr(rest_api_module, "ClientSession", fake_client_session)
+
+    api = _make_api(hass=None)
+    await api._initialize_session()
+    session = api._session
+
+    await api.terminate()
+
     assert session.close_calls == 1
     assert session.closed is True
+    assert session.detach_calls == 0
 
 
 @pytest.mark.asyncio
 async def test_terminate_clears_session_reference(monkeypatch):
     """After terminate(), self._session is None."""
+
     def fake_create_clientsession(*, hass, timeout=None, **_kwargs):
         return FakeSession(timeout=timeout)
 
@@ -355,8 +395,9 @@ async def test_terminate_clears_session_reference(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_terminate_twice_does_not_double_close(monkeypatch):
-    """Calling terminate() again is a no-op — never closes the same session twice."""
+async def test_terminate_ha_mode_twice_does_not_double_detach(monkeypatch):
+    """A second HA-mode terminate() is a no-op — never detaches twice."""
+
     def fake_create_clientsession(*, hass, timeout=None, **_kwargs):
         return FakeSession(timeout=timeout)
 
@@ -367,6 +408,26 @@ async def test_terminate_twice_does_not_double_close(monkeypatch):
     )
 
     api = _make_api(hass=object())
+    await api._initialize_session()
+    session = api._session
+
+    await api.terminate()
+    await api.terminate()
+
+    assert session.detach_calls == 1
+    assert session.close_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_terminate_standalone_mode_twice_does_not_double_close(monkeypatch):
+    """A second standalone terminate() is a no-op — never closes twice."""
+
+    def fake_client_session(*_args, timeout=None, **_kwargs):
+        return FakeSession(timeout=timeout)
+
+    monkeypatch.setattr(rest_api_module, "ClientSession", fake_client_session)
+
+    api = _make_api(hass=None)
     await api._initialize_session()
     session = api._session
 
@@ -464,6 +525,7 @@ async def test_creation_failure_sets_failed_status(monkeypatch):
 @pytest.mark.asyncio
 async def test_creation_failure_leaves_session_none(monkeypatch):
     """A failed constructor must not leave a stale/partial session reference."""
+
     def exploding_create_clientsession(**_kwargs):
         raise RuntimeError("boom")
 
@@ -478,3 +540,71 @@ async def test_creation_failure_leaves_session_none(monkeypatch):
 
     assert api._session is None
     assert api.is_connected is False
+
+
+@pytest.mark.asyncio
+async def test_creation_failure_stops_initialize_before_login(monkeypatch):
+    """initialize() must abort before _login() when session creation fails.
+
+    Otherwise _login() runs with self._session is None and its first
+    self._session.post(...) raises AttributeError, overwriting the FAILED
+    status set by _initialize_session() with a secondary, misleading error.
+    """
+
+    def exploding_create_clientsession(**_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        rest_api_module,
+        "async_create_clientsession",
+        exploding_create_clientsession,
+    )
+
+    api = _make_api(hass=object())
+    api._login = AsyncMock(return_value=None)
+
+    await api.initialize()
+
+    api._login.assert_not_called()
+    assert api._session is None
+    assert api.status == ConnectivityStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_returns_true_on_success(monkeypatch):
+    """_initialize_session() reports success so initialize() can gate on it."""
+
+    def fake_create_clientsession(*, hass, timeout=None, **_kwargs):
+        return FakeSession(timeout=timeout)
+
+    monkeypatch.setattr(
+        rest_api_module,
+        "async_create_clientsession",
+        fake_create_clientsession,
+    )
+
+    api = _make_api(hass=object())
+    result = await api._initialize_session()
+
+    assert result is True
+    # And the reuse path also returns True — an idempotent no-op is a success.
+    assert await api._initialize_session() is True
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_returns_false_on_failure(monkeypatch):
+    """_initialize_session() reports failure so initialize() can bail out."""
+
+    def exploding_create_clientsession(**_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        rest_api_module,
+        "async_create_clientsession",
+        exploding_create_clientsession,
+    )
+
+    api = _make_api(hass=object())
+    result = await api._initialize_session()
+
+    assert result is False
