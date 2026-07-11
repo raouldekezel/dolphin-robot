@@ -13,6 +13,7 @@ from aiohttp import (
     ClientOSError,
     ClientResponseError,
     ClientSession,
+    ClientTimeout,
 )
 from aiohttp.hdrs import METH_GET, METH_POST
 
@@ -53,6 +54,17 @@ from ..models.exceptions import LoginError, TransientAuthError
 from .config_manager import ConfigManager
 
 _LOGGER = logging.getLogger(__name__)
+
+# HARD-02 / F4: bound REST/Cognito/AWS-STS requests instead of relying on
+# aiohttp's implicit 300 s default. Applied session-wide so every endpoint
+# the RestAPI reaches (Cognito, authenticate-user, getToken) is subject to
+# the same policy. Connect timeout is deliberately tight (a healthy TLS
+# handshake is sub-second); the ``total`` covers slow-but-valid responses.
+REST_API_TIMEOUT = ClientTimeout(
+    total=30,
+    sock_connect=5,
+    sock_read=10,
+)
 
 
 def _build_headers(
@@ -282,7 +294,7 @@ class RestAPI:
 
     @property
     def is_connected(self):
-        return self._session is not None
+        return self._session is not None and not self._session.closed
 
     @property
     def config_data(self) -> ConfigData:
@@ -304,16 +316,34 @@ class RestAPI:
         await self._login()
 
     async def terminate(self):
-        if self._session is not None:
-            await self._session.close()
+        # F4: keep termination idempotent so a repeat call (double-shutdown,
+        # cleanup after a failed setup) does not double-close the session or
+        # leave a dangling reference. try/finally guarantees ``_session`` is
+        # cleared even if aiohttp's close() raises.
+        session = self._session
+        try:
+            if session is not None and not session.closed:
+                await session.close()
+        finally:
+            self._session = None
             self._set_status(ConnectivityStatus.DISCONNECTED, "terminate requested")
 
     async def _initialize_session(self):
+        # F4: reuse an existing open session across reconnect attempts.
+        # BUG-24 turned the retry into a tick-driven loop that re-enters
+        # initialize() every failed cycle; without this guard, a sustained
+        # outage would leak one ClientSession per attempt.
+        if self._session is not None and not self._session.closed:
+            return
+
         try:
             if self._is_home_assistant:
-                self._session = async_create_clientsession(hass=self._hass)
+                self._session = async_create_clientsession(
+                    hass=self._hass,
+                    timeout=REST_API_TIMEOUT,
+                )
             else:
-                self._session = ClientSession()
+                self._session = ClientSession(timeout=REST_API_TIMEOUT)
 
         except Exception as ex:
             exc_type, exc_obj, tb = sys.exc_info()
@@ -321,6 +351,8 @@ class RestAPI:
             message = (
                 f"Failed to initialize session, Error: {str(ex)}, Line: {line_number}"
             )
+            # Do not leave a partially initialized reference behind.
+            self._session = None
             self._set_status(ConnectivityStatus.FAILED, message)
 
     async def update(self):
