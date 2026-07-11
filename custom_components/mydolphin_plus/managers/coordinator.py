@@ -380,8 +380,13 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         # tick-driven retry loop never fires and the integration stays
         # dormant until manual reload. Register a no-op listener here so
         # the tick keeps running regardless of connection state. Stored
-        # so `async_shutdown` can drop it cleanly.
-        self._no_op_unsub = self.async_add_listener(lambda: None)
+        # so `terminate` can drop it cleanly. Guard on `None` so a second
+        # `initialize()` call (defensive — not part of the normal
+        # lifecycle, but not something to silently double-register on
+        # either) doesn't stack two listeners and orphan the previous
+        # unsub handle.
+        if self._no_op_unsub is None:
+            self._no_op_unsub = self.async_add_listener(lambda: None)
         await self.hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
         _LOGGER.info(f"Start loading {DOMAIN} integration, Entry ID: {entry.entry_id}")

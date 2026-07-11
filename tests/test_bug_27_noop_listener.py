@@ -179,3 +179,43 @@ async def test_terminate_is_idempotent_on_uninitialised_coordinator():
 
     assert stub._no_op_unsub is None
     stub._aws_client.terminate.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Idempotence — a second `initialize()` must not stack another listener
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_initialize_is_idempotent_on_listener_registration():
+    """A second `initialize()` call — defensive, not part of the normal
+    lifecycle — must NOT register a second listener. Otherwise the
+    previous unsub handle is orphaned in `_no_op_unsub`, `terminate()`
+    only releases one, and `_listeners` stays non-empty after unload.
+
+    Suggested during the #131 review as a cheap guard against a class
+    of lifecycle bugs that would only manifest under unusual reload /
+    replay paths."""
+    stub, listeners = _stub_coordinator_with_listener_bookkeeping()
+
+    await MyDolphinPlusCoordinator.initialize(stub)
+    first_unsub = stub._no_op_unsub
+    assert first_unsub is not None
+    assert len(listeners) == 1
+
+    await MyDolphinPlusCoordinator.initialize(stub)
+
+    # Same unsub handle preserved, only one listener in the dict.
+    assert stub._no_op_unsub is first_unsub, (
+        "second initialize() overwrote the first unsub — the original "
+        "listener is now orphaned and will never be released"
+    )
+    assert len(listeners) == 1, (
+        "second initialize() stacked another listener — `_listeners` "
+        "will stay non-empty after terminate() drops only the current one"
+    )
+
+    # And terminate still cleanly releases the single listener.
+    await MyDolphinPlusCoordinator.terminate(stub)
+    assert len(listeners) == 0
+    assert stub._no_op_unsub is None
