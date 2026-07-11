@@ -59,7 +59,7 @@
       },
       "preferences": {
         "title": "Choisir les modes de nettoyage utilisés",
-        "description": "Décochez un mode pour le masquer du sélecteur du robot et du sélecteur du mode souhaité. Les entités de durée de cycle des modes masqués disparaissent des vues par défaut mais restent accessibles via Paramètres → Entités. Décocher tous les modes rétablit le sélecteur complet.",
+        "description": "Décochez un mode pour le retirer du sélecteur du robot, du sélecteur du mode souhaité et de la page de l'appareil. La durée de cycle du mode est désactivée pendant qu'il est masqué ; réactiver un mode recharge brièvement l'intégration (~1-2 s). Décocher tous les modes rétablit le sélecteur complet.",
         "data": {
           "visible_modes": "Modes à afficher"
         }

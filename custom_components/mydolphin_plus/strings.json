@@ -59,7 +59,7 @@
       },
       "preferences": {
         "title": "Cleaning modes visible in the picker",
-        "description": "Uncheck a mode to hide it from the vacuum picker and from the desired-clean-mode selector. Hidden modes' cycle-time controls disappear from the default views but remain reachable via Settings → Entities. Leaving every mode unchecked resets the picker to the full set.",
+        "description": "Uncheck a mode to remove it from the vacuum picker, the desired-clean-mode selector, and the device page. The mode's cycle-time control is disabled while hidden; re-enabling a mode reloads the integration briefly (~1–2 s). Leaving every mode unchecked resets the picker to the full set.",
         "data": {
           "visible_modes": "Modes to show"
         }

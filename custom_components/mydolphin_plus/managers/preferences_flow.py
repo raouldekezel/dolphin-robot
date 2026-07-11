@@ -2,7 +2,7 @@
 
 Shows a `SelectSelector(multiple=True)` over the curated cleaning modes.
 On save, pushes the new set through `coordinator.async_set_visible_modes`
-(which handles the entity registry `hidden_by` toggle and the
+(which handles the entity registry `disabled_by` toggle and the
 coordinator listeners so `fan_speed_list` / `select.options` re-evaluate
 without an entity reload) then persists the same set into
 `entry.options` via `async_create_entry`.

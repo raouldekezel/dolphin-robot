@@ -322,7 +322,7 @@
         "data": {
           "visible_modes": "Modalità da mostrare"
         },
-        "description": "Deseleziona una modalità per nasconderla dal selettore del robot e dal selettore della modalità desiderata. Le entità dei tempi di ciclo delle modalità nascoste scompaiono dalle viste predefinite ma restano accessibili tramite Impostazioni → Entità. Deselezionando tutte le modalità si ripristina il selettore completo.",
+        "description": "Deseleziona una modalità per rimuoverla dal selettore del robot, dal selettore della modalità desiderata e dalla pagina del dispositivo. Il tempo di ciclo della modalità viene disabilitato mentre è nascosta; riabilitare una modalità ricarica brevemente l'integrazione (~1-2 s). Deselezionando tutte le modalità si ripristina il selettore completo.",
         "title": "Modalità di pulizia visibili nel selettore"
       },
       "reauth": {
