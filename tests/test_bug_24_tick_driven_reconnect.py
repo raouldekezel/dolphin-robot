@@ -81,6 +81,11 @@ def _stub_coordinator(
             stub, now_mono
         )
     )
+    stub._ensure_retry_scheduled = (
+        lambda now_mono=None: MyDolphinPlusCoordinator._ensure_retry_scheduled(
+            stub, now_mono
+        )
+    )
     stub._aws_status = lambda: MyDolphinPlusCoordinator._aws_status(stub)
     stub._is_fully_connected = lambda: MyDolphinPlusCoordinator._is_fully_connected(
         stub
@@ -255,7 +260,6 @@ async def test_maybe_reconnect_does_not_reschedule_after_full_recovery():
     stub = _stub_coordinator(api_status=ConnectivityStatus.FAILED)
     stub._next_retry_at = 1_000_000.0
     stub._reconnection_attempts = 3
-    initial_next = stub._next_retry_at
     now = 1_000_001.0
 
     async def full_recovery():
@@ -273,7 +277,11 @@ async def test_maybe_reconnect_does_not_reschedule_after_full_recovery():
 
     stub._api.initialize.assert_awaited_once()
     assert stub._reconnection_attempts == 3
-    assert stub._next_retry_at == initial_next
+    # BUG-24 (review r2) — the deadline is consumed at the top of the
+    # attempt. On full recovery the finally does not reschedule, so
+    # `_next_retry_at` stays at 0 (the previous value 1_000_000.0 was
+    # what triggered this attempt in the first place).
+    assert stub._next_retry_at == 0.0
 
 
 @pytest.mark.asyncio
@@ -527,4 +535,6 @@ async def test_recovery_stops_the_retry_loop():
 
     stub._api.initialize.assert_awaited_once()
     assert stub._reconnection_attempts == 1
-    assert stub._next_retry_at == initial_next
+    # BUG-24 (review r2) — the deadline is consumed atomically at the
+    # top of the attempt; on full recovery the finally leaves it at 0.
+    assert stub._next_retry_at == 0.0

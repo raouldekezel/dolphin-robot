@@ -599,19 +599,28 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             return
 
         if status == ConnectivityStatus.CONNECTED:
-            # BUG-24 (follow-up) — pause the tick-driven retry while we
-            # bring up AWS, but do NOT reset the backoff counter yet. The
-            # compound state is not "healthy" until AWS also connects; if
-            # AWS fails to initialize below, its dispatch will re-seed the
-            # schedule from the current attempt count rather than restart
-            # from #0 and hammer the login pipeline.
-            self._next_retry_at = 0.0
-
             await self._api.update()
 
             await self._aws_client.update_api_data(self.api_data)
 
             await self._aws_client.initialize()
+
+            # BUG-24 (review r2) — reset the retry state only after the
+            # complete cascade lands on `_is_fully_connected()`.
+            # `aws_client.initialize()` returns as soon as its awscrt
+            # connect is dispatched; AWS may still be CONNECTING. If we
+            # cleared `_next_retry_at` preemptively here and the AWS
+            # connection then stalled without a terminal callback, the
+            # tick watchdog would be silently disarmed and no further
+            # attempt would fire. When the compound state is not yet
+            # healthy after the awaited cascade, keep or seed the retry
+            # deadline via the idempotent helper — the tick will re-drive
+            # if AWS never reaches CONNECTED.
+            if self._is_fully_connected():
+                self._reconnection_attempts = 0
+                self._next_retry_at = 0.0
+            else:
+                self._ensure_retry_scheduled()
 
         elif status in [
             ConnectivityStatus.FAILED,
@@ -694,6 +703,36 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         await self.async_request_refresh()
         _LOGGER.debug("Executed debounced MQTT refresh")
 
+    def _ensure_retry_scheduled(self, now_mono: float | None = None) -> None:
+        """Idempotent seed for the retry schedule.
+
+        BUG-24 (review r2) — the single-writer property of the retry
+        state machine cannot rely on ``_reconnect_in_progress`` alone
+        because HA dispatcher callbacks are **deferred** (queued on the
+        event loop, not called synchronously from ``_set_status``). A
+        callback queued during ``_api.initialize()`` can drain *after*
+        ``_maybe_reconnect``'s ``finally`` has cleared the guard and
+        scheduled its own deadline — resulting in the counter bumping
+        twice for a single actual attempt and the ``1 → 2 → 4 → 8 →
+        15`` sequence collapsing.
+
+        The idempotent seed closes this gap. Every external caller
+        (``_handle_connection_failure``, ``_maybe_reconnect``'s
+        ``finally``, ``_on_api_status_changed(CONNECTED)`` watchdog
+        path) goes through here rather than calling
+        ``_schedule_next_retry`` directly. If a deadline is already
+        armed (``_next_retry_at > 0``) OR an attempt is in flight
+        (``_reconnect_in_progress``), this method is a no-op.
+
+        ``_schedule_next_retry`` remains the unconditional bump path,
+        called only from here.
+        """
+        if self._reconnect_in_progress:
+            return
+        if self._next_retry_at > 0:
+            return
+        self._schedule_next_retry(now_mono)
+
     def _schedule_next_retry(self, now_mono: float | None = None) -> None:
         """Bump the attempt counter and set the next retry deadline.
 
@@ -775,16 +814,19 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         is retryable — i.e. not one of the statuses that need user
         action, which would just bump the attempt counter uselessly.
 
-        BUG-24 (follow-up) — `_schedule_next_retry` no-ops while a
-        retry is in flight, so a dispatch fired *during* the attempt
-        (typical when `_api.initialize()` sets FAILED and the callback
-        cascades here) is safely deduplicated against the attempt's
-        own `finally`-block scheduling.
+        BUG-24 (review r2) — goes through the idempotent
+        ``_ensure_retry_scheduled`` seed rather than
+        ``_schedule_next_retry`` directly. This dedupes both against
+        (a) synchronous callback paths fired during
+        ``_maybe_reconnect`` (guard on ``_reconnect_in_progress``) and
+        (b) deferred dispatcher callbacks that drain after
+        ``_maybe_reconnect``'s ``finally`` has already scheduled
+        (guard on ``_next_retry_at > 0``).
         """
         await self._aws_client.terminate()
         if self._api.status in _NEEDS_USER_STATUSES:
             return
-        self._schedule_next_retry()
+        self._ensure_retry_scheduled()
 
     async def _maybe_reconnect(self, now: float) -> None:
         """Tick-driven retry driver (BUG-24, sole driver).
@@ -829,13 +871,18 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
            the start-of-attempt wall-clock timestamp, so a slow
            `initialize()` shortened the effective backoff. The
            `end_mono` sample is captured after the awaited call.
-        3. **No double scheduling.** `_reconnect_in_progress` is set
-           for the duration of the awaited call. Any dispatch fired
-           during that window (typical: `_api.initialize()` sets
-           FAILED → `_on_api_status_changed` → `_handle_connection_failure`
-           → `_schedule_next_retry` — no-op'd by the guard). The
-           `finally` clears the flag before scheduling, so its own
-           call goes through.
+        3. **No double scheduling — including across deferred
+           dispatcher callbacks.** The current deadline is *consumed*
+           (set to 0) atomically with arming `_reconnect_in_progress`,
+           before yielding to `_api.initialize()`. Any synchronous
+           failure callback fired during the attempt is suppressed by
+           the guard. Any *deferred* callback (HA dispatcher queues
+           callbacks on the event loop rather than calling them
+           synchronously from `_set_status`) that drains after the
+           `finally` has already scheduled sees `_next_retry_at > 0`
+           and is no-op'd by the idempotent `_ensure_retry_scheduled`
+           seed — the sequence `1 → 2 → 4 → 8 → 15` cannot skip
+           stages.
         """
         if self._is_fully_connected():
             return
@@ -848,6 +895,14 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             return
 
         _LOGGER.info(f"Firing reconnection attempt #{self._reconnection_attempts}")
+        # BUG-24 (review r2) — consume the current deadline AND arm
+        # the in-flight guard atomically (no `await` between the two)
+        # before yielding to `_api.initialize()`. Consuming turns the
+        # `finally`-side `_ensure_retry_scheduled` into a real schedule
+        # (idempotent seed sees `_next_retry_at == 0` and proceeds).
+        # Any deferred failure callback that drains later sees a
+        # deadline armed by the `finally` and is no-op'd.
+        self._next_retry_at = 0.0
         self._reconnect_in_progress = True
         try:
             await self._api.initialize()
@@ -862,7 +917,9 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         finally:
             # Clear the in-flight guard before scheduling: this method
             # is the sole scheduler for its own attempt (dispatch-driven
-            # scheduling was suppressed while the guard was set).
+            # scheduling was suppressed while the guard was set, and
+            # any deferred callback that drains later will find a
+            # deadline already armed and no-op via the idempotent seed).
             self._reconnect_in_progress = False
             # Reschedule from end-of-attempt monotonic time so a slow
             # `initialize()` cannot shorten the interval to the next
@@ -871,16 +928,17 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             end_mono = time.monotonic()
             if self._api.status in _NEEDS_USER_STATUSES:
                 # OTP flow owns recovery; do not tick again. The
-                # deadline is cleared so a later successful reauth
-                # (which flips API to CONNECTED) sees a clean slate.
-                self._next_retry_at = 0.0
+                # deadline stays cleared (consumed at the top of the
+                # attempt) so a later successful reauth sees a clean
+                # slate.
                 return
             # Reschedule while the compound state is not fully healthy
             # — this catches the API-CONNECTED / AWS-FAILED path where
             # the pre-fix predicate skipped the reschedule and let the
-            # next tick fire immediately.
+            # next tick fire immediately. Idempotent seed dedupes
+            # against any deferred callback that also raced here.
             if not self._is_fully_connected():
-                self._schedule_next_retry(end_mono)
+                self._ensure_retry_scheduled(end_mono)
 
     async def _async_update_data(self):
         """Fetch parameters from API endpoint.

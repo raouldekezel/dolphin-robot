@@ -79,6 +79,11 @@ def _stub():
             stub, now_mono
         )
     )
+    stub._ensure_retry_scheduled = (
+        lambda now_mono=None: MyDolphinPlusCoordinator._ensure_retry_scheduled(
+            stub, now_mono
+        )
+    )
     stub._aws_status = lambda: MyDolphinPlusCoordinator._aws_status(stub)
     stub._is_fully_connected = lambda: MyDolphinPlusCoordinator._is_fully_connected(
         stub
@@ -379,6 +384,123 @@ async def test_backoff_sequence_survives_callback_double_path(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_deferred_failure_callback_after_finally_does_not_double_schedule(
+    monkeypatch,
+):
+    """BUG-24 (review r2) — HA dispatcher callbacks are **deferred**,
+    not synchronous. A ``FAILED`` callback queued during
+    ``_api.initialize()`` can drain *after* ``_maybe_reconnect``'s
+    finally has cleared ``_reconnect_in_progress`` and scheduled the
+    next deadline. Without the idempotent seed, the callback would
+    then schedule a second time, bumping the counter twice per
+    attempt and letting the ``1 → 2 → 4 → 8 → 15`` sequence skip
+    stages.
+
+    The idempotent ``_ensure_retry_scheduled`` closes the gap: the
+    callback sees ``_next_retry_at > 0`` (armed by the finally) and
+    no-ops.
+
+    The test drives the real deferred ordering explicitly: run
+    ``_maybe_reconnect`` (the finally schedules), THEN invoke
+    ``_handle_connection_failure`` (simulating the deferred callback
+    drain, out of the attempt's window). The counter must land at
+    exactly 1, not 2, and the deadline must not shift."""
+    stub = _stub()
+    stub._api.status = ConnectivityStatus.FAILED
+    stub._next_retry_at = 100.0
+    stub._reconnection_attempts = 0
+    end_mono = 200.0
+    monkeypatch.setattr(
+        "custom_components.mydolphin_plus.managers.coordinator.time.monotonic",
+        lambda: end_mono,
+    )
+
+    async def failing_without_sync_callback():
+        # Real dispatcher would QUEUE the callback here — not run it.
+        stub._api.status = ConnectivityStatus.FAILED
+
+    stub._api.initialize.side_effect = failing_without_sync_callback
+
+    await MyDolphinPlusCoordinator._maybe_reconnect(stub, 150.0)
+
+    # Finally scheduled once: counter=1, deadline=end_mono+60=260.
+    assert stub._reconnection_attempts == 1
+    first_deadline = stub._next_retry_at
+    assert first_deadline == pytest.approx(260.0, abs=0.01)
+
+    # NOW simulate the deferred callback drain.
+    await MyDolphinPlusCoordinator._handle_connection_failure(stub)
+
+    # Idempotent seed: `_next_retry_at > 0` → callback is a no-op.
+    assert stub._reconnection_attempts == 1
+    assert stub._next_retry_at == first_deadline
+
+
+@pytest.mark.asyncio
+async def test_api_connected_with_aws_stuck_in_connecting_watchdog_refires(
+    monkeypatch,
+):
+    """BUG-24 (review r2) — end-to-end for the AWS-CONNECTING stall:
+
+    1. Something recovers the API side (login retry succeeds) →
+       ``_on_api_status_changed(CONNECTED)``.
+    2. Handler runs the cascade: ``aws_client.initialize()`` returns
+       but AWS is still ``CONNECTING`` (the awscrt connect was
+       dispatched but not confirmed).
+    3. Handler sees ``not _is_fully_connected()`` and seeds the
+       watchdog via ``_ensure_retry_scheduled``.
+    4. AWS stalls silently (no terminal callback). The tick fires at
+       the scheduled deadline and re-drives ``_api.initialize()``,
+       which cascades to a fresh AWS init.
+
+    Pre-r2: step 2 preemptively cleared ``_next_retry_at = 0`` →
+    step 3 never seeded → step 4 never fired → integration parked
+    with API CONNECTED, AWS CONNECTING, no data forever."""
+    stub = _stub()
+    stub._api.status = ConnectivityStatus.CONNECTED
+    stub._aws_client.status = ConnectivityStatus.NOT_CONNECTED
+    stub._reconnection_attempts = 0
+    stub._next_retry_at = 0.0
+
+    # `aws_client.initialize()` completes but AWS is still CONNECTING
+    # (awscrt dispatched but not confirmed).
+    async def aws_connecting_stall():
+        stub._aws_client.status = ConnectivityStatus.CONNECTING
+
+    stub._aws_client.initialize.side_effect = aws_connecting_stall
+
+    clock = {"t": 100.0}
+    monkeypatch.setattr(
+        "custom_components.mydolphin_plus.managers.coordinator.time.monotonic",
+        lambda: clock["t"],
+    )
+
+    # Steps 1-3: dispatch API-CONNECTED. Handler cascades, sees AWS
+    # is not CONNECTED at the end, seeds the watchdog.
+    await MyDolphinPlusCoordinator._on_api_status_changed(
+        stub, "entry-id-1", ConnectivityStatus.CONNECTED
+    )
+
+    assert stub._aws_client.status == ConnectivityStatus.CONNECTING
+    assert stub._reconnection_attempts == 1
+    assert stub._next_retry_at == pytest.approx(160.0, abs=0.01)
+
+    # Step 4: tick fires at the scheduled deadline. The tick re-drives
+    # `_api.initialize()`; here the retry brings both sides up.
+    clock["t"] = 160.0
+
+    async def re_init_recovers():
+        stub._api.status = ConnectivityStatus.CONNECTED
+        stub._aws_client.status = ConnectivityStatus.CONNECTED
+
+    stub._api.initialize.side_effect = re_init_recovers
+
+    await MyDolphinPlusCoordinator._maybe_reconnect(stub, clock["t"])
+
+    stub._api.initialize.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_second_tick_skips_when_reconnect_already_in_progress():
     """A slow ``initialize()`` can outlive the coordinator tick
     interval (30 s). The second tick must be a no-op — otherwise two
@@ -401,13 +523,19 @@ async def test_second_tick_skips_when_reconnect_already_in_progress():
 
 
 @pytest.mark.asyncio
-async def test_api_connected_dispatch_clears_deadline_but_keeps_counter():
-    """The API-CONNECTED handler pauses the tick (deadline cleared) so
-    it does not fire another ``_api.initialize()`` while
-    ``_on_api_status_changed`` is still setting up AWS. But the
-    counter is *not* reset — because if AWS fails, the follow-up
-    reschedule should continue from the current attempt count, not
-    restart from #0."""
+async def test_api_connected_dispatch_preserves_watchdog_when_aws_not_ready():
+    """BUG-24 (review r2) — the API-CONNECTED handler must NOT
+    preemptively clear the retry deadline. ``aws_client.initialize()``
+    is asynchronous and can return while AWS is still ``CONNECTING``
+    (the awscrt connect is dispatched but not yet complete). If the
+    AWS connection then stalls without a terminal callback, a
+    preemptively-cleared deadline would leave the tick watchdog
+    disarmed and no further attempt would fire.
+
+    The handler now resets only when ``_is_fully_connected()`` after
+    the awaited cascade. Otherwise it goes through the idempotent
+    ``_ensure_retry_scheduled`` seed — which preserves the existing
+    deadline or seeds a fresh one if none is armed."""
     stub = _stub()
     stub._api.status = ConnectivityStatus.CONNECTED
     stub._aws_client.status = ConnectivityStatus.NOT_CONNECTED
@@ -418,9 +546,37 @@ async def test_api_connected_dispatch_clears_deadline_but_keeps_counter():
         stub, "entry-id-1", ConnectivityStatus.CONNECTED
     )
 
-    # Deadline paused, counter preserved.
-    assert stub._next_retry_at == 0.0
+    # Watchdog preserved (idempotent seed no-ops when > 0).
+    assert stub._next_retry_at == 500.0
     assert stub._reconnection_attempts == 4
+
+
+@pytest.mark.asyncio
+async def test_api_connected_dispatch_seeds_watchdog_when_no_deadline_armed(
+    monkeypatch,
+):
+    """Corollary of the previous test: if no deadline is armed at the
+    time API-CONNECTED fires and AWS does not reach CONNECTED, the
+    handler must **seed** a fresh watchdog rather than leave the
+    schedule cold. Otherwise a stall in ``aws_client.initialize()``
+    would never be retried."""
+    stub = _stub()
+    stub._api.status = ConnectivityStatus.CONNECTED
+    stub._aws_client.status = ConnectivityStatus.CONNECTING
+    stub._reconnection_attempts = 0
+    stub._next_retry_at = 0.0
+    monkeypatch.setattr(
+        "custom_components.mydolphin_plus.managers.coordinator.time.monotonic",
+        lambda: 1000.0,
+    )
+
+    await MyDolphinPlusCoordinator._on_api_status_changed(
+        stub, "entry-id-1", ConnectivityStatus.CONNECTED
+    )
+
+    # Fresh seed: 1 min backoff on the first attempt.
+    assert stub._next_retry_at == pytest.approx(1060.0, abs=0.01)
+    assert stub._reconnection_attempts == 1
 
 
 @pytest.mark.asyncio
