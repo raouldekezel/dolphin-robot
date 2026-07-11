@@ -10,6 +10,7 @@ import sys
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, EVENT_HOMEASSISTANT_START
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 
 from .common.consts import (
     DEFAULT_NAME,
@@ -33,9 +34,56 @@ async def async_setup(_hass, _config):
     return True
 
 
+async def _async_cleanup_failed_setup(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coordinator: MyDolphinPlusCoordinator | None,
+) -> None:
+    """Release integration-owned resources when setup aborts (issue #137).
+
+    Scope of this helper — deliberately narrow:
+
+    * call ``coordinator.terminate()`` — releases the BUG-27 persistent
+      listener and terminates the AWS/MQTT client. The REST session is
+      **not** touched here: ``RestAPI.terminate()`` is not part of the
+      coordinator's teardown surface today, and expanding it as a side
+      effect of #137 is out of scope. HA-mode REST sessions are held
+      by HA's global aiohttp pool and are cleaned up on HA shutdown;
+    * drop the partially initialised coordinator from ``hass.data``.
+
+    Explicitly does **not** touch ``entry._async_process_on_unload`` or
+    any other HA-private lifecycle machinery. HA already runs the
+    ``entry.async_on_unload`` callbacks itself on the three public
+    exception paths (``ConfigEntryError``, ``ConfigEntryAuthFailed``,
+    ``ConfigEntryNotReady``) — the correct pattern for a custom
+    integration is to clean up its own resources here, then raise the
+    appropriate public exception; HA will process the on-unload list
+    (dispatcher unsubs from ``_load_signal_handlers`` and the
+    self-wired ``DataUpdateCoordinator.async_shutdown``) through its
+    supported lifecycle.
+
+    Strict idempotence: the ``hass.data`` slot is used as the guard.
+    A second call with the same coordinator sees the slot already
+    empty and skips the termination step.
+    """
+    domain_data = hass.data.get(DOMAIN, {})
+    still_registered = domain_data.get(entry.entry_id) is coordinator
+
+    if coordinator is not None and still_registered:
+        try:
+            await coordinator.terminate()
+        except Exception:  # pragma: no cover — hygiene, do not mask the outer failure
+            _LOGGER.exception("terminate() raised during failed-setup cleanup")
+
+    domain_data.pop(entry.entry_id, None)
+    if not domain_data:
+        hass.data.pop(DOMAIN, None)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up a MyDolphin Plus config entry."""
     initialized = False
+    coordinator: MyDolphinPlusCoordinator | None = None
 
     try:
         entry_config = dict(entry.data)
@@ -96,8 +144,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         initialized = is_initialized
 
-    except LoginError:
+    except LoginError as ex:
         _LOGGER.info(f"Failed to login {DEFAULT_NAME} API, cannot log integration")
+        # Issue #137 — clean owned resources first, then hand off to HA's
+        # public auth-failed path. HA will process entry.async_on_unload
+        # (dispatchers + DataUpdateCoordinator.async_shutdown) and open the
+        # reauth flow. Do not swallow the failure: silently returning False
+        # was the source of the original leak (HA does not process on_unload
+        # on the plain-False/unclassified-Exception paths).
+        await _async_cleanup_failed_setup(hass, entry, coordinator)
+        raise ConfigEntryAuthFailed(f"{DEFAULT_NAME} authentication failed") from ex
 
     except Exception as ex:
         exc_type, exc_obj, tb = sys.exc_info()
@@ -106,6 +162,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error(
             f"Failed to load {DEFAULT_NAME}, error: {ex}, line: {line_number}"
         )
+        # Issue #137 — clean owned resources first, then re-raise as
+        # ConfigEntryError so HA marks the entry SETUP_ERROR and processes
+        # entry.async_on_unload through its supported lifecycle. Using
+        # ConfigEntryError rather than ConfigEntryNotReady is deliberate:
+        # we cannot classify the failure as transient, so an auto-retry
+        # loop would be inappropriate.
+        await _async_cleanup_failed_setup(hass, entry, coordinator)
+        raise ConfigEntryError(
+            f"Failed to load {DEFAULT_NAME}: {ex} (line {line_number})"
+        ) from ex
 
     return initialized
 
