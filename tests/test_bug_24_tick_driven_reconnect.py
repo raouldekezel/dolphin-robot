@@ -54,8 +54,8 @@ def _stub_coordinator(
 
     ``_handle_connection_failure`` / ``_maybe_reconnect`` /
     ``_schedule_next_retry`` / ``_is_fully_connected`` / ``_aws_status``
-    only touch ``_api``, ``_aws_client``, ``_reconnection_attempts`` and
-    ``_next_retry_at``.
+    only touch ``_api``, ``_aws_client``, ``_reconnection_attempts``,
+    ``_next_retry_at`` and ``_reconnect_in_progress``.
     """
     stub = MagicMock(spec=MyDolphinPlusCoordinator)
     stub._api = MagicMock()
@@ -66,13 +66,25 @@ def _stub_coordinator(
     stub._aws_client.terminate = AsyncMock()
     stub._reconnection_attempts = 0
     stub._next_retry_at = 0.0
+    # BUG-24 (follow-up) — single-writer guard for the retry schedule.
+    # Must be explicitly False, otherwise MagicMock's default truthy
+    # attribute short-circuits `_schedule_next_retry` and
+    # `_maybe_reconnect` at the guard check.
+    stub._reconnect_in_progress = False
 
     # Bind the real helpers so state advances are observable when
     # `_handle_connection_failure` / `_maybe_reconnect` call them via
     # `self`. Without this, MagicMock replaces them and side-effects
     # (counter bumps, predicate reads) vanish.
     stub._schedule_next_retry = (
-        lambda now: MyDolphinPlusCoordinator._schedule_next_retry(stub, now)
+        lambda now_mono=None: MyDolphinPlusCoordinator._schedule_next_retry(
+            stub, now_mono
+        )
+    )
+    stub._ensure_retry_scheduled = (
+        lambda now_mono=None: MyDolphinPlusCoordinator._ensure_retry_scheduled(
+            stub, now_mono
+        )
     )
     stub._aws_status = lambda: MyDolphinPlusCoordinator._aws_status(stub)
     stub._is_fully_connected = lambda: MyDolphinPlusCoordinator._is_fully_connected(
@@ -171,10 +183,18 @@ async def test_maybe_reconnect_skips_when_backoff_not_elapsed():
 
 
 @pytest.mark.asyncio
-async def test_maybe_reconnect_fires_on_api_failed():
+async def test_maybe_reconnect_fires_on_api_failed(monkeypatch):
+    """Failed retry must schedule the next attempt (load-bearing
+    anti-halt behaviour). BUG-24 (follow-up): the reschedule uses
+    ``time.monotonic()`` at *end* of attempt — freeze it so we can
+    assert the new deadline lands where we expect."""
     stub = _stub_coordinator(api_status=ConnectivityStatus.FAILED)
     stub._next_retry_at = 1_000_000.0
     now = 1_000_001.0
+    monkeypatch.setattr(
+        "custom_components.mydolphin_plus.managers.coordinator.time.monotonic",
+        lambda: now,
+    )
 
     # Persistent outage: initialize() runs but leaves status FAILED.
     async def failing():
@@ -185,9 +205,6 @@ async def test_maybe_reconnect_fires_on_api_failed():
     await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
 
     stub._api.initialize.assert_awaited_once()
-    # Failed retry must schedule the next attempt (this is the load-
-    # bearing anti-halt behaviour — pre-fix, the halt happened right
-    # here).
     assert stub._reconnection_attempts == 1
     assert stub._next_retry_at > now
 
@@ -228,28 +245,43 @@ async def test_maybe_reconnect_fires_on_aws_only_failure_with_api_connected():
 
 
 @pytest.mark.asyncio
-async def test_maybe_reconnect_does_not_reschedule_after_api_becomes_connected():
-    """After a successful retry, the API is CONNECTED. The CONNECTED
-    dispatch cascades to ``_aws_client.initialize()`` asynchronously
-    and its handler will reset the retry schedule. ``_maybe_reconnect``
-    must NOT reschedule from here — doing so would fire another
-    `initialize()` in ~1 min while AWS is still catching up."""
+async def test_maybe_reconnect_does_not_reschedule_after_full_recovery():
+    """When ``_api.initialize()`` brings the compound state back to
+    fully connected (API-CONNECTED cascades through
+    ``_on_api_status_changed`` to a successful ``aws_client.initialize()``
+    → AWS-CONNECTED), ``_maybe_reconnect`` must NOT reschedule.
+
+    BUG-24 (follow-up): the pre-fix predicate gated on
+    ``api.status != CONNECTED`` — which correctly skipped reschedule
+    on API-CONNECTED but *also* skipped it on API-CONNECTED /
+    AWS-FAILED (the bug). The new predicate gates on
+    ``not _is_fully_connected()`` — so this test simulates the *full*
+    recovery (both sides up) and asserts no reschedule."""
     stub = _stub_coordinator(api_status=ConnectivityStatus.FAILED)
     stub._next_retry_at = 1_000_000.0
     stub._reconnection_attempts = 3
-    initial_next = stub._next_retry_at
     now = 1_000_001.0
 
-    async def healthy():
+    async def full_recovery():
+        # `_api.initialize()` -> `_on_api_status_changed(CONNECTED)` ->
+        # `aws_client.initialize()` -> `_on_aws_client_status_changed(CONNECTED)`
+        # -> both sides CONNECTED. Simulated here by the side-effect
+        # mutating both statuses; the real cascade is synchronous
+        # inside `_api.initialize()`.
         stub._api.status = ConnectivityStatus.CONNECTED
+        stub._aws_client.status = ConnectivityStatus.CONNECTED
 
-    stub._api.initialize.side_effect = healthy
+    stub._api.initialize.side_effect = full_recovery
 
     await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
 
     stub._api.initialize.assert_awaited_once()
     assert stub._reconnection_attempts == 3
-    assert stub._next_retry_at == initial_next
+    # BUG-24 (review r2) — the deadline is consumed at the top of the
+    # attempt. On full recovery the finally does not reschedule, so
+    # `_next_retry_at` stays at 0 (the previous value 1_000_000.0 was
+    # what triggered this attempt in the first place).
+    assert stub._next_retry_at == 0.0
 
 
 @pytest.mark.asyncio
@@ -257,11 +289,16 @@ async def test_maybe_reconnect_does_not_reschedule_after_needs_user():
     """If the retry surfaces a user-action state (e.g. Cognito
     rejected the refresh token → EXPIRED_TOKEN), the tick must NOT
     reschedule — the recovery path is the OTP reauth flow, not
-    another `initialize()`."""
+    another `initialize()`.
+
+    BUG-24 (follow-up) — the deadline is *cleared* to 0.0 rather than
+    left in the past. Keeping a past deadline would fire the tick
+    again as soon as `_api.status` recovered to CONNECTED without a
+    prior seed, and would confuse the "unseeded" check in
+    `_maybe_reconnect`."""
     stub = _stub_coordinator(api_status=ConnectivityStatus.FAILED)
     stub._next_retry_at = 1_000_000.0
     stub._reconnection_attempts = 2
-    initial_next = stub._next_retry_at
     now = 1_000_001.0
 
     async def rejected():
@@ -273,7 +310,8 @@ async def test_maybe_reconnect_does_not_reschedule_after_needs_user():
 
     stub._api.initialize.assert_awaited_once()
     assert stub._reconnection_attempts == 2
-    assert stub._next_retry_at == initial_next
+    # Deadline cleared — OTP flow owns recovery from here.
+    assert stub._next_retry_at == 0.0
 
 
 @pytest.mark.parametrize(
@@ -413,22 +451,26 @@ async def test_aws_only_outage_recovers_via_tick():
     assert stub._reconnection_attempts == 1
     assert stub._next_retry_at > 0.0
 
-    # Tick fires at the scheduled time — initialize succeeds.
-    async def healthy():
-        stub._api.status = ConnectivityStatus.CONNECTED  # no change, but signals recovery
+    # Tick fires at the scheduled time — the API re-init cascade
+    # brings AWS back up too. BUG-24 (follow-up): the finally now
+    # checks `_is_fully_connected()`, so the side effect must
+    # transition AWS to CONNECTED (mirroring the real cascade). If
+    # only API stayed CONNECTED, the finally would schedule again —
+    # correctly, because AWS still needs help.
+    async def full_recovery():
+        stub._aws_client.status = ConnectivityStatus.CONNECTED
 
-    stub._api.initialize.side_effect = healthy
+    stub._api.initialize.side_effect = full_recovery
     now = stub._next_retry_at
     await MyDolphinPlusCoordinator._maybe_reconnect(stub, now)
 
     stub._api.initialize.assert_awaited_once()
-    # No further scheduling — the CONNECTED dispatch owns the AWS
-    # re-init and the counter reset.
+    # Both sides healthy → no further scheduling.
     assert stub._reconnection_attempts == 1
 
 
 @pytest.mark.asyncio
-async def test_maybe_reconnect_reschedules_even_when_initialize_raises():
+async def test_maybe_reconnect_reschedules_even_when_initialize_raises(monkeypatch):
     """F5 regression guard from the fable review of #122.
 
     Most ``_login`` paths swallow their exceptions and set ``FAILED``
@@ -444,6 +486,10 @@ async def test_maybe_reconnect_reschedules_even_when_initialize_raises():
     )
     stub._next_retry_at = 1_000_000.0
     now = 1_000_001.0
+    monkeypatch.setattr(
+        "custom_components.mydolphin_plus.managers.coordinator.time.monotonic",
+        lambda: now,
+    )
 
     async def blows_up():
         raise RuntimeError("unexpected storage failure")
@@ -463,7 +509,13 @@ async def test_maybe_reconnect_reschedules_even_when_initialize_raises():
 async def test_recovery_stops_the_retry_loop():
     """Once a tick-retry succeeds and the CONNECTED cascade re-inits
     AWS, the dispatch handler (not exercised here) resets counters.
-    ``_maybe_reconnect`` itself must NOT schedule another retry."""
+    ``_maybe_reconnect`` itself must NOT schedule another retry.
+
+    BUG-24 (follow-up) — the reschedule predicate is now
+    ``not _is_fully_connected()``, so the side effect must transition
+    *both* sides to CONNECTED to model a real end-to-end recovery
+    (a real ``_api.initialize()`` cascade re-inits AWS via the
+    CONNECTED dispatch)."""
     stub = _stub_coordinator(
         api_status=ConnectivityStatus.FAILED,
         aws_status=ConnectivityStatus.NOT_CONNECTED,
@@ -472,14 +524,17 @@ async def test_recovery_stops_the_retry_loop():
     await MyDolphinPlusCoordinator._handle_connection_failure(stub)
     assert stub._reconnection_attempts == 1
 
-    async def healthy():
+    async def full_recovery():
         stub._api.status = ConnectivityStatus.CONNECTED
+        stub._aws_client.status = ConnectivityStatus.CONNECTED
 
-    stub._api.initialize.side_effect = healthy
+    stub._api.initialize.side_effect = full_recovery
     initial_next = stub._next_retry_at
 
     await MyDolphinPlusCoordinator._maybe_reconnect(stub, initial_next)
 
     stub._api.initialize.assert_awaited_once()
     assert stub._reconnection_attempts == 1
-    assert stub._next_retry_at == initial_next
+    # BUG-24 (review r2) — the deadline is consumed atomically at the
+    # top of the attempt; on full recovery the finally leaves it at 0.
+    assert stub._next_retry_at == 0.0
