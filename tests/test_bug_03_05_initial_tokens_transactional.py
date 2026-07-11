@@ -143,8 +143,16 @@ async def test_bug03_initial_tokens_stripped_even_if_update_tokens_raises(monkey
         "custom_components.mydolphin_plus.ConfigManager", lambda *a, **k: fake_cm
     )
 
-    # The outer except Exception in async_setup_entry swallows the error.
-    await async_setup_entry(hass, entry)
+    # Since issue #137 the outer except re-raises the failure as
+    # ``ConfigEntryError`` (rather than silently returning False, which
+    # was the source of the on_unload leak). The BUG-03 invariant is
+    # unchanged: the strip runs before ``update_tokens`` and therefore
+    # BEFORE the raise, so ``INITIAL_TOKENS_KEY`` is already gone from
+    # ``entry.data`` when the exception fires.
+    from homeassistant.exceptions import ConfigEntryError
+
+    with pytest.raises(ConfigEntryError):
+        await async_setup_entry(hass, entry)
 
     assert INITIAL_TOKENS_KEY not in entry.data, (
         "tokens were left in entry.data after a mid-setup crash — "
