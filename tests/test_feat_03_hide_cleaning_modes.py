@@ -9,9 +9,11 @@ Locked decisions (issue #51 closing comment, 2026-07-10 → 2026-07-11):
   are dynamic ``@property`` overrides — no ``_attr_*`` writes, no
   entity reload (design R1).
 * ``number.cycle_time_<mode>`` visibility is driven by the entity
-  registry's ``hidden_by`` field (design Q3), not ``available``. This
-  keeps the entity live in the registry and state-updating, but
-  removes it from default UI surfaces without a reload.
+  registry's ``disabled_by`` field (design Q3 pivoted 2026-07-11 after
+  in-vivo feedback that ``hidden_by`` still left the entities visible
+  in the device details page). ``disabled_by`` truly removes them
+  from every surface. Hiding is instant and reload-free; un-hiding
+  schedules a config-entry reload so HA re-adds the entity.
 * ``pickup`` stays in the pick-list (Q1) — the hide-set governs the
   full 7-mode curated set.
 * No ``entry.add_update_listener`` reload path (Q2). Propagation is
@@ -42,6 +44,55 @@ from custom_components.mydolphin_plus.managers.coordinator import (
 # ---------------------------------------------------------------------------
 
 
+def test_selector_visible_modes_labels_live_at_top_level_selector_key():
+    """FEAT-03 in-vivo bug (Raoul, #51 2026-07-10 23:56 comment): the
+    picker showed raw values (`all`, `water`, …) instead of translated
+    labels because the `visible_modes` selector labels were placed
+    under ``options.selector.*``. Home Assistant resolves
+    ``SelectSelectorConfig.translation_key`` against ``component.<domain>
+    .selector.<translation_key>`` — a TOP-LEVEL ``selector`` key,
+    alongside ``config``/``options``, not nested inside them.
+
+    Pin the placement on every shipped locale so a future contributor
+    can't silently nest it and re-break the picker labels.
+    """
+    import json
+    from pathlib import Path
+
+    root = (
+        Path(__file__).resolve().parent.parent / "custom_components" / "mydolphin_plus"
+    )
+    files = [
+        root / "strings.json",
+        root / "translations" / "en.json",
+        root / "translations" / "fr.json",
+        root / "translations" / "it.json",
+    ]
+
+    for fp in files:
+        d = json.loads(fp.read_text(encoding="utf-8"))
+        top_selector = d.get("selector", {}).get("visible_modes", {}).get("options")
+        nested_selector = (
+            d.get("options", {})
+            .get("selector", {})
+            .get("visible_modes", {})
+            .get("options")
+        )
+        assert top_selector, (
+            f"{fp.name}: `selector.visible_modes.options.*` must be at "
+            "top level (HA resolves `SelectSelectorConfig.translation_key` there)"
+        )
+        assert nested_selector is None, (
+            f"{fp.name}: `options.selector.*` must NOT exist — HA does not "
+            "resolve selector labels nested under `options.` (that's for step "
+            "translations, not selectors)"
+        )
+        for mode in KNOWN_LABELED_MODES:
+            assert (
+                mode in top_selector
+            ), f"{fp.name}: mode {mode!r} missing from selector labels"
+
+
 def test_known_labeled_modes_is_the_full_curated_set_in_canonical_order():
     """The tuple governs iteration order in `fan_speed_list` and
     `select.options`. Order changes are user-visible on the picker."""
@@ -69,6 +120,7 @@ def _stub_coordinator(entry_options: dict | None = None):
     stub.hass.data = {}
     stub.hass.config_entries = MagicMock()
     stub.hass.config_entries.async_update_entry = MagicMock()
+    stub.hass.config_entries.async_schedule_reload = MagicMock()
 
     entry = MagicMock()
     entry.options = entry_options if entry_options is not None else {}
@@ -129,7 +181,7 @@ def test_seed_visible_modes_empty_falls_back_to_full():
 async def test_async_set_visible_modes_updates_registry_and_notifies_no_persist(
     monkeypatch,
 ):
-    """The mutator updates in-memory set, toggles registry `hidden_by`,
+    """The mutator updates in-memory set, toggles registry `disabled_by`,
     and calls `async_update_listeners`. It must NOT write
     `entry.options` — the flow finalize
     (`async_create_entry(data={**entry.options, …})`) owns persistence;
@@ -174,6 +226,51 @@ async def test_async_set_visible_modes_empty_input_restores_full_set():
 
 
 @pytest.mark.asyncio
+async def test_async_set_visible_modes_hide_only_does_not_reload():
+    """The common case: user hides one more mode. HA handles
+    `disabled_by=INTEGRATION` synchronously (removes entity state, no
+    reload needed). R1 preserved."""
+    stub, entry = _stub_coordinator()
+    stub._visible_modes = frozenset(KNOWN_LABELED_MODES)  # start visible
+    stub.async_set_visible_modes = (
+        MyDolphinPlusCoordinator.async_set_visible_modes.__get__(
+            stub, MyDolphinPlusCoordinator
+        )
+    )
+    stub._apply_visible_modes_to_registry = MagicMock()
+
+    # Hide `water` (subset of the previous set — no un-hide).
+    await stub.async_set_visible_modes(
+        frozenset(m for m in KNOWN_LABELED_MODES if m != "water")
+    )
+
+    stub.hass.config_entries.async_schedule_reload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_set_visible_modes_un_hide_schedules_reload():
+    """The rare case: user re-enables a previously hidden mode. HA does
+    not automatically re-add the entity when `disabled_by` is cleared —
+    it needs a platform pass. Schedule a reload so the re-enabled
+    `number.cycle_time_<mode>` reappears in the same event loop turn."""
+    stub, entry = _stub_coordinator()
+    stub._visible_modes = frozenset({"all", "short"})  # water was hidden
+    stub.async_set_visible_modes = (
+        MyDolphinPlusCoordinator.async_set_visible_modes.__get__(
+            stub, MyDolphinPlusCoordinator
+        )
+    )
+    stub._apply_visible_modes_to_registry = MagicMock()
+
+    # Un-hide `water` on top of the previous set.
+    await stub.async_set_visible_modes(frozenset({"all", "short", "water"}))
+
+    stub.hass.config_entries.async_schedule_reload.assert_called_once_with(
+        entry.entry_id
+    )
+
+
+@pytest.mark.asyncio
 async def test_async_set_visible_modes_drops_unknown_values():
     stub, entry = _stub_coordinator()
     stub.async_set_visible_modes = (
@@ -189,15 +286,15 @@ async def test_async_set_visible_modes_drops_unknown_values():
 
 
 # ---------------------------------------------------------------------------
-# Registry `hidden_by` toggle
+# Registry `disabled_by` toggle + reload-on-un-hide
 # ---------------------------------------------------------------------------
 
 
 class _FakeRegistryEntry:
-    def __init__(self, entity_id: str, translation_key: str, hidden_by=None):
+    def __init__(self, entity_id: str, translation_key: str, disabled_by=None):
         self.entity_id = entity_id
         self.translation_key = translation_key
-        self.hidden_by = hidden_by
+        self.disabled_by = disabled_by
 
 
 class _FakeRegistry:
@@ -205,11 +302,11 @@ class _FakeRegistry:
         self._entries = entries
         self.updates: list[tuple[str, object]] = []
 
-    def async_update_entity(self, entity_id: str, hidden_by=None):
-        self.updates.append((entity_id, hidden_by))
+    def async_update_entity(self, entity_id: str, disabled_by=None):
+        self.updates.append((entity_id, disabled_by))
         for e in self._entries:
             if e.entity_id == entity_id:
-                e.hidden_by = hidden_by
+                e.disabled_by = disabled_by
 
     def entries(self):
         return list(self._entries)
@@ -217,9 +314,9 @@ class _FakeRegistry:
 
 def test_apply_visible_modes_hides_only_invisible_modes(monkeypatch):
     """Only per-mode cycle_time numbers whose mode is now hidden get
-    `hidden_by`; visible ones get `None`. Non-cycle-time entities
+    `disabled_by`; visible ones get `None`. Non-cycle-time entities
     (`led`, `cycle_time_locate`) are untouched."""
-    from homeassistant.helpers.entity_registry import RegistryEntryHider
+    from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 
     stub, entry = _stub_coordinator()
 
@@ -259,7 +356,7 @@ def test_apply_visible_modes_hides_only_invisible_modes(monkeypatch):
     assert "number.foo_led_intensity" not in entity_ids_updated
     assert f"sensor.foo_{cycle_time_all_key}" not in entity_ids_updated
     # Only hidden modes generate an update — visible modes were already
-    # at `hidden_by=None` in this fixture, so they're skipped (see the
+    # at `disabled_by=None` in this fixture, so they're skipped (see the
     # dedicated idempotence test below).
     for key, mode in cycle_time_keys.items():
         entity_id = f"number.foo_{key}"
@@ -268,24 +365,24 @@ def test_apply_visible_modes_hides_only_invisible_modes(monkeypatch):
                 entity_id not in entity_ids_updated
             ), f"{mode} already-visible entity should not be re-written"
         else:
-            assert per_entity[entity_id] == RegistryEntryHider.INTEGRATION
+            assert per_entity[entity_id] == RegistryEntryDisabler.INTEGRATION
 
 
 def test_apply_visible_modes_is_a_noop_when_state_matches(monkeypatch):
-    """Idempotent: an entity already at the desired hidden_by value is
+    """Idempotent: an entity already at the desired disabled_by value is
     not re-written (avoids spurious registry updates)."""
-    from homeassistant.helpers.entity_registry import RegistryEntryHider
+    from homeassistant.helpers.entity_registry import RegistryEntryDisabler
 
     stub, entry = _stub_coordinator()
 
     key_all = get_clean_mode_cycle_time_key(CleanModes.REGULAR)
     key_water = get_clean_mode_cycle_time_key(CleanModes.WATER_LINE)
     entries = [
-        _FakeRegistryEntry(f"number.foo_{key_all}", key_all, hidden_by=None),
+        _FakeRegistryEntry(f"number.foo_{key_all}", key_all, disabled_by=None),
         _FakeRegistryEntry(
             f"number.foo_{key_water}",
             key_water,
-            hidden_by=RegistryEntryHider.INTEGRATION,
+            disabled_by=RegistryEntryDisabler.INTEGRATION,
         ),
     ]
     registry = _FakeRegistry(entries)
@@ -675,7 +772,7 @@ async def test_options_otp_lost_state_reroutes_to_reauth_not_menu(monkeypatch):
 
 
 def test_registry_matcher_covers_real_cycle_time_number_translation_keys():
-    """The registry `hidden_by` toggle matches `number.*` entities by
+    """The registry `disabled_by` toggle matches `number.*` entities by
     their `translation_key`. If either the matcher key or the entity
     description's `translation_key` drifts, the toggle silently no-ops.
     Anchor the invariant on the shipped `ENTITY_DESCRIPTIONS` list so a
