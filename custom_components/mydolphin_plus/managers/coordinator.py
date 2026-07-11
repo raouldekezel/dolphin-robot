@@ -212,6 +212,11 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     # `_get_vacuum_data` via a spec'd stub.
     _visible_modes: frozenset[str] = frozenset()
 
+    # BUG-27 — cleared by `async_shutdown`. Class-level default so
+    # `MagicMock(spec=…)` in tests sees the attribute even before
+    # `initialize()` has set it (spec is derived from `dir()`).
+    _no_op_unsub: Callable[[], None] | None = None
+
     def __init__(self, hass, config_manager: ConfigManager):
         """Initialize my coordinator."""
         super().__init__(
@@ -354,6 +359,19 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         entry = self.config_manager.entry
         self._seed_visible_modes(entry)
+        # BUG-27 — DataUpdateCoordinator only reschedules its periodic
+        # refresh when at least one listener is registered. Entities
+        # register on `SIGNAL_DEVICE_NEW`, which fires only after
+        # `_api.update()` — reachable only from a CONNECTED status. If
+        # the initial connection fails (e.g. Maytronics `getToken`
+        # refusing during a backend outage), status goes FAILED without
+        # ever reaching CONNECTED, no entities are added, no listeners
+        # exist, and the coordinator's tick never runs → the BUG-24
+        # tick-driven retry loop never fires and the integration stays
+        # dormant until manual reload. Register a no-op listener here so
+        # the tick keeps running regardless of connection state. Stored
+        # so `async_shutdown` can drop it cleanly.
+        self._no_op_unsub = self.async_add_listener(lambda: None)
         await self.hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
         _LOGGER.info(f"Start loading {DOMAIN} integration, Entry ID: {entry.entry_id}")
