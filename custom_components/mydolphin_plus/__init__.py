@@ -43,8 +43,12 @@ async def _async_cleanup_failed_setup(
 
     Scope of this helper — deliberately narrow:
 
-    * terminate the coordinator (drops the BUG-27 persistent listener +
-      closes the REST/AWS side);
+    * call ``coordinator.terminate()`` — releases the BUG-27 persistent
+      listener and terminates the AWS/MQTT client. The REST session is
+      **not** touched here: ``RestAPI.terminate()`` is not part of the
+      coordinator's teardown surface today, and expanding it as a side
+      effect of #137 is out of scope. HA-mode REST sessions are held
+      by HA's global aiohttp pool and are cleaned up on HA shutdown;
     * drop the partially initialised coordinator from ``hass.data``.
 
     Explicitly does **not** touch ``entry._async_process_on_unload`` or
@@ -54,7 +58,9 @@ async def _async_cleanup_failed_setup(
     ``ConfigEntryNotReady``) — the correct pattern for a custom
     integration is to clean up its own resources here, then raise the
     appropriate public exception; HA will process the on-unload list
-    through its supported lifecycle.
+    (dispatcher unsubs from ``_load_signal_handlers`` and the
+    self-wired ``DataUpdateCoordinator.async_shutdown``) through its
+    supported lifecycle.
 
     Strict idempotence: the ``hass.data`` slot is used as the guard.
     A second call with the same coordinator sees the slot already

@@ -15,8 +15,11 @@ The fix follows the pattern Home Assistant expects from a custom
 integration:
 
 1. clean up the resources the integration owns directly (drop the BUG-27
-   listener + terminate REST/AWS via ``coordinator.terminate()``, remove
-   the partially initialised coordinator from ``hass.data``);
+   listener + terminate AWS via ``coordinator.terminate()``, remove the
+   partially initialised coordinator from ``hass.data``). The REST
+   session is *not* touched here — ``RestAPI.terminate()`` is not part
+   of the coordinator's teardown surface today; expanding it is out of
+   scope for #137;
 2. **raise** a public config-entry exception (``ConfigEntryAuthFailed``
    for ``LoginError``, ``ConfigEntryError`` for anything else).
 
@@ -390,11 +393,13 @@ async def test_setup_entry_e2e_raises_config_entry_error_and_cleans_up(
         def __init__(self, hass_, config_manager_):
             api_captured["instance"] = self
             self._terminate_calls = 0
+            self._initialize_calls = 0
 
         async def initialize(self):
             # Late failure — coord.initialize has already registered the
             # BUG-27 listener and scheduled the refresh by the time we
             # get here.
+            self._initialize_calls += 1
             raise RuntimeError("Simulated late REST initialize failure")
 
         async def update(self):
@@ -470,7 +475,16 @@ async def test_setup_entry_e2e_raises_config_entry_error_and_cleans_up(
         + repr(entry._on_unload)
     )
 
-    # Advance both clocks; no ghost retry can fire.
+    # Advance both clocks; no ghost retry can fire. The reviewer note
+    # on the initial revision was correct — asserting only that the
+    # coordinator is absent from ``hass.data`` after the advance is
+    # tautological (that was already true before the advance). The
+    # load-bearing assertion is that ``_api.initialize`` is not called
+    # again: the coordinator was shut down by HA's on_unload processing
+    # of the self-wired ``DataUpdateCoordinator.async_shutdown``, so
+    # no scheduled tick remains to fire ``_maybe_reconnect`` →
+    # ``_api.initialize``.
+    api_calls_before_advance = api_captured["instance"]._initialize_calls
     clock.advance(120)
     async_fire_time_changed(
         hass,
@@ -478,6 +492,11 @@ async def test_setup_entry_e2e_raises_config_entry_error_and_cleans_up(
     )
     await hass.async_block_till_done()
 
+    assert api_captured["instance"]._initialize_calls == api_calls_before_advance, (
+        "ghost retry after cleanup — _api.initialize was called after "
+        "async_setup_entry aborted; HA's on_unload path failed to cancel "
+        "the scheduled refresh"
+    )
     assert hass.data.get(DOMAIN, {}).get(entry.entry_id) is None
 
 
