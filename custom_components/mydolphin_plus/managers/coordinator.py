@@ -28,7 +28,7 @@ from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.entity_registry import (
-    RegistryEntryHider,
+    RegistryEntryDisabler,
     async_entries_for_config_entry,
     async_get as async_get_entity_registry,
 )
@@ -226,14 +226,18 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._last_update_ws = 0
         self._reconnection_attempts = 0
         # FEAT-03 — visible cleaning modes. Single source of truth for
-        # `vacuum.fan_speed_list`, `select.desired_clean_mode.options`, and
-        # the `hidden_by` state of the per-mode `number.cycle_time_<mode>`
-        # entities. Seeded from `entry.options[CONF_VISIBLE_MODES]` on
-        # setup (`_seed_visible_modes`) and mutated only through
-        # `async_set_visible_modes`, which also updates the entity
-        # registry and calls `async_update_listeners` to propagate the new
-        # `fan_speed_list` / `select.options` via `cached_properties`
-        # without an entity reload (design R1).
+        # `vacuum.fan_speed_list`, `select.desired_clean_mode.options`,
+        # and the `disabled_by` state of the per-mode
+        # `number.cycle_time_<mode>` entities. Seeded from
+        # `entry.options[CONF_VISIBLE_MODES]` at setup
+        # (`_seed_visible_modes`) and mutated only via
+        # `async_set_visible_modes`, which updates the registry and
+        # calls `async_update_listeners` to propagate the new
+        # `fan_speed_list` / `select.options` via `cached_properties`.
+        # R1 (no reload) is preserved for the common case (hiding a
+        # mode); only UN-hiding schedules a config-entry reload because
+        # HA needs a fresh platform pass to re-add the previously
+        # disabled entity.
         self._visible_modes: frozenset[str] = frozenset(KNOWN_LABELED_MODES)
         # BUG-24 — timestamp of the next scheduled reconnect. The tick in
         # `_async_update_data` drives retries via `_maybe_reconnect`: fires
@@ -385,19 +389,26 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         """Propagate a new visible-modes set to the running coordinator.
 
         Called from the options-flow preferences step (which owns the
-        persistence). Does three things:
+        persistence). Does four things:
 
         1. Updates the in-memory `_visible_modes` set.
-        2. Toggles `hidden_by = RegistryEntryHider.INTEGRATION` on every
-           `number.cycle_time_<mode>` whose mode is now hidden, clears
-           it on every mode that is now visible. `hidden_by` removes
-           the entity from default UI surfaces without a registry
-           reload (contrast with `disabled_by`, rejected in the FEAT-03
-           design thread for that reason).
+        2. Toggles `disabled_by = RegistryEntryDisabler.INTEGRATION` on
+           every `number.cycle_time_<mode>` whose mode is now hidden,
+           clears it on every mode that is now visible. `disabled_by`
+           is stronger than `hidden_by`: the entity disappears from the
+           device details page too (which was the FEAT-03 in-vivo
+           feedback — `hidden_by` still listed them there). Trade-off:
+           un-hiding requires HA to re-add the entity, so we
+           `async_schedule_reload` only when at least one mode was
+           un-hidden. Hiding-only saves stay reload-free (R1 preserved
+           for the common case).
         3. Refreshes coordinator listeners so `vacuum.fan_speed_list`
            and `select.desired_clean_mode.options` re-evaluate on the
-           next tick via `cached_properties` (design R1 — no entity
-           reload).
+           next tick via `cached_properties`.
+        4. If any mode was UN-hidden compared to the previous set,
+           schedules a config-entry reload so HA's platforms re-run
+           `async_setup_entry` and re-add the newly-enabled entity.
+           No-op when only hiding.
 
         Does NOT write `entry.options` — the flow finalize
         (`async_create_entry(data=...)`) owns persistence. Doing both
@@ -407,24 +418,37 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         clean = frozenset(m for m in new_visible if m in KNOWN_LABELED_MODES)
         if not clean:
             clean = frozenset(KNOWN_LABELED_MODES)
+        previous = self._visible_modes
         self._visible_modes = clean
 
         self._apply_visible_modes_to_registry(clean)
         self.async_update_listeners()
 
+        # Reload only when a mode was newly RE-enabled — HA needs a
+        # platform pass to re-add the entity whose `disabled_by` we just
+        # cleared. Newly-disabled modes are handled instantly by the
+        # registry write above (state removed, no reload needed).
+        newly_visible = clean - previous
+        if newly_visible:
+            entry = self.config_manager.entry
+            if entry is not None:
+                self.hass.config_entries.async_schedule_reload(entry.entry_id)
+
     def _apply_visible_modes_to_registry(self, visible: frozenset[str]) -> None:
-        """Toggle `hidden_by` on each `number.cycle_time_<mode>` entity.
+        """Toggle `disabled_by` on each `number.cycle_time_<mode>` entity.
 
-        FEAT-03 — hide the per-mode number when its mode is invisible,
-        show it otherwise. Uses `RegistryEntryHider.INTEGRATION` (not
-        `USER`) so the user can still un-hide the entity manually from
-        Settings; on the next options-flow save we override that (the
-        preferences form is the authoritative source).
+        FEAT-03 (post-review pivot 2026-07-11) — use
+        `RegistryEntryDisabler.INTEGRATION` so hidden modes truly
+        disappear from the device details page, not only from
+        dashboards/entity pickers. `hidden_by` (the initial Q3 choice)
+        turned out to leave the per-mode numbers visible in the
+        "Capteurs de configuration" section of the device details page
+        — Raoul's #51 2026-07-11 feedback.
 
-        Entities are matched by their `translation_key`, which we control
-        (it's the entity description's `key` at construction time). That
-        avoids reconstructing the unique_id, which depends on the user's
-        currently-active display name.
+        Entities are matched by their `translation_key`, which we
+        control (it's the entity description's `key` at construction
+        time). That avoids reconstructing the unique_id, which depends
+        on the user's currently-active display name.
         """
         entry = self.config_manager.entry
         if entry is None:
@@ -442,10 +466,10 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             mode = per_mode_translation_keys.get(reg_entry.translation_key or "")
             if mode is None:
                 continue
-            target = None if mode in visible else RegistryEntryHider.INTEGRATION
-            if reg_entry.hidden_by == target:
+            target = None if mode in visible else RegistryEntryDisabler.INTEGRATION
+            if reg_entry.disabled_by == target:
                 continue
-            registry.async_update_entity(reg_entry.entity_id, hidden_by=target)
+            registry.async_update_entity(reg_entry.entity_id, disabled_by=target)
 
     def _load_signal_handlers(self):
         # BUG-09: the previous code called `.__await__()` on a freshly created
