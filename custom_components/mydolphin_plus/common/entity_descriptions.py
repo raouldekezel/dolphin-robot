@@ -64,6 +64,16 @@ from .consts import (
 from .joystick_direction import JoystickDirection
 from .robot_family import RobotFamily
 
+_CYCLE_TIME_ICONS: dict[CleanModes, str] = {
+    CleanModes.REGULAR: "mdi:vacuum",
+    CleanModes.FAST_MODE: "mdi:timer-fast-outline",
+    CleanModes.FLOOR_ONLY: "mdi:floor-plan",
+    CleanModes.WATER_LINE: "mdi:waves",
+    CleanModes.ULTRA_CLEAN: "mdi:star-shooting",
+    CleanModes.PICKUP: "mdi:hook",
+    CleanModes.STAIRS: "mdi:stairs",
+}
+
 
 @dataclass(frozen=True, kw_only=True)
 class MyDolphinPlusEntityDescription(EntityDescription):
@@ -141,6 +151,7 @@ ENTITY_DESCRIPTIONS: list[MyDolphinPlusEntityDescription] = [
     MyDolphinPlusRemoteEntityDescription(
         key=slugify(DATA_KEY_REMOTE),
         name="",
+        icon="mdi:joystick",
         features=RemoteEntityFeature.ACTIVITY,
         activity_list=list(JoystickDirection),
         translation_key=slugify(DATA_KEY_REMOTE),
@@ -161,6 +172,7 @@ ENTITY_DESCRIPTIONS: list[MyDolphinPlusEntityDescription] = [
     MyDolphinPlusNumberEntityDescription(
         key=slugify(DATA_KEY_LED_INTENSITY),
         name=DATA_KEY_LED_INTENSITY,
+        icon="mdi:brightness-6",
         native_min_value=0,
         native_max_value=100,
         entity_category=EntityCategory.CONFIG,
@@ -170,6 +182,7 @@ ENTITY_DESCRIPTIONS: list[MyDolphinPlusEntityDescription] = [
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_STATUS),
         name=DATA_KEY_STATUS,
+        icon="mdi:information-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_STATUS),
     ),
@@ -184,41 +197,48 @@ ENTITY_DESCRIPTIONS: list[MyDolphinPlusEntityDescription] = [
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_NETWORK_NAME),
         name=DATA_KEY_NETWORK_NAME,
+        icon="mdi:wifi",
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_NETWORK_NAME),
     ),
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_CLEAN_MODE),
         name=DATA_KEY_CLEAN_MODE,
+        icon="mdi:broom",
         translation_key=slugify(DATA_KEY_CLEAN_MODE),
     ),
     MyDolphinPlusSelectEntityDescription(
         key=slugify(DATA_KEY_DESIRED_CLEAN_MODE),
         name=DATA_KEY_DESIRED_CLEAN_MODE,
+        icon="mdi:broom",
         options=[str(mode) for mode in CleanModes],
         translation_key=slugify(DATA_KEY_DESIRED_CLEAN_MODE),
     ),
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_POWER_SUPPLY_STATUS),
         name=DATA_KEY_POWER_SUPPLY_STATUS,
+        icon="mdi:power-plug-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_POWER_SUPPLY_STATUS),
     ),
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_ROBOT_STATUS),
         name=DATA_KEY_ROBOT_STATUS,
+        icon="mdi:robot-vacuum",
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_ROBOT_STATUS),
     ),
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_ROBOT_TYPE),
         name=DATA_KEY_ROBOT_TYPE,
+        icon="mdi:robot-vacuum-variant",
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_ROBOT_TYPE),
     ),
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_CYCLE_COUNT),
         name=DATA_KEY_CYCLE_COUNT,
+        icon="mdi:counter",
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.TOTAL_INCREASING,
         translation_key=slugify(DATA_KEY_CYCLE_COUNT),
@@ -255,14 +275,14 @@ ENTITY_DESCRIPTIONS: list[MyDolphinPlusEntityDescription] = [
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_ROBOT_ERROR),
         name=DATA_KEY_ROBOT_ERROR,
-        icon="mdi:robot-vacuum-variant",
+        icon="mdi:robot-dead",
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_ROBOT_ERROR),
     ),
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_PWS_ERROR),
         name=DATA_KEY_PWS_ERROR,
-        icon="mdi:water-boiler",
+        icon="mdi:power-plug-off-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_PWS_ERROR),
     ),
@@ -316,6 +336,7 @@ for clean_mode in list(CleanModes):
     ed = MyDolphinPlusNumberEntityDescription(
         key=key,
         name=name,
+        icon=_CYCLE_TIME_ICONS[CleanModes(clean_mode)],
         native_min_value=0,
         native_max_value=600,
         entity_category=EntityCategory.CONFIG,
