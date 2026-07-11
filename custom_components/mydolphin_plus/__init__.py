@@ -10,6 +10,7 @@ import sys
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, EVENT_HOMEASSISTANT_START
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError
 
 from .common.consts import (
     DEFAULT_NAME,
@@ -38,53 +39,36 @@ async def _async_cleanup_failed_setup(
     entry: ConfigEntry,
     coordinator: MyDolphinPlusCoordinator | None,
 ) -> None:
-    """Release every integration-owned resource when setup aborts (issue #137).
+    """Release integration-owned resources when setup aborts (issue #137).
 
-    Home Assistant does **not** invoke ``async_unload_entry`` when
-    ``async_setup_entry`` returns ``False`` or raises anything other than
-    ``ConfigEntryNotReady`` / ``ConfigEntryAuthFailed``. Callbacks registered
-    via ``entry.async_on_unload(...)`` therefore stay wired until the entry
-    is next removed or reloaded — for this integration that includes the two
-    dispatcher subscriptions in ``MyDolphinPlusCoordinator._load_signal_handlers``,
-    the self-wired ``DataUpdateCoordinator.async_shutdown`` (see HA
-    ``DataUpdateCoordinator.__init__``), the BUG-27 persistent no-op listener,
-    and any open REST/AWS session.
+    Scope of this helper — deliberately narrow:
 
-    Ordering — deliberate:
+    * terminate the coordinator (drops the BUG-27 persistent listener +
+      closes the REST/AWS side);
+    * drop the partially initialised coordinator from ``hass.data``.
 
-    1. ``coordinator.terminate()`` first — drops the BUG-27 persistent
-       listener and closes the AWS side, so the tick can no longer fire
-       even before ``async_shutdown`` cancels its timer.
-    2. ``entry._async_process_on_unload(hass)`` — the same private helper
-       HA uses on the ``ConfigEntryNotReady`` / ``ConfigEntryAuthFailed``
-       paths. Fires ``DataUpdateCoordinator.async_shutdown`` (cancels
-       ``_unsub_refresh`` and closes the debouncer) and the dispatcher
-       unsubs; awaits pending ``entry.async_create_task`` tasks with a
-       10 s timeout. Idempotent — pops from ``_on_unload`` so a second
-       call sees an empty list.
-    3. Remove the coordinator from ``hass.data`` and drop the empty
-       domain bucket.
+    Explicitly does **not** touch ``entry._async_process_on_unload`` or
+    any other HA-private lifecycle machinery. HA already runs the
+    ``entry.async_on_unload`` callbacks itself on the three public
+    exception paths (``ConfigEntryError``, ``ConfigEntryAuthFailed``,
+    ``ConfigEntryNotReady``) — the correct pattern for a custom
+    integration is to clean up its own resources here, then raise the
+    appropriate public exception; HA will process the on-unload list
+    through its supported lifecycle.
 
-    Safe to call with ``coordinator=None`` (failure before construction) and
-    safe on repeat.
+    Strict idempotence: the ``hass.data`` slot is used as the guard.
+    A second call with the same coordinator sees the slot already
+    empty and skips the termination step.
     """
-    if coordinator is not None:
+    domain_data = hass.data.get(DOMAIN, {})
+    still_registered = domain_data.get(entry.entry_id) is coordinator
+
+    if coordinator is not None and still_registered:
         try:
             await coordinator.terminate()
         except Exception:  # pragma: no cover — hygiene, do not mask the outer failure
             _LOGGER.exception("terminate() raised during failed-setup cleanup")
 
-    # Fire entry-registered on_unload callbacks — dispatchers (BUG-09) +
-    # DataUpdateCoordinator.async_shutdown (HA self-wired). HA normally
-    # runs this from its own ConfigEntryNotReady / ConfigEntryAuthFailed
-    # paths; a plain returned-False or unclassified exception does not go
-    # through it, hence the explicit call here.
-    try:
-        await entry._async_process_on_unload(hass)
-    except Exception:  # pragma: no cover — hygiene
-        _LOGGER.exception("on_unload processing raised during failed-setup cleanup")
-
-    domain_data = hass.data.get(DOMAIN, {})
     domain_data.pop(entry.entry_id, None)
     if not domain_data:
         hass.data.pop(DOMAIN, None)
@@ -154,9 +138,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         initialized = is_initialized
 
-    except LoginError:
+    except LoginError as ex:
         _LOGGER.info(f"Failed to login {DEFAULT_NAME} API, cannot log integration")
+        # Issue #137 — clean owned resources first, then hand off to HA's
+        # public auth-failed path. HA will process entry.async_on_unload
+        # (dispatchers + DataUpdateCoordinator.async_shutdown) and open the
+        # reauth flow. Do not swallow the failure: silently returning False
+        # was the source of the original leak (HA does not process on_unload
+        # on the plain-False/unclassified-Exception paths).
         await _async_cleanup_failed_setup(hass, entry, coordinator)
+        raise ConfigEntryAuthFailed(f"{DEFAULT_NAME} authentication failed") from ex
 
     except Exception as ex:
         exc_type, exc_obj, tb = sys.exc_info()
@@ -165,9 +156,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error(
             f"Failed to load {DEFAULT_NAME}, error: {ex}, line: {line_number}"
         )
-        # Issue #137 — do not leak the coordinator, its dispatcher subs,
-        # scheduled refresh, or open REST/AWS sessions when setup aborts.
+        # Issue #137 — clean owned resources first, then re-raise as
+        # ConfigEntryError so HA marks the entry SETUP_ERROR and processes
+        # entry.async_on_unload through its supported lifecycle. Using
+        # ConfigEntryError rather than ConfigEntryNotReady is deliberate:
+        # we cannot classify the failure as transient, so an auto-retry
+        # loop would be inappropriate.
         await _async_cleanup_failed_setup(hass, entry, coordinator)
+        raise ConfigEntryError(
+            f"Failed to load {DEFAULT_NAME}: {ex} (line {line_number})"
+        ) from ex
 
     return initialized
 
