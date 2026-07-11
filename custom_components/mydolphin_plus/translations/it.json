@@ -302,19 +302,6 @@
       "invalid_server_details": "Dettagli del server non validi",
       "otp_send_failed": "Invio del codice di accesso non riuscito, verifica l'e-mail e riprova"
     },
-    "selector": {
-      "visible_modes": {
-        "options": {
-          "all": "Completo",
-          "floor": "Solo fondo",
-          "pickup": "Recupero",
-          "short": "Rapido",
-          "stairs": "Copertura completa",
-          "ultra": "Pulizia intensiva",
-          "water": "Linea d'acqua"
-        }
-      }
-    },
     "step": {
       "init": {
         "description": "Scegli un'azione.",
@@ -345,6 +332,19 @@
         },
         "description": "Inserisci l'email del tuo account MyDolphin Plus per ricevere un nuovo codice di accesso.",
         "title": "Riautentica MyDolphin Plus"
+      }
+    }
+  },
+  "selector": {
+    "visible_modes": {
+      "options": {
+        "all": "Completo",
+        "floor": "Solo fondo",
+        "pickup": "Recupero",
+        "short": "Rapido",
+        "stairs": "Copertura completa",
+        "ultra": "Pulizia intensiva",
+        "water": "Linea d'acqua"
       }
     }
   }

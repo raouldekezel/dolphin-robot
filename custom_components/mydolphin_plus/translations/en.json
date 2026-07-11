@@ -302,19 +302,6 @@
       "invalid_server_details": "Invalid server details",
       "otp_send_failed": "Failed to send login code, check the email and try again"
     },
-    "selector": {
-      "visible_modes": {
-        "options": {
-          "all": "Regular",
-          "floor": "Floor only",
-          "pickup": "Pickup",
-          "short": "Fast mode",
-          "stairs": "Full Coverage",
-          "ultra": "Ultra clean",
-          "water": "Water line"
-        }
-      }
-    },
     "step": {
       "init": {
         "description": "Choose an action.",
@@ -345,6 +332,19 @@
         },
         "description": "Enter your MyDolphin Plus email to receive a fresh login code.",
         "title": "Re-authenticate MyDolphin Plus"
+      }
+    }
+  },
+  "selector": {
+    "visible_modes": {
+      "options": {
+        "all": "Regular",
+        "floor": "Floor only",
+        "pickup": "Pickup",
+        "short": "Fast mode",
+        "stairs": "Full Coverage",
+        "ultra": "Ultra clean",
+        "water": "Water line"
       }
     }
   }

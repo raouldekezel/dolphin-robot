@@ -65,25 +65,25 @@
         }
       }
     },
-    "selector": {
-      "visible_modes": {
-        "options": {
-          "all": "Regular",
-          "short": "Fast mode",
-          "floor": "Floor only",
-          "water": "Water line",
-          "ultra": "Ultra clean",
-          "pickup": "Pickup",
-          "stairs": "Full Coverage"
-        }
-      }
-    },
     "error": {
       "invalid_account": "Invalid account",
       "invalid_otp": "Invalid or expired login code",
       "otp_send_failed": "Failed to send login code, check the email and try again",
       "invalid_server_details": "Invalid server details",
       "already_configured": "Integration already configured with the name"
+    }
+  },
+  "selector": {
+    "visible_modes": {
+      "options": {
+        "all": "Regular",
+        "short": "Fast mode",
+        "floor": "Floor only",
+        "water": "Water line",
+        "ultra": "Ultra clean",
+        "pickup": "Pickup",
+        "stairs": "Full Coverage"
+      }
     }
   },
   "entity": {

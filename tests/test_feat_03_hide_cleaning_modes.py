@@ -42,6 +42,55 @@ from custom_components.mydolphin_plus.managers.coordinator import (
 # ---------------------------------------------------------------------------
 
 
+def test_selector_visible_modes_labels_live_at_top_level_selector_key():
+    """FEAT-03 in-vivo bug (Raoul, #51 2026-07-10 23:56 comment): the
+    picker showed raw values (`all`, `water`, …) instead of translated
+    labels because the `visible_modes` selector labels were placed
+    under ``options.selector.*``. Home Assistant resolves
+    ``SelectSelectorConfig.translation_key`` against ``component.<domain>
+    .selector.<translation_key>`` — a TOP-LEVEL ``selector`` key,
+    alongside ``config``/``options``, not nested inside them.
+
+    Pin the placement on every shipped locale so a future contributor
+    can't silently nest it and re-break the picker labels.
+    """
+    import json
+    from pathlib import Path
+
+    root = (
+        Path(__file__).resolve().parent.parent / "custom_components" / "mydolphin_plus"
+    )
+    files = [
+        root / "strings.json",
+        root / "translations" / "en.json",
+        root / "translations" / "fr.json",
+        root / "translations" / "it.json",
+    ]
+
+    for fp in files:
+        d = json.loads(fp.read_text(encoding="utf-8"))
+        top_selector = d.get("selector", {}).get("visible_modes", {}).get("options")
+        nested_selector = (
+            d.get("options", {})
+            .get("selector", {})
+            .get("visible_modes", {})
+            .get("options")
+        )
+        assert top_selector, (
+            f"{fp.name}: `selector.visible_modes.options.*` must be at "
+            "top level (HA resolves `SelectSelectorConfig.translation_key` there)"
+        )
+        assert nested_selector is None, (
+            f"{fp.name}: `options.selector.*` must NOT exist — HA does not "
+            "resolve selector labels nested under `options.` (that's for step "
+            "translations, not selectors)"
+        )
+        for mode in KNOWN_LABELED_MODES:
+            assert (
+                mode in top_selector
+            ), f"{fp.name}: mode {mode!r} missing from selector labels"
+
+
 def test_known_labeled_modes_is_the_full_curated_set_in_canonical_order():
     """The tuple governs iteration order in `fan_speed_list` and
     `select.options`. Order changes are user-visible on the picker."""
