@@ -1,4 +1,4 @@
-"""Regression test for BUG-27 — the coordinator must keep ticking after
+"""Regression tests for BUG-27 — the coordinator must keep ticking after
 an initial-connection failure.
 
 ``DataUpdateCoordinator`` only reschedules its refresh interval when at
@@ -11,7 +11,17 @@ added, and the coordinator's tick never runs → the BUG-24 tick-driven
 retry never fires → the integration stays dormant until reload.
 
 Fix: register a no-op listener during ``initialize()`` so the tick
-keeps running regardless of connection state.
+keeps running regardless of connection state. Drop the listener on
+``terminate()`` for lifecycle hygiene (HA's base class also releases
+it via ``async_on_unload(self.async_shutdown)``, so this is
+belt-and-braces).
+
+Test strategy — the reviewer's ``load-bearing`` critique: mocking
+``async_add_listener`` and asserting it was called only pins the
+implementation detail, not the regression. These tests exercise a
+faithful harness where the listener registration mutates a real dict
+and unsubs actually remove the entry, so any refactor that leaks or
+forgets the listener flunks the tests.
 """
 
 from __future__ import annotations
@@ -25,20 +35,38 @@ from custom_components.mydolphin_plus.managers.coordinator import (
 )
 
 
-@pytest.mark.asyncio
-async def test_initialize_registers_a_no_op_listener_before_returning():
-    """``initialize`` must register a listener with the underlying
-    ``DataUpdateCoordinator`` so its refresh loop keeps ticking even
-    when no entity has been added yet. Without this, an
-    initial-connection failure produces zero retries — verified in
-    vivo on 2026-07-11 (11+ minutes of complete silence from
-    ``mydolphin_plus`` after a single ``getToken`` failure, while
-    every other integration's coordinator kept ticking in the same
-    HA)."""
+def _stub_coordinator_with_listener_bookkeeping():
+    """Faithful listener harness.
+
+    ``async_add_listener`` writes into a real ``listeners`` dict and
+    returns a real unsub that removes the entry. That way:
+
+    - the ``initialize`` assertions verify that a listener is actually
+      *stored* (not just that a method was called),
+    - the ``terminate`` assertions verify the unsub is *invoked*
+      (not just that a handle was stashed).
+
+    Attributes needed by the methods under test are pre-set on the
+    stub. Everything HA-specific is mocked, but the listener mutation
+    is real.
+    """
+    listeners: dict[object, tuple] = {}
+
+    def fake_add_listener(callback, ctx=None):
+        key = object()
+        listeners[key] = (callback, ctx)
+
+        def unsub():
+            listeners.pop(key, None)
+
+        return unsub
+
     stub = MagicMock(spec=MyDolphinPlusCoordinator)
+    stub.async_add_listener = fake_add_listener
+    stub._no_op_unsub = None
+
     stub._build_data_mapping = MagicMock()
     stub._seed_visible_modes = MagicMock()
-    stub.async_add_listener = MagicMock(return_value=MagicMock())
     stub.async_request_refresh = AsyncMock()
 
     entry = MagicMock()
@@ -53,51 +81,101 @@ async def test_initialize_registers_a_no_op_listener_before_returning():
     stub._api = MagicMock()
     stub._api.initialize = AsyncMock()
 
+    stub._aws_client = MagicMock()
+    stub._aws_client.terminate = AsyncMock()
+
+    return stub, listeners
+
+
+# ---------------------------------------------------------------------------
+# initialize()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_initialize_leaves_at_least_one_listener_on_the_coordinator():
+    """After ``initialize`` returns, the coordinator MUST have at least
+    one listener registered. Otherwise ``DataUpdateCoordinator`` will
+    not reschedule its refresh loop → the BUG-24 tick-driven retry
+    (``_maybe_reconnect``) never runs → the integration stays dormant
+    on any initial-connection failure."""
+    stub, listeners = _stub_coordinator_with_listener_bookkeeping()
+
     await MyDolphinPlusCoordinator.initialize(stub)
 
-    # Load-bearing assertion — a listener MUST be registered so the
-    # DataUpdateCoordinator's refresh loop keeps scheduling itself.
-    stub.async_add_listener.assert_called_once()
-    # The unsub handle must be stored so `async_shutdown` can drop it.
-    assert stub._no_op_unsub is not None
+    assert len(listeners) >= 1, (
+        "no listener registered — the DataUpdateCoordinator refresh "
+        "loop will not tick, and BUG-24's `_maybe_reconnect` never fires"
+    )
+    assert stub._no_op_unsub is not None, "unsub handle must be stored"
 
 
 @pytest.mark.asyncio
 async def test_initialize_registers_listener_before_api_init():
     """The listener MUST be registered BEFORE ``_api.initialize()`` runs.
-    Otherwise a failure during login (BUG-27's exact repro path) would
-    dispatch a FAILED status change → ``_handle_connection_failure``
-    seeds a retry → but no listener means no reschedule → the tick
-    never runs → the retry never fires. Registering after the
-    ``_api.initialize()`` call reopens the exact bug this fix closes."""
-    stub = MagicMock(spec=MyDolphinPlusCoordinator)
-    stub._build_data_mapping = MagicMock()
-    stub._seed_visible_modes = MagicMock()
-    stub.async_request_refresh = AsyncMock()
+    Otherwise a synchronous failure during login would dispatch the
+    FAILED status change → ``_handle_connection_failure`` seeds a
+    retry → but no listener at that instant means no refresh schedule
+    → the tick never runs → the seeded retry never fires.
+    Registering after the ``_api.initialize()`` call reopens the exact
+    bug this fix closes."""
+    stub, listeners = _stub_coordinator_with_listener_bookkeeping()
 
     call_order: list[str] = []
 
-    def _record_listener(*_a, **_kw):
+    original_add_listener = stub.async_add_listener
+
+    def tracking_add_listener(callback, ctx=None):
         call_order.append("async_add_listener")
-        return MagicMock()
+        return original_add_listener(callback, ctx)
+
+    stub.async_add_listener = tracking_add_listener
 
     async def _record_api_init():
         call_order.append("_api.initialize")
 
-    stub.async_add_listener = MagicMock(side_effect=_record_listener)
-
-    entry = MagicMock()
-    entry.entry_id = "test-entry"
-    stub.config_manager = MagicMock()
-    stub.config_manager.entry = entry
-
-    stub.hass = MagicMock()
-    stub.hass.config_entries = MagicMock()
-    stub.hass.config_entries.async_forward_entry_setups = AsyncMock()
-
-    stub._api = MagicMock()
     stub._api.initialize = AsyncMock(side_effect=_record_api_init)
 
     await MyDolphinPlusCoordinator.initialize(stub)
 
     assert call_order.index("async_add_listener") < call_order.index("_api.initialize")
+
+
+# ---------------------------------------------------------------------------
+# terminate() — release the listener on unload for lifecycle hygiene
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_terminate_releases_the_no_op_listener():
+    """Not a correctness requirement (HA base class self-wires
+    ``async_on_unload(self.async_shutdown)`` which cancels the
+    scheduled refresh regardless), but hygiene: on unload the no-op
+    listener should be released so ``_listeners`` returns to empty
+    and the coordinator's post-shutdown state matches its
+    pre-``initialize`` state."""
+    stub, listeners = _stub_coordinator_with_listener_bookkeeping()
+
+    await MyDolphinPlusCoordinator.initialize(stub)
+    assert len(listeners) == 1
+    assert stub._no_op_unsub is not None
+
+    await MyDolphinPlusCoordinator.terminate(stub)
+
+    assert len(listeners) == 0, "no-op listener still registered after terminate"
+    assert stub._no_op_unsub is None, "unsub handle must be nulled on terminate"
+    stub._aws_client.terminate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_terminate_is_idempotent_on_uninitialised_coordinator():
+    """A coordinator whose ``initialize`` never ran (e.g. crash during
+    setup) still exposes ``terminate`` — it must not blow up on the
+    ``None`` unsub."""
+    stub, listeners = _stub_coordinator_with_listener_bookkeeping()
+    # No initialize() call — `_no_op_unsub` stays `None`.
+
+    await MyDolphinPlusCoordinator.terminate(stub)
+
+    assert stub._no_op_unsub is None
+    stub._aws_client.terminate.assert_awaited_once()

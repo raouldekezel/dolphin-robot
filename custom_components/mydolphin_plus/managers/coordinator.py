@@ -212,7 +212,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     # `_get_vacuum_data` via a spec'd stub.
     _visible_modes: frozenset[str] = frozenset()
 
-    # BUG-27 — cleared by `async_shutdown`. Class-level default so
+    # BUG-27 — dropped in `terminate()`. Class-level default so
     # `MagicMock(spec=…)` in tests sees the attribute even before
     # `initialize()` has set it (spec is derived from `dir()`).
     _no_op_unsub: Callable[[], None] | None = None
@@ -352,6 +352,16 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         await self.initialize()
 
     async def terminate(self):
+        # BUG-27 — release the no-op listener registered in `initialize()`
+        # for lifecycle hygiene. Not required for correctness: HA's
+        # `DataUpdateCoordinator.__init__` self-wires
+        # `config_entry.async_on_unload(self.async_shutdown)`, so the
+        # scheduled refresh is cancelled on unload regardless. But
+        # dropping the listener explicitly here keeps `_listeners` empty
+        # on the shutdown path, matching the pre-BUG-27 lifecycle.
+        if self._no_op_unsub is not None:
+            self._no_op_unsub()
+            self._no_op_unsub = None
         await self._aws_client.terminate()
 
     async def initialize(self):
