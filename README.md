@@ -11,7 +11,8 @@ the device behavior.
 
 - Redacts sensitive tokens and credentials from logs.
 - Uses upstream's beta OTP authentication.
-- Fixes the recurring "lost authentication" problem.
+- Fixes recurring "lost authentication" problems.
+- Fixes problems with the exponential backoff of reconnections
 - Supports the new Full Coverage cleaning mode of the S2000.
 - Adds read-only sensors for the next scheduled run, mode and cycle time.
 - Prevents a docked robot from starting when the cleaning mode is changed. An explicit start is required.
@@ -21,6 +22,9 @@ the device behavior.
   the robot didn't acknowledge it yet.
 - Reacts only to the commands the integration itself sent, fixing spurious behaviors.
 - Fixes French labels for the cleaning modes and the robot state. Some Italian fixed too.
+- Translate properly authentication flow in French
+- Allows configuration options to hide unused or unimplemented cleaning modes.
+- Gives different icons to the cleaning mode cycle times for easier setup.
 - Adds a documented library of real-device traces with their interpretation ([`docs/diag/`](https://github.com/raouldekezel/dolphin-robot/tree/deploy/docs/diag)).
 - Miscellaneous issues fixed  (see the [Releases](https://github.com/raouldekezel/dolphin-robot/releases) page).
 
