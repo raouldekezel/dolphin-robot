@@ -203,6 +203,15 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     _last_update_api: float
     _last_update_ws: float
 
+    # FEAT-03 — class-level default is required so
+    # `MagicMock(spec=MyDolphinPlusCoordinator)` includes this attribute
+    # in its allow-list. `spec=` uses `dir()` on the class, which lists
+    # class attributes with a default but NOT bare annotations, so the
+    # sentinel `frozenset()` is load-bearing for existing HARD-11 /
+    # HARD-13 tests that access `_get_desired_clean_mode_data` /
+    # `_get_vacuum_data` via a spec'd stub.
+    _visible_modes: frozenset[str] = frozenset()
+
     def __init__(self, hass, config_manager: ConfigManager):
         """Initialize my coordinator."""
         super().__init__(
@@ -932,6 +941,13 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         result = {
             ATTR_STATE: mode,
             ATTR_ACTIONS: {SERVICE_SELECT_OPTION: self._set_cleaning_mode},
+            # FEAT-03 — expose visible_modes so a preferences save
+            # triggers `_handle_coordinator_update` to see
+            # `_data != new_data` and re-emit state. Without this, the
+            # base entity short-circuits on data equality and the
+            # `options` @property is never re-read → the frontend keeps
+            # the stale pick list.
+            "_visible_modes": self._visible_modes,
         }
 
         return result
@@ -995,6 +1011,10 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
                 SERVICE_LOCATE: self._vacuum_locate,
                 SERVICE_RETURN_TO_BASE: self._pickup,
             },
+            # FEAT-03 — see comment in `_get_desired_clean_mode_data`;
+            # without this key the vacuum's `fan_speed_list` @property
+            # is never re-read after a preferences save.
+            "_visible_modes": self._visible_modes,
         }
 
         return result
