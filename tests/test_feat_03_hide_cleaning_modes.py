@@ -406,6 +406,68 @@ def test_apply_visible_modes_is_a_noop_when_state_matches(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Coordinator payload — force base_entity data-diff on visible_modes change
+# ---------------------------------------------------------------------------
+
+
+def test_get_desired_clean_mode_data_encodes_visible_modes():
+    """FEAT-03 bug found in-vivo on raoul.24: `entry.options` correctly
+    reflected the operator's saved subset, but the `select` combo kept
+    the stale full list. Root cause: `base_entity._handle_coordinator_update`
+    short-circuits when `self._data == new_data`, and the coordinator's
+    data payload for the select depended only on `_desired_clean_mode`.
+    A preferences save that didn't also change the picked mode produced
+    a payload equal to the previous one → no `async_write_ha_state` →
+    the `options` @property was never re-read → frontend cache stayed
+    stale.
+
+    Fix: include `_visible_modes` in the payload so a preferences save
+    is observable at the data-diff layer.
+    """
+    stub = MagicMock(spec=MyDolphinPlusCoordinator)
+    stub._desired_clean_mode = "all"
+    stub.aws_data = {}
+    stub._visible_modes = frozenset({"all", "short", "floor", "stairs"})
+    stub._set_cleaning_mode = MagicMock()
+
+    data_v1 = MyDolphinPlusCoordinator._get_desired_clean_mode_data(stub, None)
+
+    stub._visible_modes = frozenset({"all", "short", "floor"})  # user un-checked stairs
+    data_v2 = MyDolphinPlusCoordinator._get_desired_clean_mode_data(stub, None)
+
+    assert data_v1 != data_v2, (
+        "select payload must differ when visible_modes changes — otherwise "
+        "base_entity._handle_coordinator_update short-circuits on data "
+        "equality and the frontend never sees the new options list"
+    )
+
+
+def test_get_vacuum_data_encodes_visible_modes():
+    """Same trap on the vacuum entity: `fan_speed_list` @property depends
+    on visible_modes, but the base entity gates on data-payload
+    equality. Include `_visible_modes` in the vacuum payload."""
+    stub = MagicMock(spec=MyDolphinPlusCoordinator)
+    stub._desired_clean_mode = "all"
+    stub.aws_data = {}
+    stub._visible_modes = frozenset(KNOWN_LABELED_MODES)
+    stub._optimistic_vacuum_state = None
+    stub._system_details = MagicMock()
+    stub._system_details.vacuum_state = "docked"
+    stub._vacuum_start = MagicMock()
+    stub._vacuum_pause = MagicMock()
+    stub._set_cleaning_mode = MagicMock()
+    stub._vacuum_locate = MagicMock()
+    stub._pickup = MagicMock()
+
+    data_v1 = MyDolphinPlusCoordinator._get_vacuum_data(stub, None)
+
+    stub._visible_modes = frozenset({"all", "short"})
+    data_v2 = MyDolphinPlusCoordinator._get_vacuum_data(stub, None)
+
+    assert data_v1 != data_v2
+
+
+# ---------------------------------------------------------------------------
 # `vacuum.fan_speed_list` — dynamic property
 # ---------------------------------------------------------------------------
 
