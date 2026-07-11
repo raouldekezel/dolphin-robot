@@ -18,9 +18,17 @@ The fix in ``rest_api.py``:
 * makes ``_initialize_session()`` idempotent — it reuses an open session,
   and only creates a new one when ``self._session is None`` or the
   existing session is closed;
-* makes ``terminate()`` safe to call twice: it closes the session only if
-  one exists and is not already closed, then clears ``self._session`` in
-  a ``finally`` so the reference is dropped even if ``close()`` raises;
+* splits ownership in ``terminate()``: HA-mode sessions are ``detach()``ed
+  (sync — they share HA's global aiohttp connector, closing them would
+  affect other consumers), standalone sessions are ``close()``d (they own
+  their connector). Both paths run under a single ``try/finally`` that
+  clears ``self._session`` and sets ``DISCONNECTED`` even if cleanup
+  raises, so a repeat call is a safe no-op;
+* makes ``_initialize_session()`` report success/failure via ``bool`` so
+  that ``initialize()`` can bail out before ``_login()`` when session
+  construction fails (otherwise ``_login()`` would run with
+  ``self._session is None`` and the resulting ``AttributeError`` would
+  overwrite the original ``FAILED`` status);
 * tightens ``is_connected`` so a closed session is never reported as
   connected.
 
@@ -46,14 +54,18 @@ from custom_components.mydolphin_plus.managers.rest_api import REST_API_TIMEOUT,
 
 
 class FakeSession:
-    """Async-close-able stand-in for ``aiohttp.ClientSession``.
+    """Stand-in for ``aiohttp.ClientSession``.
 
     Tracks ``close()`` **and** ``detach()`` invocations separately so the
     tests can pin the ownership split: HA-mode sessions must be detached
-    (they share HA's global connector), standalone sessions must be closed
-    (they own their connector). ``detach()`` on real aiohttp does not flip
-    ``closed`` — the fake mirrors that so termination remains idempotent
-    against a re-entry that only inspects ``self._session``.
+    (they share HA's global connector), standalone sessions must be
+    closed (they own their connector). Real aiohttp ``detach()`` sets the
+    connector to ``None`` and the ``closed`` property then reports
+    ``True``; the fake mirrors that by flipping ``closed`` in both
+    ``close()`` and ``detach()``. Idempotence under ``terminate()`` still
+    holds because ``terminate()`` also drops the reference in its
+    ``finally`` — a second call sees ``self._session is None`` and skips
+    the whole branch.
     """
 
     def __init__(self, timeout: ClientTimeout | None = None):
@@ -68,6 +80,7 @@ class FakeSession:
 
     def detach(self) -> None:
         self.detach_calls += 1
+        self.closed = True
 
 
 class DummyConfigManager:
