@@ -256,6 +256,12 @@ async def test_persistent_listener_drives_retry_after_initial_failure(
     )
     seeded_deadline = coord._next_retry_at
 
+    # Snapshot the call count immediately before advancing time so
+    # the exact-delta assertion below cannot silently hide duplicate
+    # refreshes (two ticks firing within a single ``async_fire_time_changed``
+    # window, or a synchronous callback double-driving ``_api.initialize``).
+    calls_before_advance = coord._api.initialize.await_count
+
     # -----------------------------------------------------------------
     # Step 3 — advance BOTH clocks past the deadline and past
     # UPDATE_WS_INTERVAL. The two-clock advance is deliberate:
@@ -263,6 +269,8 @@ async def test_persistent_listener_drives_retry_after_initial_failure(
     #     comparison;
     #   * HA's own clock advance triggers the scheduled tick that would
     #     have been silent pre-BUG-27 for lack of listeners.
+    # The HA-clock delta is kept below 2 * UPDATE_WS_INTERVAL so only
+    # ONE tick fires — matching the exact-delta assertion below.
     # -----------------------------------------------------------------
     clock.advance(120)  # well beyond the 60 s attempt-1 backoff
     async_fire_time_changed(
@@ -272,12 +280,15 @@ async def test_persistent_listener_drives_retry_after_initial_failure(
     await hass.async_block_till_done()
 
     # -----------------------------------------------------------------
-    # Step 4 — the second _api.initialize must have fired via the
-    # tick → _maybe_reconnect → _api.initialize() chain.
+    # Step 4 — exactly one additional _api.initialize must have fired,
+    # via the tick → _maybe_reconnect → _api.initialize() chain. The
+    # exact-delta form (rather than ``>= 2``) catches duplicate refreshes
+    # or reconnect attempts within the same time window.
     # -----------------------------------------------------------------
-    assert coord._api.initialize.await_count >= 2, (
-        f"_api.initialize was not retried after the deadline — "
-        f"await_count={coord._api.initialize.await_count}, "
+    assert coord._api.initialize.await_count == calls_before_advance + 1, (
+        f"expected exactly one extra _api.initialize after the deadline — "
+        f"before={calls_before_advance}, "
+        f"after={coord._api.initialize.await_count}, "
         f"seeded_deadline={seeded_deadline}, "
         f"clock.now={clock.monotonic()}, "
         f"listeners={len(coord._listeners)}"
