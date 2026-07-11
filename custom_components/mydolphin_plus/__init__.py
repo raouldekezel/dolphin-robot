@@ -33,9 +33,67 @@ async def async_setup(_hass, _config):
     return True
 
 
+async def _async_cleanup_failed_setup(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coordinator: MyDolphinPlusCoordinator | None,
+) -> None:
+    """Release every integration-owned resource when setup aborts (issue #137).
+
+    Home Assistant does **not** invoke ``async_unload_entry`` when
+    ``async_setup_entry`` returns ``False`` or raises anything other than
+    ``ConfigEntryNotReady`` / ``ConfigEntryAuthFailed``. Callbacks registered
+    via ``entry.async_on_unload(...)`` therefore stay wired until the entry
+    is next removed or reloaded — for this integration that includes the two
+    dispatcher subscriptions in ``MyDolphinPlusCoordinator._load_signal_handlers``,
+    the self-wired ``DataUpdateCoordinator.async_shutdown`` (see HA
+    ``DataUpdateCoordinator.__init__``), the BUG-27 persistent no-op listener,
+    and any open REST/AWS session.
+
+    Ordering — deliberate:
+
+    1. ``coordinator.terminate()`` first — drops the BUG-27 persistent
+       listener and closes the AWS side, so the tick can no longer fire
+       even before ``async_shutdown`` cancels its timer.
+    2. ``entry._async_process_on_unload(hass)`` — the same private helper
+       HA uses on the ``ConfigEntryNotReady`` / ``ConfigEntryAuthFailed``
+       paths. Fires ``DataUpdateCoordinator.async_shutdown`` (cancels
+       ``_unsub_refresh`` and closes the debouncer) and the dispatcher
+       unsubs; awaits pending ``entry.async_create_task`` tasks with a
+       10 s timeout. Idempotent — pops from ``_on_unload`` so a second
+       call sees an empty list.
+    3. Remove the coordinator from ``hass.data`` and drop the empty
+       domain bucket.
+
+    Safe to call with ``coordinator=None`` (failure before construction) and
+    safe on repeat.
+    """
+    if coordinator is not None:
+        try:
+            await coordinator.terminate()
+        except Exception:  # pragma: no cover — hygiene, do not mask the outer failure
+            _LOGGER.exception("terminate() raised during failed-setup cleanup")
+
+    # Fire entry-registered on_unload callbacks — dispatchers (BUG-09) +
+    # DataUpdateCoordinator.async_shutdown (HA self-wired). HA normally
+    # runs this from its own ConfigEntryNotReady / ConfigEntryAuthFailed
+    # paths; a plain returned-False or unclassified exception does not go
+    # through it, hence the explicit call here.
+    try:
+        await entry._async_process_on_unload(hass)
+    except Exception:  # pragma: no cover — hygiene
+        _LOGGER.exception("on_unload processing raised during failed-setup cleanup")
+
+    domain_data = hass.data.get(DOMAIN, {})
+    domain_data.pop(entry.entry_id, None)
+    if not domain_data:
+        hass.data.pop(DOMAIN, None)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up a MyDolphin Plus config entry."""
     initialized = False
+    coordinator: MyDolphinPlusCoordinator | None = None
 
     try:
         entry_config = dict(entry.data)
@@ -98,6 +156,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     except LoginError:
         _LOGGER.info(f"Failed to login {DEFAULT_NAME} API, cannot log integration")
+        await _async_cleanup_failed_setup(hass, entry, coordinator)
 
     except Exception as ex:
         exc_type, exc_obj, tb = sys.exc_info()
@@ -106,6 +165,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error(
             f"Failed to load {DEFAULT_NAME}, error: {ex}, line: {line_number}"
         )
+        # Issue #137 — do not leak the coordinator, its dispatcher subs,
+        # scheduled refresh, or open REST/AWS sessions when setup aborts.
+        await _async_cleanup_failed_setup(hass, entry, coordinator)
 
     return initialized
 
