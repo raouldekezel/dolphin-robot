@@ -13,6 +13,7 @@ from aiohttp import (
     ClientOSError,
     ClientResponseError,
     ClientSession,
+    ClientTimeout,
 )
 from aiohttp.hdrs import METH_GET, METH_POST
 
@@ -53,6 +54,17 @@ from ..models.exceptions import LoginError, TransientAuthError
 from .config_manager import ConfigManager
 
 _LOGGER = logging.getLogger(__name__)
+
+# HARD-02 / F4: bound REST/Cognito/AWS-STS requests instead of relying on
+# aiohttp's implicit 300 s default. Applied session-wide so every endpoint
+# the RestAPI reaches (Cognito, authenticate-user, getToken) is subject to
+# the same policy. Connect timeout is deliberately tight (a healthy TLS
+# handshake is sub-second); the ``total`` covers slow-but-valid responses.
+REST_API_TIMEOUT = ClientTimeout(
+    total=30,
+    sock_connect=5,
+    sock_read=10,
+)
 
 
 def _build_headers(
@@ -282,7 +294,7 @@ class RestAPI:
 
     @property
     def is_connected(self):
-        return self._session is not None
+        return self._session is not None and not self._session.closed
 
     @property
     def config_data(self) -> ConfigData:
@@ -300,20 +312,53 @@ class RestAPI:
         _LOGGER.info("Initializing MyDolphin API")
 
         await self._integration_info.initialize(self._hass)
-        await self._initialize_session()
+        # F4: stop before _login() when session construction failed. Otherwise
+        # _login() would run with ``self._session is None`` and the AttributeError
+        # from the first ``self._session.post(...)`` would overwrite the original
+        # FAILED status set by _initialize_session().
+        if not await self._initialize_session():
+            return
         await self._login()
 
     async def terminate(self):
-        if self._session is not None:
-            await self._session.close()
+        # F4: keep termination idempotent so a repeat call (double-shutdown,
+        # cleanup after a failed setup) does not double-close the session or
+        # leave a dangling reference. try/finally guarantees ``_session`` is
+        # cleared even if aiohttp cleanup raises.
+        #
+        # HA-mode sessions are created via ``async_create_clientsession`` and
+        # share HA's global aiohttp connector; calling ``close()`` on them can
+        # tear down that shared connector and affect other integrations.
+        # HA's own cleanup path calls ``detach()`` (synchronous) which drops
+        # the connector reference without closing it. Standalone sessions own
+        # their connector and must be ``close()``d.
+        session = self._session
+        try:
+            if session is not None and not session.closed:
+                if self._is_home_assistant:
+                    session.detach()
+                else:
+                    await session.close()
+        finally:
+            self._session = None
             self._set_status(ConnectivityStatus.DISCONNECTED, "terminate requested")
 
-    async def _initialize_session(self):
+    async def _initialize_session(self) -> bool:
+        # F4: reuse an existing open session across reconnect attempts.
+        # BUG-24 turned the retry into a tick-driven loop that re-enters
+        # initialize() every failed cycle; without this guard, a sustained
+        # outage would leak one ClientSession per attempt.
+        if self._session is not None and not self._session.closed:
+            return True
+
         try:
             if self._is_home_assistant:
-                self._session = async_create_clientsession(hass=self._hass)
+                self._session = async_create_clientsession(
+                    hass=self._hass,
+                    timeout=REST_API_TIMEOUT,
+                )
             else:
-                self._session = ClientSession()
+                self._session = ClientSession(timeout=REST_API_TIMEOUT)
 
         except Exception as ex:
             exc_type, exc_obj, tb = sys.exc_info()
@@ -321,7 +366,12 @@ class RestAPI:
             message = (
                 f"Failed to initialize session, Error: {str(ex)}, Line: {line_number}"
             )
+            # Do not leave a partially initialized reference behind.
+            self._session = None
             self._set_status(ConnectivityStatus.FAILED, message)
+            return False
+
+        return True
 
     async def update(self):
         if self._status != ConnectivityStatus.CONNECTED:
