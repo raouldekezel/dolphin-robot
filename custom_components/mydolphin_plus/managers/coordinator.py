@@ -212,6 +212,11 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     # `_get_vacuum_data` via a spec'd stub.
     _visible_modes: frozenset[str] = frozenset()
 
+    # BUG-27 — dropped in `terminate()`. Class-level default so
+    # `MagicMock(spec=…)` in tests sees the attribute even before
+    # `initialize()` has set it (spec is derived from `dir()`).
+    _no_op_unsub: Callable[[], None] | None = None
+
     def __init__(self, hass, config_manager: ConfigManager):
         """Initialize my coordinator."""
         super().__init__(
@@ -347,6 +352,16 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         await self.initialize()
 
     async def terminate(self):
+        # BUG-27 — release the no-op listener registered in `initialize()`
+        # for lifecycle hygiene. Not required for correctness: HA's
+        # `DataUpdateCoordinator.__init__` self-wires
+        # `config_entry.async_on_unload(self.async_shutdown)`, so the
+        # scheduled refresh is cancelled on unload regardless. But
+        # dropping the listener explicitly here keeps `_listeners` empty
+        # on the shutdown path, matching the pre-BUG-27 lifecycle.
+        if self._no_op_unsub is not None:
+            self._no_op_unsub()
+            self._no_op_unsub = None
         await self._aws_client.terminate()
 
     async def initialize(self):
@@ -354,6 +369,24 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         entry = self.config_manager.entry
         self._seed_visible_modes(entry)
+        # BUG-27 — DataUpdateCoordinator only reschedules its periodic
+        # refresh when at least one listener is registered. Entities
+        # register on `SIGNAL_DEVICE_NEW`, which fires only after
+        # `_api.update()` — reachable only from a CONNECTED status. If
+        # the initial connection fails (e.g. Maytronics `getToken`
+        # refusing during a backend outage), status goes FAILED without
+        # ever reaching CONNECTED, no entities are added, no listeners
+        # exist, and the coordinator's tick never runs → the BUG-24
+        # tick-driven retry loop never fires and the integration stays
+        # dormant until manual reload. Register a no-op listener here so
+        # the tick keeps running regardless of connection state. Stored
+        # so `terminate` can drop it cleanly. Guard on `None` so a second
+        # `initialize()` call (defensive — not part of the normal
+        # lifecycle, but not something to silently double-register on
+        # either) doesn't stack two listeners and orphan the previous
+        # unsub handle.
+        if self._no_op_unsub is None:
+            self._no_op_unsub = self.async_add_listener(lambda: None)
         await self.hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
         _LOGGER.info(f"Start loading {DOMAIN} integration, Entry ID: {entry.entry_id}")
