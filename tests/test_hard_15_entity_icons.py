@@ -102,3 +102,64 @@ def test_robot_status_and_robot_type_icons_differ() -> None:
     robot_type = _by_key("robot_type")
     assert robot_status.icon and robot_type.icon
     assert robot_status.icon != robot_type.icon
+
+
+# --------------------------------------------------------------------- #
+# Round 2 (#126 comment 2026-07-13) — operator adjustments post-#133    #
+# --------------------------------------------------------------------- #
+
+
+def test_no_vacuum_glyph_on_any_pool_robot_entity() -> None:
+    """The S2000 is a pool robot, not a vacuum. `mdi:vacuum` /
+    `mdi:vacuum-outline` must not appear on any static description.
+
+    HA's default vacuum-entity glyph (rendered by the `vacuum` platform
+    itself, not by our code) is out of scope — that's an HA-side default
+    we don't own.
+    """
+    for desc in ENTITY_DESCRIPTIONS:
+        assert desc.icon not in ("mdi:vacuum", "mdi:vacuum-outline"), (
+            f"{desc.key!r} carries a vacuum glyph — the S2000 is a pool robot"
+        )
+
+
+def test_no_broom_glyph_on_any_entity() -> None:
+    """`mdi:broom` reads as "sweeping" — same pool-vs-carpet metaphor
+    problem. Round 2 replaces it with `mdi:swap-horizontal-variant`.
+    """
+    for desc in ENTITY_DESCRIPTIONS:
+        assert desc.icon != "mdi:broom", (
+            f"{desc.key!r} still carries mdi:broom — see #126 comment 2"
+        )
+
+
+def test_clean_mode_family_shares_swap_horizontal_variant() -> None:
+    """The three "clean mode" entities — the read-only state sensor
+    ``clean_mode``, the writable select ``desired_clean_mode``, and the
+    Regular-mode cycle-time ``cycle_time_all`` — all use
+    ``mdi:swap-horizontal-variant``. Sharing a glyph is intentional:
+    they talk about the same concept from three angles (current,
+    desired, duration).
+    """
+    from custom_components.mydolphin_plus.common.clean_modes import (
+        get_clean_mode_cycle_time_key,
+    )
+
+    expected = "mdi:swap-horizontal-variant"
+    assert _by_key("clean_mode").icon == expected
+    assert _by_key("desired_clean_mode").icon == expected
+    assert _by_key(get_clean_mode_cycle_time_key(CleanModes.REGULAR)).icon == expected
+
+
+def test_cycle_time_short_dropped_unshipped_fast_variant() -> None:
+    """`mdi:timer-fast-outline` renders blank in Home Assistant's
+    shipped MDI subset today (operator observation, #126 comment 2).
+    Round 2 swaps to a universally-present glyph.
+    """
+    from custom_components.mydolphin_plus.common.clean_modes import (
+        get_clean_mode_cycle_time_key,
+    )
+
+    icon = _by_key(get_clean_mode_cycle_time_key(CleanModes.FAST_MODE)).icon
+    assert icon != "mdi:timer-fast-outline"
+    assert icon.startswith("mdi:") and icon
