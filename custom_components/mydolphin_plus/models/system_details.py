@@ -11,8 +11,10 @@ from custom_components.mydolphin_plus.common.consts import (
     ATTR_TURN_ON_COUNT,
     ATTR_VACUUM_STATE,
     DATA_CYCLE_INFO_CLEANING_MODE,
+    DATA_IS_CONNECTED_CONNECTED,
     DATA_SECTION_ACTIVITY,
     DATA_SECTION_CYCLE_INFO,
+    DATA_SECTION_IS_CONNECTED,
     DATA_SECTION_SYSTEM_STATE,
     DATA_SYSTEM_STATE_IS_BUSY,
     DATA_SYSTEM_STATE_PWS_STATE,
@@ -34,10 +36,19 @@ class SystemDetails:
     _is_updated: bool
     _data: dict
     _supported_activities: list[str]
+    # FEAT-07 — kept OUTSIDE `_data` so it does NOT leak into
+    # `sensor.{robot}_status`'s `extra_state_attributes` (Fable F1).
+    # `_get_status_data` exposes `_data` wholesale; any key added there
+    # becomes a foreign attribute on the status sensor and every ~20 s
+    # session flap would fire a `state_changed` for that sensor. The
+    # BUG-21 (#112) Fix-1 gate still reuses the same parse point via
+    # the `pws_connected` property.
+    _pws_connected: bool | None
 
     def __init__(self):
         self._is_updated = False
         self._data = {}
+        self._pws_connected = None
         self._supported_activities = list(JoystickDirection)
 
     @property
@@ -59,6 +70,23 @@ class SystemDetails:
     @property
     def power_unit_state(self) -> PowerSupplyState:
         return self._data.get(ATTR_POWER_SUPPLY_STATE, PowerSupplyState.OFF)
+
+    @property
+    def pws_connected(self) -> bool | None:
+        """Tri-state PWS↔cloud session flag (FEAT-07).
+
+        Mirrors `reported.isConnected.connected` verbatim: True / False /
+        None (section absent, non-bool payload, or no shadow yet). This
+        is the raw signal — no debounce. Consumers that need one must
+        debounce on their own (per the FEAT-07 design decision).
+
+        Backed by `_pws_connected` and NOT by the `_data` dict so it
+        does not leak onto the status sensor's `extra_state_attributes`
+        (Fable F1 pin). The BUG-21 (#112) Fix-1 start gate reuses this
+        property; keeping the coercion in `update()` means Fix 1 does
+        not re-parse the wire section, avoiding drift.
+        """
+        return self._pws_connected
 
     @property
     def robot_state(self) -> RobotState:
@@ -102,6 +130,16 @@ class SystemDetails:
         if was_changed:
             self._is_updated = True
             self._data = new_data
+
+        # FEAT-07 — the PWS↔cloud flag lives on its own attribute so it
+        # never lands on `sensor.status`'s attribute dict (Fable F1).
+        # Parsed here for the same wire section as the rest of
+        # `_get_updated_data`, and returned via the `pws_connected`
+        # property. Not counted in `was_changed`: the flag has its own
+        # dedicated entity (`binary_sensor.power_supply`) and pushing a
+        # SystemDetails "changed" tick on flap alone would refresh
+        # every other sensor for nothing.
+        self._pws_connected = self._parse_pws_connected(aws_data)
 
         return was_changed
 
@@ -177,3 +215,15 @@ class SystemDetails:
         }
 
         return result
+
+    @staticmethod
+    def _parse_pws_connected(aws_data: dict) -> bool | None:
+        """Tri-state coercion for `reported.isConnected.connected` (FEAT-07).
+
+        Strict `isinstance(bool)`: LWT / lifecycle payloads have varied
+        over device generations and a stringly-typed `"false"` must
+        not collapse to True (which `bool("false")` would return).
+        """
+        section = aws_data.get(DATA_SECTION_IS_CONNECTED, {})
+        raw = section.get(DATA_IS_CONNECTED_CONNECTED)
+        return raw if isinstance(raw, bool) else None

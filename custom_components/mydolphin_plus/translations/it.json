@@ -37,6 +37,9 @@
       "aws_broker": {
         "name": "Broker AWS"
       },
+      "power_supply": {
+        "name": "Alimentazione"
+      },
       "weekly_scheduler": {
         "name": "Scheduler settimanale"
       }
