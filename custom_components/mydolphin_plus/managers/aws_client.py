@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from functools import partial
 import json
 import logging
 import os
@@ -117,7 +118,6 @@ class AWSClient:
 
             self._topic_data = None
             self._awsiot_client = None
-            self._messages_published: dict[int, dict[str, str]] = {}
 
             # SPIKE-02 — per-process clientToken minted once and stamped on
             # every outbound desired write. Reused for the integration's
@@ -142,10 +142,6 @@ class AWSClient:
             self._dynamic_message_handlers = {
                 DYNAMIC_TYPE_PWS_REQUEST: self._on_pws_request_message
             }
-
-            self._on_publish_completed_callback = lambda f: self._on_publish_completed(
-                f
-            )
 
         except Exception as ex:
             exc_type, exc_obj, tb = sys.exc_info()
@@ -578,10 +574,18 @@ class AWSClient:
                     publish_future, packet_id = self._awsiot_client.publish(
                         topic, payload, mqtt.QoS.AT_MOST_ONCE
                     )
-                    self._pre_publish_message(packet_id, topic, payload)
+
+                    _LOGGER.debug(
+                        "Publishing #%s to %s, Data: %s", packet_id, topic, payload
+                    )
 
                     publish_future.add_done_callback(
-                        self._on_publish_completed_callback
+                        partial(
+                            self._on_publish_completed,
+                            packet_id=packet_id,
+                            topic=topic,
+                            payload=payload,
+                        )
                     )
 
             except Exception as ex:
@@ -594,29 +598,29 @@ class AWSClient:
                 f"Failed to publish message: {data} to {topic}, Broker is not connected"
             )
 
-    def _pre_publish_message(self, message_id: int, topic: str, payload: str):
-        _LOGGER.debug(f"Published message to {topic}, Data: {payload}")
+    def _on_publish_completed(
+        self,
+        publish_future,
+        *,
+        packet_id: int,
+        topic: str,
+        payload: str,
+    ):
+        # Guard is required: awscrt completes the future with an error on
+        # teardown (AWS_ERROR_MQTT_CONNECTION_DESTROYED) and on the QoS 0
+        # "not connected" path — unhandled, concurrent.futures swallows it.
+        try:
+            publish_future.result()
+        except Exception:
+            _LOGGER.exception("MQTT publish #%s to %s failed", packet_id, topic)
+            return
 
-        self._messages_published[message_id] = {"topic": topic, "payload": payload}
-
-    def _post_message_published(self, message_id: int):
-        published_data = self._messages_published.get(message_id, {})
-
-        topic = published_data.get("topic")
-        payload = published_data.get("payload")
-
-        _LOGGER.info(f"Published message #{message_id} to {topic}, Data: {payload}")
-
-        del self._messages_published[message_id]
-
-    def _on_publish_completed(self, publish_future):
-        publish_results = publish_future.result()
-        _LOGGER.debug(f"Publish results: {publish_results}")
-
-        if publish_results is not None and "packet_id" in publish_results:
-            packet_id = publish_results.get("packet_id")
-
-            self._post_message_published(packet_id)
+        _LOGGER.debug(
+            "MQTT publish #%s to %s completed, Data: %s",
+            packet_id,
+            topic,
+            payload,
+        )
 
     def set_cleaning_mode(self, clean_mode: CleanModes):
         data = {DATA_SCHEDULE_CLEANING_MODE: {CONF_MODE: str(clean_mode)}}
