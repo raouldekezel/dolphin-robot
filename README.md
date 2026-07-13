@@ -27,6 +27,8 @@ the device behavior.
 - Adds a documented library of real-device traces with their interpretation ([`docs/diag/`](https://github.com/raouldekezel/dolphin-robot/tree/deploy/docs/diag)).
 - Miscellaneous issues fixed  (see the [Releases](https://github.com/raouldekezel/dolphin-robot/releases) page).
 
+```This fork is undergoing active changes and lives in the deploy branch ```
+
 ## My dashboard
 
 ![Le robot en action](IMG_3203.jpeg)
