@@ -306,10 +306,18 @@
       "init": {
         "description": "Scegli un'azione.",
         "menu_options": {
+          "locate": "Azione Localizza del robot",
           "preferences": "Modalità di pulizia visibili nel selettore",
           "reauth": "Riautentica MyDolphin Plus"
         },
         "title": "Opzioni MyDolphin Plus"
+      },
+      "locate": {
+        "data": {
+          "show_locate": "Mostra l'azione Localizza"
+        },
+        "description": "Mostra l'azione Localizza tra i comandi del robot. Su alcuni modelli, incluso il Dolphin S2000, questa azione accende soltanto un LED debole e può risultare inutile. Modificare questa opzione ricarica brevemente l'integrazione (~1-2 s); salvare lo stesso valore non ha effetto.",
+        "title": "Azione Localizza del robot"
       },
       "otp": {
         "data": {

@@ -701,7 +701,12 @@ async def test_preferences_flow_reads_options_when_coordinator_absent():
 
 
 @pytest.mark.asyncio
-async def test_options_flow_init_shows_menu_with_two_branches():
+async def test_options_flow_init_shows_menu_with_reauth_and_preferences():
+    """FEAT-03 baseline: the two branches this ticket owns
+    (``reauth`` + ``preferences``) are still routed by the init menu.
+    FEAT-06 (#142) added a third branch (``locate``); that entry is
+    pinned by its own regression test in ``test_feat_06_show_locate``
+    to keep the two tickets' assertions independent."""
     from custom_components.mydolphin_plus.config_flow import DomainOptionsFlowHandler
 
     handler = DomainOptionsFlowHandler()
@@ -713,7 +718,7 @@ async def test_options_flow_init_shows_menu_with_two_branches():
 
     assert result["type"] == "menu"
     assert result["step_id"] == "init"
-    assert sorted(result["menu_options"]) == ["preferences", "reauth"]
+    assert {"preferences", "reauth"} <= set(result["menu_options"])
 
 
 # ---------------------------------------------------------------------------

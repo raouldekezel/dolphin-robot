@@ -39,7 +39,8 @@
         "description": "Choisissez une action.",
         "menu_options": {
           "reauth": "Réauthentifier MyDolphin Plus",
-          "preferences": "Choisir les modes de nettoyage utilisés"
+          "preferences": "Choisir les modes de nettoyage utilisés",
+          "locate": "Action Localiser du robot"
         }
       },
       "reauth": {
@@ -62,6 +63,13 @@
         "description": "Décochez un mode pour le retirer du sélecteur du robot, du sélecteur du mode souhaité et de la page de l'appareil. La durée de cycle du mode est désactivée pendant qu'il est masqué ; réactiver un mode recharge brièvement l'intégration (~1-2 s). Décocher tous les modes rétablit le sélecteur complet.",
         "data": {
           "visible_modes": "Modes à afficher"
+        }
+      },
+      "locate": {
+        "title": "Action Localiser du robot",
+        "description": "Afficher l'action Localiser dans les commandes du robot. Sur certains modèles, dont le Dolphin S2000, cette action n'allume qu'une LED faible et peut être inutile. Modifier cette option recharge brièvement l'intégration (~1-2 s) ; enregistrer la même valeur ne fait rien.",
+        "data": {
+          "show_locate": "Afficher l'action Localiser"
         }
       }
     },

@@ -10,6 +10,7 @@ from homeassistant.components.vacuum import (
     SERVICE_START,
     StateVacuumEntity,
     VacuumActivity,
+    VacuumEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_MODE, ATTR_STATE, Platform
@@ -18,7 +19,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .common.base_entity import MyDolphinPlusBaseEntity, async_setup_entities
 from .common.clean_modes import KNOWN_LABELED_MODES
-from .common.consts import ATTR_ATTRIBUTES, SIGNAL_DEVICE_NEW
+from .common.consts import ATTR_ATTRIBUTES, CONF_SHOW_LOCATE, SIGNAL_DEVICE_NEW
 from .common.entity_descriptions import MyDolphinPlusVacuumEntityDescription
 from .managers.coordinator import MyDolphinPlusCoordinator
 
@@ -56,7 +57,18 @@ class MyDolphinPlusVacuumEntity(MyDolphinPlusBaseEntity, StateVacuumEntity, ABC)
     ):
         super().__init__(entity_description, coordinator)
 
-        self._attr_supported_features = entity_description.features
+        # FEAT-06 — clear `LOCATE` from the description's max mask when
+        # the operator has disabled the Locate action in the options
+        # flow. Held on the instance (not on the shared description)
+        # so `VACUUM_FEATURES` / `entity_description.features` stay
+        # immutable across install paths. A toggle of the option
+        # reloads the config entry, which re-runs this constructor
+        # with the new mask — no cached-property dance.
+        features = entity_description.features
+        entry = coordinator.config_manager.entry
+        if not entry.options.get(CONF_SHOW_LOCATE, True):
+            features &= ~VacuumEntityFeature.LOCATE
+        self._attr_supported_features = features
         self._attr_fan_speed_list = entity_description.fan_speed_list
         # BUG-16: do not bake DOCKED in. Until the first systemState shadow
         # arrives, the base entity's `available` override keeps the entity
