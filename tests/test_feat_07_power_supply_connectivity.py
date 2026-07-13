@@ -4,15 +4,20 @@ The RAW-mirror `binary_sensor.{robot}_power_supply` reflects
 `reported.isConnected.connected` verbatim (tri-state True / False /
 None) plus a `last_seen` attribute from
 `reported.LastReceiveData.timestamp`. The design decision — no
-integration-side debounce — is pinned by the transitions test at the
-bottom: any future "helpful" filter that collapses back-to-back
-`False`→`True` flips would flip that test red.
+integration-side debounce — is pinned by the transitions test below:
+any future "helpful" filter that collapses back-to-back `False`→`True`
+flips would flip that test red.
 
 Coverage (per CHORE-02, behavior not source):
 
-- `SystemDetails._get_updated_data` tri-state coercion: True / False /
+- `SystemDetails._parse_pws_connected` tri-state coercion: True / False /
   section absent / non-bool payload → True / False / None / None.
-- `SystemDetails.pws_connected` property surfaces the parsed value.
+- `SystemDetails.pws_connected` property surfaces the parsed value AND
+  the value does NOT leak into `SystemDetails.data` — Fable F1 pin, so
+  it cannot land on `sensor.status`'s attribute dict.
+- `SystemDetails.update()` does NOT report `was_changed` for a bare
+  `isConnected` flap when nothing else in `systemState` moved — a flap
+  must not trigger a global sensor refresh.
 - Coordinator getter maps the tri-state to `is_on` and lifts
   `LastReceiveData.timestamp` into a UTC `datetime` on `last_seen`
   (absent / 0 / bad type → None).
@@ -27,15 +32,14 @@ Coverage (per CHORE-02, behavior not source):
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from custom_components.mydolphin_plus.common.consts import (
     ATTR_ATTRIBUTES,
     ATTR_IS_ON,
     ATTR_LAST_SEEN,
-    ATTR_PWS_CONNECTED,
     DATA_IS_CONNECTED_CONNECTED,
     DATA_KEY_AWS_BROKER,
     DATA_KEY_POWER_SUPPLY,
@@ -45,10 +49,11 @@ from custom_components.mydolphin_plus.common.consts import (
 )
 from custom_components.mydolphin_plus.models.system_details import SystemDetails
 
-
-COMPONENT_ROOT = Path(
-    __file__
-).resolve().parent.parent / "custom_components" / "mydolphin_plus"
+COMPONENT_ROOT = (
+    Path(__file__).resolve().parent.parent
+    / "custom_components"
+    / "mydolphin_plus"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -67,10 +72,10 @@ def _make_coordinator(aws_data: dict, pws_connected: bool | None):
 
     coord = object.__new__(MyDolphinPlusCoordinator)
     sd = SystemDetails()
-    # Seed the property via the exposed data dict rather than by
-    # calling `update()` — keeps the test focused on the getter, not
-    # on the parse chain (that is exercised separately below).
-    sd._data = {ATTR_PWS_CONNECTED: pws_connected}
+    # Seed the property via the dedicated backing attribute rather than
+    # by calling `update()` — keeps the test focused on the getter,
+    # not on the parse chain (that is exercised separately below).
+    sd._pws_connected = pws_connected
     coord._system_details = sd
     coord._aws_client = SimpleNamespace(data=aws_data)
     return coord
@@ -119,6 +124,48 @@ def test_parse_int_1_is_not_true():
 
 
 # ---------------------------------------------------------------------------
+# Isolation — the flag must not leak elsewhere (Fable F1).
+# ---------------------------------------------------------------------------
+
+
+def test_pws_connected_does_not_leak_into_data_dict():
+    """`_get_status_data` exposes `SystemDetails.data` wholesale as
+    `sensor.status`'s attribute dict. If `pws_connected` landed there,
+    every ~20 s session flap would fire a `state_changed` on the
+    status sensor. Pin: the parsed value lives on its own attribute,
+    NOT on the shared `_data` dict."""
+    sd = SystemDetails()
+    sd.update({DATA_SECTION_IS_CONNECTED: {DATA_IS_CONNECTED_CONNECTED: True}})
+
+    # No key in `data` may carry the connectivity signal, under any
+    # spelling that could plausibly have been used.
+    for key in sd.data.keys():
+        assert "connected" not in key.lower()
+        assert "pws connected" != key.lower()
+
+
+def test_pws_flap_alone_does_not_set_was_changed():
+    """A bare `isConnected` transition, with nothing else in the shadow
+    moving, must NOT report `was_changed=True` — otherwise every ~20 s
+    flap would push a full SystemDetails update tick and refresh every
+    other sensor for nothing."""
+    sd = SystemDetails()
+    # Seed a stable systemState so `was_changed` on the first call is
+    # driven by systemState, then repeat with only isConnected flipped.
+    baseline = {"systemState": {"pwsState": "on", "robotState": "init"}}
+    sd.update(baseline)
+    sd.update({**baseline, DATA_SECTION_IS_CONNECTED: {DATA_IS_CONNECTED_CONNECTED: True}})
+
+    # Now flip isConnected only — the property must reflect the flip
+    # but `was_changed` must be False.
+    was_changed = sd.update(
+        {**baseline, DATA_SECTION_IS_CONNECTED: {DATA_IS_CONNECTED_CONNECTED: False}}
+    )
+    assert was_changed is False
+    assert sd.pws_connected is False
+
+
+# ---------------------------------------------------------------------------
 # Getter — coordinator maps tri-state → is_on + lifts last_seen.
 # ---------------------------------------------------------------------------
 
@@ -157,8 +204,7 @@ def test_getter_last_seen_present_when_timestamp_positive():
     last_seen = result[ATTR_ATTRIBUTES][ATTR_LAST_SEEN]
     assert isinstance(last_seen, datetime)
     assert last_seen.tzinfo is not None
-    # Convert to UTC and back — the value must round-trip via the
-    # epoch it came from.
+    # Round-trip via the epoch it came from.
     assert last_seen == datetime.fromtimestamp(1_720_000_000, tz=timezone.utc)
 
 
@@ -224,9 +270,6 @@ def test_consecutive_flips_are_reported_verbatim():
 
 
 def _entity_descriptions_by_key():
-    from homeassistant.components.binary_sensor import BinarySensorDeviceClass  # noqa: F401
-    from homeassistant.util import slugify
-
     from custom_components.mydolphin_plus.common.entity_descriptions import (
         ENTITY_DESCRIPTIONS,
     )
@@ -302,7 +345,10 @@ def test_fr_translation_has_power_supply_entry():
 
 
 def test_it_translation_has_power_supply_entry():
-    """FEAT-06 F3 lesson: `it.json` is covered in this repo."""
+    """IT uses « Alimentazione » — same family root as
+    « Stato di alimentazione » (power_supply_status) and « Errore di
+    alimentazione » (power_supply_error). FEAT-06 F3 lesson: `it.json`
+    is covered in this repo."""
     data = _load_translation("it.json")
     entry = data["entity"]["binary_sensor"]["power_supply"]
-    assert entry["name"] == "Alimentatore"
+    assert entry["name"] == "Alimentazione"

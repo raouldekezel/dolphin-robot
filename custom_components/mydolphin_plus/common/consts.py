@@ -60,12 +60,6 @@ ATTR_MANUAL_MODE = "Manual Mode"
 ATTR_ACTIVITY = "Activity"
 ATTR_TURN_ON_COUNT = "Turn On Count"
 ATTR_TIME_ZONE = "Time Zone"
-# FEAT-07 — internal SystemDetails key for the parsed tri-state
-# `reported.isConnected.connected` (True / False / None). Consumed by
-# the coordinator's `_get_power_supply_data` getter. Also the parse
-# point that the BUG-21 Fix-1 start gate will reuse verbatim (D1 of
-# the #112 design).
-ATTR_PWS_CONNECTED = "PWS Connected"
 # FEAT-07 — attribute exposed on `binary_sensor.{robot}_power_supply`,
 # carrying the UTC datetime of the last shadow-carried
 # `LastReceiveData.timestamp`. Absent when the shadow never carried

@@ -5,7 +5,6 @@ from custom_components.mydolphin_plus.common.consts import (
     ATTR_CALCULATED_STATUS,
     ATTR_IS_BUSY,
     ATTR_POWER_SUPPLY_STATE,
-    ATTR_PWS_CONNECTED,
     ATTR_ROBOT_STATE,
     ATTR_ROBOT_TYPE,
     ATTR_TIME_ZONE,
@@ -37,10 +36,19 @@ class SystemDetails:
     _is_updated: bool
     _data: dict
     _supported_activities: list[str]
+    # FEAT-07 — kept OUTSIDE `_data` so it does NOT leak into
+    # `sensor.{robot}_status`'s `extra_state_attributes` (Fable F1).
+    # `_get_status_data` exposes `_data` wholesale; any key added there
+    # becomes a foreign attribute on the status sensor and every ~20 s
+    # session flap would fire a `state_changed` for that sensor. The
+    # BUG-21 (#112) Fix-1 gate still reuses the same parse point via
+    # the `pws_connected` property.
+    _pws_connected: bool | None
 
     def __init__(self):
         self._is_updated = False
         self._data = {}
+        self._pws_connected = None
         self._supported_activities = list(JoystickDirection)
 
     @property
@@ -69,14 +77,16 @@ class SystemDetails:
 
         Mirrors `reported.isConnected.connected` verbatim: True / False /
         None (section absent, non-bool payload, or no shadow yet). This
-        is the raw signal — no debounce. Consumers that need one debounce
-        on their own (per the FEAT-07 design decision).
+        is the raw signal — no debounce. Consumers that need one must
+        debounce on their own (per the FEAT-07 design decision).
 
-        Also the parse point the BUG-21 (#112) Fix-1 start gate reuses;
-        keeping the coercion here means Fix 1 does not re-parse the wire
-        section, avoiding drift.
+        Backed by `_pws_connected` and NOT by the `_data` dict so it
+        does not leak onto the status sensor's `extra_state_attributes`
+        (Fable F1 pin). The BUG-21 (#112) Fix-1 start gate reuses this
+        property; keeping the coercion in `update()` means Fix 1 does
+        not re-parse the wire section, avoiding drift.
         """
-        return self._data.get(ATTR_PWS_CONNECTED)
+        return self._pws_connected
 
     @property
     def robot_state(self) -> RobotState:
@@ -120,6 +130,16 @@ class SystemDetails:
         if was_changed:
             self._is_updated = True
             self._data = new_data
+
+        # FEAT-07 — the PWS↔cloud flag lives on its own attribute so it
+        # never lands on `sensor.status`'s attribute dict (Fable F1).
+        # Parsed here for the same wire section as the rest of
+        # `_get_updated_data`, and returned via the `pws_connected`
+        # property. Not counted in `was_changed`: the flag has its own
+        # dedicated entity (`binary_sensor.power_supply`) and pushing a
+        # SystemDetails "changed" tick on flap alone would refresh
+        # every other sensor for nothing.
+        self._pws_connected = self._parse_pws_connected(aws_data)
 
         return was_changed
 
@@ -182,16 +202,6 @@ class SystemDetails:
 
         activity = aws_data.get(DATA_SECTION_ACTIVITY)
 
-        # FEAT-07 — tri-state coercion for `reported.isConnected.connected`.
-        # Strict `isinstance(bool)`: LWT / lifecycle payloads have varied
-        # over device generations and a stringly-typed "false" must not
-        # collapse to True (which `bool("false")` would return).
-        is_connected_section = aws_data.get(DATA_SECTION_IS_CONNECTED, {})
-        raw_pws_connected = is_connected_section.get(DATA_IS_CONNECTED_CONNECTED)
-        pws_connected = (
-            raw_pws_connected if isinstance(raw_pws_connected, bool) else None
-        )
-
         result = {
             ATTR_VACUUM_STATE: vacuum_state,
             ATTR_CALCULATED_STATUS: calculated_state,
@@ -202,7 +212,18 @@ class SystemDetails:
             ATTR_TURN_ON_COUNT: turn_on_count,
             ATTR_TIME_ZONE: f"{time_zone_name} ({time_zone})",
             ATTR_ACTIVITY: activity,
-            ATTR_PWS_CONNECTED: pws_connected,
         }
 
         return result
+
+    @staticmethod
+    def _parse_pws_connected(aws_data: dict) -> bool | None:
+        """Tri-state coercion for `reported.isConnected.connected` (FEAT-07).
+
+        Strict `isinstance(bool)`: LWT / lifecycle payloads have varied
+        over device generations and a stringly-typed `"false"` must
+        not collapse to True (which `bool("false")` would return).
+        """
+        section = aws_data.get(DATA_SECTION_IS_CONNECTED, {})
+        raw = section.get(DATA_IS_CONNECTED_CONNECTED)
+        return raw if isinstance(raw, bool) else None
