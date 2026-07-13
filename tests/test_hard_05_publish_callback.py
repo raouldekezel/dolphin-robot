@@ -17,10 +17,11 @@ are now bound directly into the completion callback via
   logger instead of ``concurrent.futures``' opaque "exception calling
   callback" line.
 
-These tests are behavioural per CHORE-02 — they drive the real
-``AWSClient._on_publish_completed`` bound method against a spec'd
-``MagicMock`` and assert what the caller sees (log records; absence of
-the removed attribute).
+These tests are behavioural per CHORE-02 — no source greps, no
+`inspect.getsource`. They exercise the real ``_publish`` binding site
+end-to-end and drive the completion callback directly on a real
+instance built via ``__new__`` (bypassing ``__init__``'s executor loop
+allocation).
 """
 
 from __future__ import annotations
@@ -29,146 +30,223 @@ from concurrent.futures import Future
 import logging
 from unittest.mock import MagicMock
 
-import pytest
+from custom_components.mydolphin_plus.common.connectivity_status import (
+    ConnectivityStatus,
+)
+from custom_components.mydolphin_plus.managers.aws_client import AWSClient
+
+LOGGER_NAME = "custom_components.mydolphin_plus.managers.aws_client"
 
 
 # ---------------------------------------------------------------------------
-# Removal assertions — the whole bookkeeping layout must be gone
+# Helpers
 # ---------------------------------------------------------------------------
 
 
-def test_messages_published_dict_and_helpers_removed():
-    """The ``_messages_published`` dict and its ``_pre``/``_post`` helpers
-    must not exist any more. Their return would re-introduce the shared
-    cross-thread mutable state that HARD-05 came from."""
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
+def _bare_client() -> AWSClient:
+    """Return an ``AWSClient`` instance without running ``__init__``.
 
-    # class-level removal — instance-level would still miss annotated dicts
+    ``__init__`` spawns an event loop when ``hass is None`` and reaches
+    into ``ConfigManager.entry_id`` — neither is relevant to the
+    publish-callback contract. ``__new__`` sidesteps both.
+    """
+    return AWSClient.__new__(AWSClient)
+
+
+# ---------------------------------------------------------------------------
+# F1 — the removed bookkeeping must stay removed, at the instance level
+# ---------------------------------------------------------------------------
+
+
+def test_removed_bookkeeping_never_reappears_on_instance():
+    """The ``_messages_published`` dict, its ``_pre``/``_post`` helpers,
+    and the ``__init__`` lambda were the shared, cross-thread mutable
+    state that HARD-05 came from. All four must stay gone.
+
+    A ``__new__``-built instance would not catch a regression where the
+    bookkeeping is reintroduced at instance level from ``__init__`` — so
+    this test drives the real constructor with a MagicMock hass (its
+    ``.loop`` attribute is enough to satisfy the branch) and then checks
+    the attribute set that a live ``AWSClient`` carries.
+    """
+    hass = MagicMock()
+    config_manager = MagicMock()
+    config_manager.entry_id = "hard-05-test-entry"
+
+    client = AWSClient(hass, config_manager, lambda: None)
+
+    # Instance-only attributes — a class-level assertion cannot catch these.
+    assert not hasattr(client, "_messages_published")
+    assert not hasattr(client, "_on_publish_completed_callback")
+
+    # Methods — the ``_pre``/``_post`` helpers must not come back at either level.
+    assert not hasattr(client, "_pre_publish_message")
+    assert not hasattr(client, "_post_message_published")
     assert not hasattr(AWSClient, "_pre_publish_message")
     assert not hasattr(AWSClient, "_post_message_published")
-    assert not hasattr(AWSClient, "_on_publish_completed_callback")
-
-
-def test_partial_is_imported_at_module_level():
-    """``functools.partial`` is now load-bearing in ``_publish`` — its
-    absence would silently regress to a lambda that closes over the
-    packet id and reopens HARD-05."""
-    from functools import partial as functools_partial
-
-    from custom_components.mydolphin_plus.managers import aws_client as aws_client_mod
-
-    assert aws_client_mod.partial is functools_partial
 
 
 # ---------------------------------------------------------------------------
-# _on_publish_completed — success and failure paths
+# F3 — the binding site (`_publish`) is what carries the HARD-05 contract
 # ---------------------------------------------------------------------------
 
 
-def _make_aws_stub():
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
+def test_publish_binds_own_context_and_logs_submission(caplog):
+    """`_publish` must log the submission with the packet id and hand
+    the completion callback a partial that carries *this call's* topic
+    and payload — resolving the future then emits the completion line
+    with the same correlator.
+    """
+    client = _bare_client()
+    client._status = ConnectivityStatus.CONNECTED
 
-    return MagicMock(spec=AWSClient)
+    future: Future = Future()
+    client._awsiot_client = MagicMock()
+    client._awsiot_client.publish.return_value = (future, 123)
 
+    topic = "$aws/things/REDACTED-MUSN/shadow/update"
+    payload = {"state": {"desired": {"led": {"ledEnable": 1}}}}
 
-def _resolved_future(value=None) -> Future:
-    fut: Future = Future()
-    fut.set_result(value)
-    return fut
+    with caplog.at_level(logging.DEBUG, logger=LOGGER_NAME):
+        client._publish(topic, payload)
 
+        # Submission — must carry #packet_id + topic (the correlator anchor).
+        submission = [
+            r for r in caplog.records if r.getMessage().startswith("Publishing #")
+        ]
+        assert submission, "expected a submission DEBUG log line"
+        assert "#123" in submission[-1].getMessage()
+        assert topic in submission[-1].getMessage()
+        assert '"ledEnable": 1' in submission[-1].getMessage()
 
-def _failed_future(exc: BaseException) -> Future:
-    fut: Future = Future()
-    fut.set_exception(exc)
-    return fut
+        # Resolve the future — awscrt calls the done-callback synchronously
+        # from the setting thread when the future is already set. Same effect.
+        future.set_result(None)
 
-
-def test_on_publish_completed_success_logs_debug_with_correlator(caplog):
-    """A resolved future must emit a DEBUG line that carries the packet
-    id, topic, and payload — the completion side of the submission ↔
-    completion correlator that in-vivo diags anchor on."""
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    stub = _make_aws_stub()
-    future = _resolved_future()
-
-    with caplog.at_level(logging.DEBUG, logger="custom_components.mydolphin_plus.managers.aws_client"):
-        AWSClient._on_publish_completed(
-            stub,
-            future,
-            packet_id=42,
-            topic="$aws/things/REDACTED-MUSN/shadow/update",
-            payload='{"state":{"desired":{"led":{"ledEnable":1}}}}',
-        )
-
-    completion_records = [
-        r for r in caplog.records if "MQTT publish" in r.getMessage() and "completed" in r.getMessage()
+    completions = [
+        r
+        for r in caplog.records
+        if "MQTT publish" in r.getMessage() and "completed" in r.getMessage()
     ]
-    assert completion_records, "expected a completion DEBUG log line"
-    msg = completion_records[-1].getMessage()
-    assert "#42" in msg
-    assert "$aws/things/REDACTED-MUSN/shadow/update" in msg
-    assert '"ledEnable":1' in msg
-    assert completion_records[-1].levelno == logging.DEBUG, (
+    assert completions, "expected a completion DEBUG log line"
+    msg = completions[-1].getMessage()
+    assert "#123" in msg
+    assert topic in msg
+    assert '"ledEnable": 1' in msg
+    assert completions[-1].levelno == logging.DEBUG, (
         "success payload dumps must be DEBUG, not INFO — SPIKE-02 clientToken"
         " is stamped on every desired write and must not leak at INFO."
     )
 
 
-def test_on_publish_completed_failure_is_logged_not_swallowed(caplog):
+def test_two_interleaved_publishes_carry_distinct_contexts(caplog):
+    """The historical HARD-05 shape: two in-flight publishes complete
+    out of order. Each completion callback must carry *its own*
+    submission's context — the fix hinges on this. If the ``partial``
+    binding ever regressed to a shared closure over a loop variable
+    (or the dict was reintroduced and one entry overwrote the other),
+    the two completions would report the same topic/payload.
+    """
+    client = _bare_client()
+    client._status = ConnectivityStatus.CONNECTED
+    client._awsiot_client = MagicMock()
+
+    future_a: Future = Future()
+    future_b: Future = Future()
+    topic_a = "$aws/things/REDACTED-MUSN/shadow/update"
+    topic_b = "$aws/things/REDACTED-MUSN/shadow/get"
+    payload_a = {"state": {"desired": {"led": {"ledEnable": 1}}}}
+    payload_b = {}
+
+    client._awsiot_client.publish.side_effect = [
+        (future_a, 100),
+        (future_b, 200),
+    ]
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER_NAME):
+        client._publish(topic_a, payload_a)
+        client._publish(topic_b, payload_b)
+
+        # Complete B *before* A — the swap the reported HARD-05 story hinges on.
+        future_b.set_result(None)
+        future_a.set_result(None)
+
+    completions = [
+        r
+        for r in caplog.records
+        if "MQTT publish" in r.getMessage() and "completed" in r.getMessage()
+    ]
+    assert len(completions) == 2, "expected one completion line per publish"
+
+    # Ordered by resolution: B first, then A.
+    msg_b, msg_a = completions[0].getMessage(), completions[1].getMessage()
+
+    assert "#200" in msg_b and topic_b in msg_b
+    assert "#100" in msg_a and topic_a in msg_a
+
+    # Payload correlation — the discriminator that catches a shared closure.
+    assert '"ledEnable": 1' in msg_a
+    assert '"ledEnable"' not in msg_b
+
+
+def test_publish_failure_is_logged_not_swallowed(caplog):
     """A failed future must surface through our logger with topic and
-    packet id. Before the fix, `concurrent.futures` swallowed this in an
-    opaque `exception calling callback` line — invisible to the user."""
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
+    packet id. Before the fix, ``future.result()`` was called unguarded;
+    ``concurrent.futures`` swallowed the exception in an opaque
+    "exception calling callback" line — invisible to the user.
+    """
+    client = _bare_client()
+    client._status = ConnectivityStatus.CONNECTED
+    client._awsiot_client = MagicMock()
 
-    stub = _make_aws_stub()
+    future: Future = Future()
+    client._awsiot_client.publish.return_value = (future, 7)
     boom = RuntimeError("AWS_ERROR_MQTT_CONNECTION_DESTROYED")
-    future = _failed_future(boom)
 
-    with caplog.at_level(logging.DEBUG, logger="custom_components.mydolphin_plus.managers.aws_client"):
-        AWSClient._on_publish_completed(
-            stub,
-            future,
-            packet_id=7,
-            topic="$aws/things/REDACTED-MUSN/shadow/update",
-            payload='{"state":{"desired":{"led":{"ledEnable":0}}}}',
-        )
+    topic = "$aws/things/REDACTED-MUSN/shadow/update"
+    payload = {"state": {"desired": {"led": {"ledEnable": 0}}}}
 
-    failure_records = [
-        r for r in caplog.records
+    with caplog.at_level(logging.DEBUG, logger=LOGGER_NAME):
+        client._publish(topic, payload)
+        future.set_exception(boom)
+
+    failures = [
+        r
+        for r in caplog.records
         if r.levelno == logging.ERROR and "failed" in r.getMessage()
     ]
-    assert failure_records, "expected an ERROR log line for the failed future"
-    rec = failure_records[-1]
+    assert failures, "expected an ERROR log line for the failed future"
+    rec = failures[-1]
     assert "#7" in rec.getMessage()
-    assert "$aws/things/REDACTED-MUSN/shadow/update" in rec.getMessage()
-    # ``_LOGGER.exception`` attaches the exception info to the record.
+    assert topic in rec.getMessage()
+    # ``_LOGGER.exception`` attaches the exception info to the record —
+    # the traceback is the intentional carrier for the failure context.
     assert rec.exc_info is not None
     assert rec.exc_info[1] is boom
 
-
-def test_on_publish_completed_failure_skips_success_line(caplog):
-    """When the future fails we must not also emit the "completed"
-    success line — otherwise the failure would be visually cancelled by
-    a positive log line one message later."""
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
-
-    stub = _make_aws_stub()
-    future = _failed_future(RuntimeError("boom"))
-
-    with caplog.at_level(logging.DEBUG, logger="custom_components.mydolphin_plus.managers.aws_client"):
-        AWSClient._on_publish_completed(
-            stub,
-            future,
-            packet_id=9,
-            topic="topic",
-            payload="{}",
-        )
-
-    completed_lines = [
-        r for r in caplog.records if "completed" in r.getMessage()
-    ]
+    # And the success line must NOT also fire — otherwise the failure
+    # is visually cancelled one message later.
+    completed_lines = [r for r in caplog.records if "completed" in r.getMessage()]
     assert not completed_lines, "success line must not fire after a failure"
+
+
+def test_publish_when_not_connected_logs_error_and_registers_no_callback(caplog):
+    """A publish attempted while ``_status`` is not ``CONNECTED`` must
+    log the ``Broker is not connected`` error and never touch the
+    AWS-IoT client — so no callback can leak past the fix's scope.
+    """
+    client = _bare_client()
+    client._status = ConnectivityStatus.DISCONNECTED
+    client._awsiot_client = MagicMock()
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER_NAME):
+        client._publish("topic", {"anything": "here"})
+
+    client._awsiot_client.publish.assert_not_called()
+    assert any(
+        r.levelno == logging.ERROR and "Broker is not connected" in r.getMessage()
+        for r in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -177,12 +255,12 @@ def test_on_publish_completed_failure_skips_success_line(caplog):
 
 
 def test_on_publish_completed_signature_is_keyword_only():
-    """`packet_id`, `topic`, `payload` must be keyword-only so a stale
-    positional lambda (`lambda f: self._on_publish_completed(f)`) cannot
-    silently start firing again after a rebase."""
+    """Positional misuse of the callback would have `packet_id`/`topic`/
+    `payload` swallowed by ``publish_future``; keyword-only forces the
+    binding to be explicit at the ``partial`` call site and would trip
+    immediately if the old positional lambda came back.
+    """
     import inspect
-
-    from custom_components.mydolphin_plus.managers.aws_client import AWSClient
 
     sig = inspect.signature(AWSClient._on_publish_completed)
     kinds = {name: p.kind for name, p in sig.parameters.items()}

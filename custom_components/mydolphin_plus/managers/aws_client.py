@@ -612,9 +612,7 @@ class AWSClient:
         try:
             publish_future.result()
         except Exception:
-            _LOGGER.exception(
-                "MQTT publish #%s to %s failed", packet_id, topic
-            )
+            _LOGGER.exception("MQTT publish #%s to %s failed", packet_id, topic)
             return
 
         _LOGGER.debug(

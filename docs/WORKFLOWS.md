@@ -605,7 +605,7 @@ sequenceDiagram
         AWS->>AWS: log "Publishing #packet_id to topic"
         AWS->>AWS: partial(_on_publish_completed, packet_id, topic, payload)
 
-        Broker-->>AWS: Publish future resolved
+        Note over AWS: QoS 0 — future resolves on local socket write, no broker ACK
         AWS->>AWS: _on_publish_completed(future, packet_id=…, topic=…, payload=…)
         AWS->>AWS: future.result() guarded by try/except
         AWS->>AWS: log "MQTT publish #packet_id completed" (or _LOGGER.exception on failure)
