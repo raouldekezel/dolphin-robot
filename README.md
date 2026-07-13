@@ -12,7 +12,6 @@ the device behavior.
 - Redacts sensitive tokens and credentials from logs.
 - Uses upstream's beta OTP authentication.
 - Fixes recurring "lost authentication" problems.
-- Fixes problems with the exponential backoff of reconnections
 - Supports the new Full Coverage cleaning mode of the S2000.
 - Adds read-only sensors for the next scheduled run, mode and cycle time.
 - Prevents a docked robot from starting when the cleaning mode is changed. An explicit start is required.
@@ -28,6 +27,9 @@ the device behavior.
 - Adds a documented library of real-device traces with their interpretation ([`docs/diag/`](https://github.com/raouldekezel/dolphin-robot/tree/deploy/docs/diag)).
 - Miscellaneous issues fixed  (see the [Releases](https://github.com/raouldekezel/dolphin-robot/releases) page).
 
+## My dashboard
+
+![Le robot en action](IMG_3203.jpeg)
 # MyDolphin Plus
 
 ## Description
