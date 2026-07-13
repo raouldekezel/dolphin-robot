@@ -31,7 +31,7 @@ the device behavior.
 
 ## My dashboard
 
-![Le robot en action](IMG_3203.jpeg)
+![MyDolphin Plus dashboard](docs/images/dashboard.jpeg)
 # MyDolphin Plus
 
 ## Description
