@@ -65,8 +65,16 @@ from .joystick_direction import JoystickDirection
 from .robot_family import RobotFamily
 
 _CYCLE_TIME_ICONS: dict[CleanModes, str] = {
-    CleanModes.REGULAR: "mdi:vacuum",
-    CleanModes.FAST_MODE: "mdi:timer-fast-outline",
+    # HARD-15 round 2 (#126 comment, 2026-07-13):
+    # - REGULAR: dropped `mdi:vacuum` — the S2000 is a pool robot, not a
+    #   vacuum. Uses `mdi:swap-horizontal-variant` to align with the
+    #   `clean_mode` / `desired_clean_mode` sensors below.
+    # - FAST_MODE: dropped `mdi:timer-fast-outline` — the `-fast-` variant
+    #   is not in Home Assistant's shipped MDI subset today (renders
+    #   blank). `mdi:lightning-bolt-outline` reads as "quick" and is
+    #   universally present.
+    CleanModes.REGULAR: "mdi:swap-horizontal-variant",
+    CleanModes.FAST_MODE: "mdi:lightning-bolt-outline",
     CleanModes.FLOOR_ONLY: "mdi:floor-plan",
     CleanModes.WATER_LINE: "mdi:waves",
     CleanModes.ULTRA_CLEAN: "mdi:star-shooting",
@@ -201,16 +209,21 @@ ENTITY_DESCRIPTIONS: list[MyDolphinPlusEntityDescription] = [
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_NETWORK_NAME),
     ),
+    # HARD-15 round 2 (#126 comment, 2026-07-13): `mdi:broom` reads as
+    # "sweeping" — wrong metaphor for a pool robot. `swap-horizontal-variant`
+    # conveys the "cycling through modes" idea and pairs the state sensor,
+    # the writable select, and `number.cycle_time_all` under one shared
+    # glyph.
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_CLEAN_MODE),
         name=DATA_KEY_CLEAN_MODE,
-        icon="mdi:broom",
+        icon="mdi:swap-horizontal-variant",
         translation_key=slugify(DATA_KEY_CLEAN_MODE),
     ),
     MyDolphinPlusSelectEntityDescription(
         key=slugify(DATA_KEY_DESIRED_CLEAN_MODE),
         name=DATA_KEY_DESIRED_CLEAN_MODE,
-        icon="mdi:broom",
+        icon="mdi:swap-horizontal-variant",
         options=[str(mode) for mode in CleanModes],
         translation_key=slugify(DATA_KEY_DESIRED_CLEAN_MODE),
     ),
