@@ -306,10 +306,18 @@
       "init": {
         "description": "Choose an action.",
         "menu_options": {
+          "locate": "Vacuum Locate action",
           "preferences": "Cleaning modes visible in the picker",
           "reauth": "Re-authenticate MyDolphin Plus"
         },
         "title": "MyDolphin Plus options"
+      },
+      "locate": {
+        "data": {
+          "show_locate": "Show the Locate action"
+        },
+        "description": "Show the Locate action in the vacuum controls. On some models, including the Dolphin S2000, this action only turns on a weak LED and may not be useful. Toggling this option reloads the integration briefly (~1–2 s); saving the same value is a no-op.",
+        "title": "Vacuum Locate action"
       },
       "otp": {
         "data": {
