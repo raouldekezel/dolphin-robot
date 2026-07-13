@@ -1,0 +1,6 @@
+# source=/api/history/period on http://192.168.0.27:8123
+# entity=number.nono_2_intensite_led  robot_state=notConnected  aws_broker=on
+timestamp_utc	state
+2026-07-13T12:46:00.000000+00:00	100
+2026-07-13T12:46:55.617429+00:00	25.0
+2026-07-13T12:47:05.621237+00:00	100
