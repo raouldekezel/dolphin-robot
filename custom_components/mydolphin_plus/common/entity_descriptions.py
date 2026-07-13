@@ -48,6 +48,7 @@ from .consts import (
     DATA_KEY_NEXT_SCHEDULED_CYCLE_TIME,
     DATA_KEY_NEXT_SCHEDULED_MODE,
     DATA_KEY_NEXT_SCHEDULED_RUN,
+    DATA_KEY_POWER_SUPPLY,
     DATA_KEY_POWER_SUPPLY_STATUS,
     DATA_KEY_PWS_ERROR,
     DATA_KEY_REMOTE,
@@ -284,6 +285,23 @@ ENTITY_DESCRIPTIONS: list[MyDolphinPlusEntityDescription] = [
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
         translation_key=slugify(DATA_KEY_AWS_BROKER),
+    ),
+    # FEAT-07 — twin of `aws_broker`, one hop further down the chain:
+    # `aws_broker` = HA↔cloud (this integration's own MQTT session);
+    # `power_supply` = PWS↔cloud (the device's own session, mirrored
+    # from `reported.isConnected.connected`, written cloud-side by the
+    # AWS IoT LWT). Same entity category so both diagnostics land in
+    # the same block of the device page. Raw signal — no
+    # integration-side debounce; ~20 s session flaps are honest events
+    # (consume with `for: "00:02:00"` on the automation side if a
+    # smoother signal is desired).
+    MyDolphinPlusBinarySensorEntityDescription(
+        key=slugify(DATA_KEY_POWER_SUPPLY),
+        name=DATA_KEY_POWER_SUPPLY,
+        icon="mdi:power-plug",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        translation_key=slugify(DATA_KEY_POWER_SUPPLY),
     ),
     MyDolphinPlusSensorEntityDescription(
         key=slugify(DATA_KEY_ROBOT_ERROR),
