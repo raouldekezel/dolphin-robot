@@ -16,6 +16,15 @@ CONF_OTP = "otp"
 # FEAT-03 — list of user-visible cleaning modes, persisted in
 # `entry.options`. When absent, defaults to the full curated set.
 CONF_VISIBLE_MODES = "visible_modes"
+# FEAT-06 — whether the vacuum entity exposes the Locate action.
+# Persisted in `entry.options`; when absent, defaults to True so
+# existing installations preserve their current behaviour. The
+# vacuum entity clears `VacuumEntityFeature.LOCATE` from its
+# `_attr_supported_features` at construction time when the option
+# is False. A change to this option triggers a config-entry reload
+# (see `config_flow.async_step_locate`) so the vacuum is
+# reconstructed with the new mask; unchanged saves are a no-op.
+CONF_SHOW_LOCATE = "show_locate"
 
 INITIAL_TOKENS_KEY = "__initial_tokens__"
 

@@ -39,7 +39,8 @@
         "description": "Choose an action.",
         "menu_options": {
           "reauth": "Re-authenticate MyDolphin Plus",
-          "preferences": "Cleaning modes visible in the picker"
+          "preferences": "Cleaning modes visible in the picker",
+          "locate": "Vacuum Locate action"
         }
       },
       "reauth": {
@@ -62,6 +63,13 @@
         "description": "Uncheck a mode to remove it from the vacuum picker, the desired-clean-mode selector, and the device page. The mode's cycle-time control is disabled while hidden; re-enabling a mode reloads the integration briefly (~1–2 s). Leaving every mode unchecked resets the picker to the full set.",
         "data": {
           "visible_modes": "Modes to show"
+        }
+      },
+      "locate": {
+        "title": "Vacuum Locate action",
+        "description": "Show the Locate action in the vacuum controls. On some models, including the Dolphin S2000, this action only turns on a weak LED and may not be useful. Toggling this option reloads the integration briefly (~1–2 s); saving the same value is a no-op.",
+        "data": {
+          "show_locate": "Show the Locate action"
         }
       }
     },

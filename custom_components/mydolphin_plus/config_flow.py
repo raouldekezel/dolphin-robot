@@ -12,7 +12,7 @@ from homeassistant import config_entries
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
 from homeassistant.core import callback
 
-from .common.consts import DOMAIN
+from .common.consts import CONF_SHOW_LOCATE, DOMAIN
 from .managers.flow_manager import IntegrationFlowManager
 from .managers.preferences_flow import PreferencesFlowManager
 
@@ -73,12 +73,16 @@ class DomainFlowHandler(config_entries.ConfigFlow):
 class DomainOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle domain options.
 
-    FEAT-03 — the entry point is a menu with two branches:
+    FEAT-03 introduced the menu; FEAT-06 adds a third branch:
 
     - ``reauth`` — the existing OTP flow (unchanged behaviour, just
       routed through a dedicated step_id so its form submissions don't
       collide with the menu's ``async_step_init``).
-    - ``preferences`` — the new visible-modes picker.
+    - ``preferences`` — the visible-modes picker.
+    - ``locate`` — toggle for the vacuum's ``Locate`` action (FEAT-06).
+      A toggled save reloads the entry so the vacuum is reconstructed
+      with the new supported-feature mask; an unchanged save is a
+      no-op reload-wise.
     """
 
     def __init__(self):
@@ -89,7 +93,7 @@ class DomainOptionsFlowHandler(config_entries.OptionsFlow):
         """Show the top-level options menu."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["reauth", "preferences"],
+            menu_options=["reauth", "preferences", "locate"],
         )
 
     async def async_step_reauth(self, user_input=None):
@@ -122,3 +126,43 @@ class DomainOptionsFlowHandler(config_entries.OptionsFlow):
         """FEAT-03 — visible cleaning modes picker."""
         preferences = PreferencesFlowManager(self.hass, self, self.config_entry)
         return await preferences.async_step_preferences(user_input)
+
+    async def async_step_locate(self, user_input=None):
+        """FEAT-06 — toggle for the vacuum ``Locate`` action.
+
+        Handled inline (no dedicated manager) — the option is a single
+        boolean and the persistence path is a straight merge into
+        ``entry.options``. On submit the handler compares the new
+        value with the persisted one:
+
+        - Different → schedule exactly one config-entry reload so the
+          vacuum entity is reconstructed with the updated
+          ``supported_features`` mask.
+        - Same     → no reload; the entry is unchanged.
+
+        Other option keys (notably ``CONF_VISIBLE_MODES``) are
+        preserved by merging into ``self.config_entry.options`` before
+        the create-entry call — ``async_create_entry`` replaces
+        options wholesale.
+        """
+        current = bool(self.config_entry.options.get(CONF_SHOW_LOCATE, True))
+
+        if user_input is None:
+            return self.async_show_form(
+                step_id="locate",
+                data_schema=vol.Schema(
+                    {vol.Required(CONF_SHOW_LOCATE, default=current): bool},
+                ),
+            )
+
+        new_value = bool(user_input.get(CONF_SHOW_LOCATE, True))
+
+        if new_value != current:
+            self.hass.async_create_task(
+                self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            )
+
+        return self.async_create_entry(
+            title="",
+            data={**self.config_entry.options, CONF_SHOW_LOCATE: new_value},
+        )
