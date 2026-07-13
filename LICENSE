@@ -1,0 +1,53 @@
+LICENSE / LICENSING NOTICE
+==========================
+
+This repository (raouldekezel/dolphin-robot) is a fork of the upstream project:
+
+    https://github.com/sh00t2kill/dolphin-robot
+
+Upstream licensing status
+-------------------------
+
+As of 2026-07-13, the upstream repository does not publish a LICENSE file.
+Under default copyright rules, the original work is therefore "all rights
+reserved" by its authors, and no license terms are available to be inherited
+by this fork.
+
+Consequently, this fork makes NO license grant covering the upstream code.
+All rights in the original work remain with the upstream authors and
+contributors, including @sh00t2kill, @lordlala and @elad-bar as listed in
+`custom_components/mydolphin_plus/manifest.json`.
+
+Fork-specific modifications
+---------------------------
+
+Modifications, additions, tests, documentation and diagnostic material
+contributed in this fork by @raouldekezel are published with no intentions
+beyond the author's education and personal use. No separate or conflicting
+terms are asserted over them, and they carry no claim over the upstream work
+they derive from.
+
+Intended use
+------------
+
+This fork exists to develop and test changes against real Maytronics Dolphin
+hardware, with no intentions beyond the author's education and personal use.
+It is not intended as an independent redistribution of the upstream work, and
+it is not published in the HACS default store.
+
+Trademarks and brand assets
+---------------------------
+
+"Maytronics", "Dolphin" and "MyDolphin Plus" are trademarks of their
+respective owners. The brand image shipped under
+`custom_components/mydolphin_plus/brand/` is the same asset already published
+for the `mydolphin_plus` domain in the `home-assistant/brands` repository, and
+is used solely for identification purposes within the Home Assistant user
+interface, as permitted by the Home Assistant brands policy.
+
+Note to upstream
+----------------
+
+Should the upstream maintainers publish an explicit license for
+sh00t2kill/dolphin-robot (MIT is the de-facto norm for Home Assistant custom
+integrations), this notice will be replaced by those terms.
