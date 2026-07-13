@@ -602,13 +602,13 @@ sequenceDiagram
         AWS->>Broker: Publish to $aws/things/{motor_unit_serial}/shadow/get
         Note right of Broker: QoS: AT_MOST_ONCE
 
-        AWS->>AWS: _pre_publish_message(packet_id, topic, payload)
-        AWS->>AWS: Store in _messages_published[packet_id]
+        AWS->>AWS: log "Publishing #packet_id to topic"
+        AWS->>AWS: partial(_on_publish_completed, packet_id, topic, payload)
 
-        Broker-->>AWS: Publish acknowledged
-        AWS->>AWS: _on_publish_completed(publish_future)
-        AWS->>AWS: _post_message_published(packet_id)
-        AWS->>AWS: Remove from _messages_published
+        Broker-->>AWS: Publish future resolved
+        AWS->>AWS: _on_publish_completed(future, packet_id=…, topic=…, payload=…)
+        AWS->>AWS: future.result() guarded by try/except
+        AWS->>AWS: log "MQTT publish #packet_id completed" (or _LOGGER.exception on failure)
 
         Note over Broker: IoT Service processes request
         Broker->>AWS: Message on shadow/get/accepted
