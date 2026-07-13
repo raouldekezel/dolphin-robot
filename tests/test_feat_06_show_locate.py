@@ -19,7 +19,7 @@ Locked decisions (issue #142, 2026-07-13 17:38 clarification comment):
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -228,26 +228,6 @@ def test_led_mode_select_description_still_present():
 # ---------------------------------------------------------------------------
 
 
-def _make_handler(entry_options: dict | None = None):
-    """Build a ``DomainOptionsFlowHandler`` wired with mock hass +
-    config_entry surfaces sufficient to exercise ``async_step_locate``
-    without touching the real HA config-entries machinery."""
-    handler = DomainOptionsFlowHandler()
-    entry = MagicMock()
-    entry.options = entry_options if entry_options is not None else {}
-    entry.entry_id = "test-entry-id"
-    handler.hass = MagicMock()
-
-    # Patch the properties instead of writing to them (OptionsFlow exposes
-    # them as descriptors backed by internal state).
-    with patch.object(type(handler), "config_entry", entry):
-        pass
-    # Replace via setattr on the handler dict (works because
-    # OptionsFlow.config_entry reads from `_options_flow`... simpler:
-    # override the descriptor by injecting a class-level property.
-    return handler, entry
-
-
 class _StubHandler(DomainOptionsFlowHandler):
     """Concrete subclass that exposes ``config_entry`` as a plain
     attribute, letting tests set it directly."""
@@ -326,13 +306,21 @@ async def test_locate_step_no_input_renders_form_with_persisted_default_false():
 @pytest.mark.asyncio
 async def test_locate_step_submit_changed_value_schedules_exactly_one_reload():
     """Acceptance criterion #6: a changed save triggers exactly one
-    config-entry reload."""
+    config-entry reload targeting *this* entry.
+
+    Counting ``async_create_task`` alone is not enough — any task would
+    satisfy the counter. Assert the reload target explicitly.
+    """
     entry = MagicMock(options={CONF_SHOW_LOCATE: True})
+    entry.entry_id = "feat-06-changed-entry"
     handler = _StubHandler(entry=entry)
 
     await handler.async_step_locate({CONF_SHOW_LOCATE: False})
 
     assert handler.hass.async_create_task.call_count == 1
+    handler.hass.config_entries.async_reload.assert_called_once_with(
+        "feat-06-changed-entry"
+    )
 
 
 @pytest.mark.asyncio
@@ -381,9 +369,10 @@ async def test_locate_step_submit_persists_new_value_merged_with_other_options()
 @pytest.mark.asyncio
 async def test_locate_step_roundtrip_true_false_true():
     """Guard against stateful bugs in the handler by simulating three
-    consecutive saves. Each toggle counts as one reload; unchanged
-    save is a no-op."""
+    consecutive saves. Each toggle counts as one reload targeting
+    *this* entry; unchanged save is a no-op."""
     entry = MagicMock(options={CONF_SHOW_LOCATE: True})
+    entry.entry_id = "feat-06-roundtrip-entry"
     handler = _StubHandler(entry=entry)
 
     await handler.async_step_locate({CONF_SHOW_LOCATE: False})  # change
@@ -394,3 +383,9 @@ async def test_locate_step_roundtrip_true_false_true():
     await handler.async_step_locate({CONF_SHOW_LOCATE: True})  # same
 
     assert handler.hass.async_create_task.call_count == 2
+    # Both reloads must target this entry, not any other.
+    reload_mock = handler.hass.config_entries.async_reload
+    assert reload_mock.call_args_list == [
+        call("feat-06-roundtrip-entry"),
+        call("feat-06-roundtrip-entry"),
+    ]
