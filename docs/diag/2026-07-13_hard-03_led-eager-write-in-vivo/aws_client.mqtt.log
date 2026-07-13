@@ -1,35 +1,35 @@
 2026-07-13 14:46:55.615 INFO (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Set led intensity, Desired: {'led': {'ledEnable': True, 'ledIntensity': 25.0, 'ledMode': 1}}
-2026-07-13 14:46:55.615 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Published message to $aws/things/N4720KMV/shadow/update, Data: {"state": {"desired": {"led": {"ledEnable": true, "ledIntensity": 25.0, "ledMode": 1}}}, "clientToken": "4c622cf25ae2433da200d40c53b4d9fb"}
+2026-07-13 14:46:55.615 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Published message to $aws/things/<thing-name>/shadow/update, Data: {"state": {"desired": {"led": {"ledEnable": true, "ledIntensity": 25.0, "ledMode": 1}}}, "clientToken": "4c622cf25ae2433da200d40c53b4d9fb"}
 2026-07-13 14:46:55.616 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Connected. Refresh details
-2026-07-13 14:46:55.616 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Published message to $aws/things/N4720KMV/shadow/get, Data: {}
+2026-07-13 14:46:55.616 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.aws_client] Published message to $aws/things/<thing-name>/shadow/get, Data: {}
 2026-07-13 14:46:55.616 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Finished fetching MyDolphin Plus data in 0.001 seconds (success: True)
-2026-07-13 14:46:55.617 DEBUG (MainThread) [custom_components.mydolphin_plus.common.base_entity] Data for number_n4720kmv3q_nono_2_intensite_led: {'state': 25.0}
+2026-07-13 14:46:55.617 DEBUG (MainThread) [custom_components.mydolphin_plus.common.base_entity] Data for number_<thing-id>_nono_2_intensite_led: {'state': 25.0}
 2026-07-13 14:46:55.620 DEBUG (Dummy-18200) [custom_components.mydolphin_plus.managers.aws_client] Publish results: {'packet_id': 67}
-2026-07-13 14:46:55.620 INFO (Dummy-18200) [custom_components.mydolphin_plus.managers.aws_client] Published message #67 to $aws/things/N4720KMV/shadow/update, Data: {"state": {"desired": {"led": {"ledEnable": true, "ledIntensity": 25.0, "ledMode": 1}}}, "clientToken": "4c622cf25ae2433da200d40c53b4d9fb"}
+2026-07-13 14:46:55.620 INFO (Dummy-18200) [custom_components.mydolphin_plus.managers.aws_client] Published message #67 to $aws/things/<thing-name>/shadow/update, Data: {"state": {"desired": {"led": {"ledEnable": true, "ledIntensity": 25.0, "ledMode": 1}}}, "clientToken": "4c622cf25ae2433da200d40c53b4d9fb"}
 2026-07-13 14:46:55.623 DEBUG (Dummy-18201) [custom_components.mydolphin_plus.managers.aws_client] Publish results: {'packet_id': 68}
-2026-07-13 14:46:55.623 INFO (Dummy-18201) [custom_components.mydolphin_plus.managers.aws_client] Published message #68 to $aws/things/N4720KMV/shadow/get, Data: {}
-2026-07-13 14:46:55.700 DEBUG (Dummy-18202) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update
-2026-07-13 14:46:55.737 DEBUG (Dummy-18203) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update/documents
-2026-07-13 14:46:55.760 DEBUG (Dummy-18204) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update/accepted
+2026-07-13 14:46:55.623 INFO (Dummy-18201) [custom_components.mydolphin_plus.managers.aws_client] Published message #68 to $aws/things/<thing-name>/shadow/get, Data: {}
+2026-07-13 14:46:55.700 DEBUG (Dummy-18202) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update
+2026-07-13 14:46:55.737 DEBUG (Dummy-18203) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update/documents
+2026-07-13 14:46:55.760 DEBUG (Dummy-18204) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update/accepted
 2026-07-13 14:46:55.760 DEBUG (Dummy-18204) [custom_components.mydolphin_plus.managers.aws_client] Payload: {"state":{"desired":{"led":{"ledEnable":true,"ledIntensity":25.0,"ledMode":1}}},"metadata":{"desired":{"led":{"ledEnable":{"timestamp":1783946815},"ledIntensity":{"timestamp":1783946815},"ledMode":{"timestamp":1783946815}}}},"version":2499,"timestamp":1783946815,"clientToken":"4c622cf25ae2433da200d40c53b4d9fb"}
-2026-07-13 14:46:55.764 DEBUG (Dummy-18205) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update/delta
-2026-07-13 14:46:55.775 DEBUG (Dummy-18206) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/get
-2026-07-13 14:46:55.778 DEBUG (Dummy-18207) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/get/accepted
+2026-07-13 14:46:55.764 DEBUG (Dummy-18205) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update/delta
+2026-07-13 14:46:55.775 DEBUG (Dummy-18206) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/get
+2026-07-13 14:46:55.778 DEBUG (Dummy-18207) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/get/accepted
 2026-07-13 14:46:56.781 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Executed debounced MQTT refresh
 2026-07-13 14:47:05.619 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Finished fetching MyDolphin Plus data in 0.001 seconds (success: True)
-2026-07-13 14:47:05.620 DEBUG (MainThread) [custom_components.mydolphin_plus.common.base_entity] Data for number_n4720kmv3q_nono_2_intensite_led: {'state': 100}
-2026-07-13 14:47:09.863 DEBUG (Dummy-18208) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update
-2026-07-13 14:47:09.863 DEBUG (Dummy-18209) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update
-2026-07-13 14:47:09.869 DEBUG (Dummy-18210) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update/accepted
+2026-07-13 14:47:05.620 DEBUG (MainThread) [custom_components.mydolphin_plus.common.base_entity] Data for number_<thing-id>_nono_2_intensite_led: {'state': 100}
+2026-07-13 14:47:09.863 DEBUG (Dummy-18208) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update
+2026-07-13 14:47:09.863 DEBUG (Dummy-18209) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update
+2026-07-13 14:47:09.869 DEBUG (Dummy-18210) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update/accepted
 2026-07-13 14:47:09.869 DEBUG (Dummy-18210) [custom_components.mydolphin_plus.managers.aws_client] Payload: {"state":{"desired":{}},"metadata":{"desired":{}},"version":2500,"timestamp":1783946829}
-2026-07-13 14:47:09.894 DEBUG (Dummy-18211) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update/documents
-2026-07-13 14:47:09.895 DEBUG (Dummy-18212) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update/delta
-2026-07-13 14:47:09.895 DEBUG (Dummy-18213) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update/delta
-2026-07-13 14:47:09.896 DEBUG (Dummy-18214) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update/accepted
+2026-07-13 14:47:09.894 DEBUG (Dummy-18211) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update/documents
+2026-07-13 14:47:09.895 DEBUG (Dummy-18212) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update/delta
+2026-07-13 14:47:09.895 DEBUG (Dummy-18213) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update/delta
+2026-07-13 14:47:09.896 DEBUG (Dummy-18214) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update/accepted
 2026-07-13 14:47:09.896 DEBUG (Dummy-18214) [custom_components.mydolphin_plus.managers.aws_client] Payload: {"state":{"desired":{}},"metadata":{"desired":{}},"version":2501,"timestamp":1783946829}
-2026-07-13 14:47:09.903 DEBUG (Dummy-18215) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/update/documents
+2026-07-13 14:47:09.903 DEBUG (Dummy-18215) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/update/documents
 2026-07-13 14:47:10.899 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Executed debounced MQTT refresh
-2026-07-13 14:47:13.823 DEBUG (Dummy-18216) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/get
-2026-07-13 14:47:13.825 DEBUG (Dummy-18217) [custom_components.mydolphin_plus.managers.aws_client] Message received for device N4720KMV, Topic: $aws/things/N4720KMV/shadow/get/accepted
+2026-07-13 14:47:13.823 DEBUG (Dummy-18216) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/get
+2026-07-13 14:47:13.825 DEBUG (Dummy-18217) [custom_components.mydolphin_plus.managers.aws_client] Message received for device <thing-name>, Topic: $aws/things/<thing-name>/shadow/get/accepted
 2026-07-13 14:47:14.827 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Executed debounced MQTT refresh
 2026-07-13 14:47:15.623 DEBUG (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Finished fetching MyDolphin Plus data in 0.001 seconds (success: True)

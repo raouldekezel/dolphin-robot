@@ -6,10 +6,11 @@ Live confirmation of [HARD-03 (#24)](https://github.com/raouldekezel/dolphin-rob
 
 - **T + 2 ms** — HA entity already reads 25.0 (`base_entity: Data for … : {'state': 25.0}`), **before** the AWS publish is acknowledged and 145 ms **before** `shadow/update/accepted` arrives.
 - The `Set led intensity` INFO log carries `{'led': {'ledEnable': True, 'ledIntensity': 25.0, 'ledMode': 1}}` — the shared-reference mutation described in the ticket is what wrote the 25.0 into `self.data[DATA_SECTION_LED]` and propagated it to the entity via the same-tick coordinator refresh (0.001 s, MainThread).
-- The robot never receives the delta (offline). The eager 25 lingers for **~10 s** until the periodic `shadow/get/accepted` reads `reported.led.ledIntensity = 100` (unchanged) and reverts the entity. AWS then wipes `desired = {}` at T + 14 s (server-side timeout).
-- If the broker were also down, no `shadow/get` refresh would fire and the phantom 25 would persist indefinitely until reconnect.
+- The robot never receives the delta (offline). AWS accepts and stores `desired.led.ledIntensity = 25.0` (`shadow/update/accepted` v2499 at T + 145 ms) and answers a follow-up `shadow/get/accepted` at **T + 163 ms** carrying `reported.led.ledIntensity = 100` unchanged. The entity, however, is not re-derived until **T + 10 s** (`base_entity: Data for … {'state': 100}`) — this log excerpt does not establish what fills the gap between the shadow response arriving and the entity being updated.
+- At **T + 14 s** another `update/accepted` v2500 clears `desired = {}`. The initiating client is not visible in this log excerpt (no `clientToken` on the accepted payload, no publish visible at that timestamp on our side).
+- Under real broker degradation (home network / cloud outage), the phantom value can persist until fresh shadow data arrives, the integration is reloaded, or a reconnect replaces the mutated local state.
 
-Reproduces the pattern for all three LED entities (`light.<robot>_led`, `number.<robot>_intensite_led`, `select.<robot>_mode_led`), since they share the same `_get_led_settings` code path (`aws_client.py:640, 646, 652`).
+Reproduces the pattern for all three LED entities (`light.<robot>_led`, `number.<robot>_intensite_led`, `select.<robot>_mode_led`), since `set_led_mode` / `set_led_intensity` / `set_led_enabled` all funnel through the same `_get_led_settings` helper (`aws_client.py:639-652, 731-743`).
 
 ## Context
 
@@ -27,25 +28,28 @@ The offline-robot-but-online-broker scenario is exactly the case elad-bar asked 
 
 Aligned from `aws_client.mqtt.log` (log lines) and `state_history.tsv` (recorder). Timezone is CEST for the log column (Europe/Brussels), UTC on the recorder column.
 
-|            Δt | UTC              | Event                                                                               | Source                     |
-| ------------: | ---------------- | ----------------------------------------------------------------------------------- | -------------------------- |
-|             0 | 12:46:55.615     | `Set led intensity, Desired: {'led': {'ledEnable': True, 'ledIntensity': 25.0, …}}` | aws_client.mqtt.log:1      |
-|        + 0 ms | 12:46:55.615     | Publish `$aws/things/N4720KMV/shadow/update` (MainThread)                           | aws_client.mqtt.log:2      |
-|        + 1 ms | 12:46:55.616     | Coordinator refresh runs synchronously in the same MainThread frame                 | aws_client.mqtt.log:5      |
-|    **+ 2 ms** | **12:46:55.617** | **`Data for number_n4720kmv3q_nono_2_intensite_led: {'state': 25.0}`**              | **aws_client.mqtt.log:6**  |
-|        + 2 ms | 12:46:55.617     | Recorder ingests `state = 25.0`                                                     | state_history.tsv:3        |
-|        + 5 ms | 12:46:55.620     | AWS SDK `packet_id: 67` confirmed                                                   | aws_client.mqtt.log:7      |
-|      + 145 ms | 12:46:55.760     | `shadow/update/accepted` v2499 (`desired.led.ledIntensity=25.0`)                    | aws_client.mqtt.log:13-14  |
-|      + 149 ms | 12:46:55.764     | `shadow/update/delta` (i.e. AWS acknowledges the delta is pending — robot offline)  | aws_client.mqtt.log:15     |
-|     + 10.00 s | 12:47:05.619     | Coordinator refresh (MQTT-debounced)                                                | aws_client.mqtt.log:22     |
-| **+ 10.00 s** | **12:47:05.620** | **`Data for number_n4720kmv3q_nono_2_intensite_led: {'state': 100}`**               | **aws_client.mqtt.log:23** |
-|     + 10.00 s | 12:47:05.621     | Recorder ingests `state = 100` (rollback via shadow `reported`)                     | state_history.tsv:4        |
-|     + 14.25 s | 12:47:09.869     | `shadow/update/accepted` v2500 (`desired = {}` — AWS clears the un-applied delta)   | aws_client.mqtt.log:27-28  |
+|            Δt | UTC              | Event                                                                                   | Source                     |
+| ------------: | ---------------- | --------------------------------------------------------------------------------------- | -------------------------- |
+|             0 | 12:46:55.615     | `Set led intensity, Desired: {'led': {'ledEnable': True, 'ledIntensity': 25.0, …}}`     | aws_client.mqtt.log:1      |
+|        + 0 ms | 12:46:55.615     | Publish `$aws/things/<thing-name>/shadow/update` (MainThread)                           | aws_client.mqtt.log:2      |
+|        + 1 ms | 12:46:55.616     | Publish `$aws/things/<thing-name>/shadow/get` (MainThread)                              | aws_client.mqtt.log:4      |
+|        + 1 ms | 12:46:55.616     | Coordinator refresh runs synchronously in the same MainThread frame                     | aws_client.mqtt.log:5      |
+|    **+ 2 ms** | **12:46:55.617** | **`Data for number_<thing-id>_nono_2_intensite_led: {'state': 25.0}`**                  | **aws_client.mqtt.log:6**  |
+|        + 2 ms | 12:46:55.617     | Recorder ingests `state = 25.0`                                                         | state_history.tsv:3        |
+|        + 5 ms | 12:46:55.620     | AWS SDK `packet_id: 67` confirmed                                                       | aws_client.mqtt.log:7      |
+|      + 145 ms | 12:46:55.760     | `shadow/update/accepted` v2499 (`desired.led.ledIntensity=25.0`, `clientToken` matches) | aws_client.mqtt.log:13-14  |
+|      + 149 ms | 12:46:55.764     | `shadow/update/delta` (AWS keeps the delta pending — the thing is not connected)        | aws_client.mqtt.log:15     |
+|      + 163 ms | 12:46:55.778     | `shadow/get/accepted` (`reported.led.ledIntensity = 100` — unchanged)                   | aws_client.mqtt.log:18     |
+|      + 1.17 s | 12:46:56.781     | Debounced MQTT refresh runs                                                             | aws_client.mqtt.log:19     |
+|     + 10.00 s | 12:47:05.619     | Coordinator refresh                                                                     | aws_client.mqtt.log:20     |
+| **+ 10.00 s** | **12:47:05.620** | **`Data for number_<thing-id>_nono_2_intensite_led: {'state': 100}`**                   | **aws_client.mqtt.log:21** |
+|     + 10.00 s | 12:47:05.621     | Recorder ingests `state = 100`                                                          | state_history.tsv:4        |
+|     + 14.25 s | 12:47:09.869     | `shadow/update/accepted` v2500 (`desired = {}` — initiating client not visible in log)  | aws_client.mqtt.log:25-26  |
 
 Two things worth pinning:
 
 1. The `Data for … {'state': 25.0}` log line at **T + 2 ms** proves the entity read the mutated value before _any_ cloud round-trip completed. Nothing else in the code path writes to `self.data[DATA_SECTION_LED]` in that window — the mutation can only come from `request_data[key] = value` at `aws_client.py:739` operating on the shared reference returned by `self.data.get(DATA_SECTION_LED, default_data)`.
-2. The rollback at **T + 10 s** is **not** a shadow delta from the robot (the robot is offline throughout). It's a plain `shadow/get/accepted` refresh reading `reported.led.ledIntensity = 100` — the unchanged truth — and re-applying it to `self.data`. On a healthy robot the same rollback would come from the `reported` update the robot pushes _after_ it applies the delta; here the same mechanism happens to hide the bug by short-circuiting on the stale `reported`.
+2. The rollback at **T + 10 s** is not a shadow delta from the robot (offline throughout). The `shadow/get/accepted` carrying `reported.led.ledIntensity = 100` arrives much earlier (T + 163 ms), and this log excerpt does not establish what fills the ~10 s gap between that response and the entity re-derivation. On a healthy robot the same rollback would come from the `reported` update the robot pushes _after_ it applies the delta; here the same mechanism happens to mask the bug by short-circuiting on the stale `reported`.
 
 ## Chain of causation (in code)
 
@@ -70,15 +74,15 @@ def _get_led_settings(self, key, value):
 2. `request_data[key] = value` mutates `self.data[DATA_SECTION_LED][key]` in place. The "payload to send" and the "HA-visible state" are the same object.
 3. The very next coordinator refresh (same MainThread frame, 0.001 s later) walks `self.data`, sees `led.ledIntensity = 25.0`, and pushes it to the entity via `base_entity.py`.
 4. AWS ACK arrives 145 ms later. It cannot undo anything — the eager write has already committed to HA state.
-5. The 10 s rollback is the periodic shadow refresh reading `reported` (which is stale on the robot side, since the robot is offline). It does _not_ verify that the delta was applied; it only reflects whatever `reported` currently holds. On a fully-online robot the same rollback would arrive later, when the robot updates `reported` after applying the command — but during that window (network latency + robot processing time) the entity still lies.
+5. The eventual rollback is the shadow reading `reported` (stale on the robot side, since the robot is offline). It does _not_ verify that the delta was applied; it only reflects whatever `reported` currently holds. On a fully-online robot the same rollback would arrive when the robot updates `reported` after applying the command — but during that window (network latency + robot processing time) the entity still lies.
 
 ## Impact on the three LED entities
 
 `aws_client.py` calls `_get_led_settings` from three service methods:
 
-- `_set_led_mode` (line 640) → mutates `self.data[LED][DATA_LED_MODE]`
-- `_set_led_intensity` (line 646) → mutates `self.data[LED][DATA_LED_INTENSITY]`
-- `_set_led_enable` (line 652) → mutates `self.data[LED][DATA_LED_ENABLE]`
+- `set_led_mode` (line 639) → mutates `self.data[LED][DATA_LED_MODE]`
+- `set_led_intensity` (line 645) → mutates `self.data[LED][DATA_LED_INTENSITY]`
+- `set_led_enabled` (line 651) → mutates `self.data[LED][DATA_LED_ENABLE]`
 
 So the same pathology is expected on:
 
@@ -99,15 +103,15 @@ request_data = dict(self.data.get(DATA_SECTION_LED, default_data))
 request_data[key] = value
 ```
 
-or explicit `.copy()`. No test scaffold change beyond a regression that asserts `self.data[DATA_SECTION_LED]` is untouched immediately after `_set_led_intensity` returns and before any shadow ACK arrives.
+or explicit `.copy()`. No test scaffold change beyond a regression that asserts `self.data[DATA_SECTION_LED]` is untouched immediately after `set_led_intensity` returns and before any shadow ACK arrives.
 
 ## Ready-to-post reply for elad-bar on #24
 
 > Live reproduction on my S2000 (offline, `robot_state=notConnected`, but AWS broker still up):
 >
 > - HA entity `state` jumps 100 → 25.0 at T + 2 ms after the service call — **before** `shadow/update/accepted` is received (T + 145 ms). The eager write can only come from mutating the shared reference returned by `self.data.get(DATA_SECTION_LED)` at `aws_client.py:738`; nothing else in the code path writes state before the ACK.
-> - Robot is unreachable throughout, so `reported.led.ledIntensity` stays at 100. A follow-up `shadow/get/accepted` ~10 s later re-reads `reported` and reverts the entity to 100 — the "correction" is not a shadow delta from the robot, it's a poll masking the mutation.
-> - If the broker is also degraded (real-world scenario: home network / cloud outage), no `shadow/get` refresh fires and the phantom value persists indefinitely until reconnect.
+> - Robot is unreachable throughout, so `reported.led.ledIntensity` stays at 100. `shadow/get/accepted` carrying that unchanged value arrives at T + 163 ms, but the entity is not re-derived to 100 until T + 10 s (the excerpt does not establish what fills the gap). Either way, the "correction" is not a shadow delta from the robot — it's the poll masking the mutation.
+> - Under real broker degradation (home network / cloud outage), the phantom value can persist until fresh shadow data arrives, the integration is reloaded, or a reconnect replaces the mutated local state.
 >
 > Timeline attached (12:46:55.617 → 25.0, 12:47:05.621 → 100). Fix as originally proposed: `request_data = dict(self.data.get(DATA_SECTION_LED, default_data))` — leaf values are scalars, so shallow copy suffices.
 
