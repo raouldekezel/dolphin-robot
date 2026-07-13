@@ -60,6 +60,17 @@ ATTR_MANUAL_MODE = "Manual Mode"
 ATTR_ACTIVITY = "Activity"
 ATTR_TURN_ON_COUNT = "Turn On Count"
 ATTR_TIME_ZONE = "Time Zone"
+# FEAT-07 — internal SystemDetails key for the parsed tri-state
+# `reported.isConnected.connected` (True / False / None). Consumed by
+# the coordinator's `_get_power_supply_data` getter. Also the parse
+# point that the BUG-21 Fix-1 start gate will reuse verbatim (D1 of
+# the #112 design).
+ATTR_PWS_CONNECTED = "PWS Connected"
+# FEAT-07 — attribute exposed on `binary_sensor.{robot}_power_supply`,
+# carrying the UTC datetime of the last shadow-carried
+# `LastReceiveData.timestamp`. Absent when the shadow never carried
+# `LastReceiveData` or when the timestamp is 0.
+ATTR_LAST_SEEN = "last_seen"
 
 DYNAMIC_TYPE = "type"
 DYNAMIC_DESCRIPTION = "description"
@@ -95,6 +106,16 @@ DATA_SECTION_SYSTEM_STATE = "systemState"
 DATA_SECTION_ROBOT_ERROR = "robotError"
 DATA_SECTION_PWS_ERROR = "pwsError"
 DATA_SECTION_ACTIVITY = "activity"
+# FEAT-07 — the PWS↔cloud session flag lives under
+# `reported.isConnected.connected` (bool) and is written cloud-side by
+# the AWS IoT LWT / lifecycle rule. `LastReceiveData.timestamp` (epoch
+# seconds) captures when the shadow last carried real device data.
+# Wire spellings preserved verbatim (mixed case on `LastReceiveData`)
+# so grep against captured MQTT payloads stays honest.
+DATA_SECTION_IS_CONNECTED = "isConnected"
+DATA_IS_CONNECTED_CONNECTED = "connected"
+DATA_SECTION_LAST_RECEIVE_DATA = "LastReceiveData"
+DATA_LAST_RECEIVE_DATA_TIMESTAMP = "timestamp"
 
 DATA_STATE_REPORTED = "reported"
 DATA_STATE_DESIRED = "desired"
@@ -340,6 +361,12 @@ DATA_KEY_NETWORK_NAME = "Network Name"
 DATA_KEY_CLEAN_MODE = "Clean Mode"
 DATA_KEY_DESIRED_CLEAN_MODE = "Desired Clean Mode"
 DATA_KEY_POWER_SUPPLY_STATUS = "Power Supply Status"
+# FEAT-07 — semantic key for the raw PWS↔cloud connectivity entity.
+# Extends the existing "Power Supply" family (see DATA_KEY_PWS_ERROR,
+# DATA_KEY_POWER_SUPPLY_STATUS, ATTR_POWER_SUPPLY_STATE). The
+# BinarySensor's device_class=CONNECTIVITY is what keeps this apart
+# from `power_supply_status` (an operating mode: on/holdWeekly/off).
+DATA_KEY_POWER_SUPPLY = "Power Supply"
 DATA_KEY_ROBOT_STATUS = "Robot Status"
 DATA_KEY_ROBOT_TYPE = "Robot Type"
 DATA_KEY_BUSY = "Busy"

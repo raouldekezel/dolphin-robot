@@ -5,14 +5,17 @@ from custom_components.mydolphin_plus.common.consts import (
     ATTR_CALCULATED_STATUS,
     ATTR_IS_BUSY,
     ATTR_POWER_SUPPLY_STATE,
+    ATTR_PWS_CONNECTED,
     ATTR_ROBOT_STATE,
     ATTR_ROBOT_TYPE,
     ATTR_TIME_ZONE,
     ATTR_TURN_ON_COUNT,
     ATTR_VACUUM_STATE,
     DATA_CYCLE_INFO_CLEANING_MODE,
+    DATA_IS_CONNECTED_CONNECTED,
     DATA_SECTION_ACTIVITY,
     DATA_SECTION_CYCLE_INFO,
+    DATA_SECTION_IS_CONNECTED,
     DATA_SECTION_SYSTEM_STATE,
     DATA_SYSTEM_STATE_IS_BUSY,
     DATA_SYSTEM_STATE_PWS_STATE,
@@ -59,6 +62,21 @@ class SystemDetails:
     @property
     def power_unit_state(self) -> PowerSupplyState:
         return self._data.get(ATTR_POWER_SUPPLY_STATE, PowerSupplyState.OFF)
+
+    @property
+    def pws_connected(self) -> bool | None:
+        """Tri-state PWS↔cloud session flag (FEAT-07).
+
+        Mirrors `reported.isConnected.connected` verbatim: True / False /
+        None (section absent, non-bool payload, or no shadow yet). This
+        is the raw signal — no debounce. Consumers that need one debounce
+        on their own (per the FEAT-07 design decision).
+
+        Also the parse point the BUG-21 (#112) Fix-1 start gate reuses;
+        keeping the coercion here means Fix 1 does not re-parse the wire
+        section, avoiding drift.
+        """
+        return self._data.get(ATTR_PWS_CONNECTED)
 
     @property
     def robot_state(self) -> RobotState:
@@ -164,6 +182,16 @@ class SystemDetails:
 
         activity = aws_data.get(DATA_SECTION_ACTIVITY)
 
+        # FEAT-07 — tri-state coercion for `reported.isConnected.connected`.
+        # Strict `isinstance(bool)`: LWT / lifecycle payloads have varied
+        # over device generations and a stringly-typed "false" must not
+        # collapse to True (which `bool("false")` would return).
+        is_connected_section = aws_data.get(DATA_SECTION_IS_CONNECTED, {})
+        raw_pws_connected = is_connected_section.get(DATA_IS_CONNECTED_CONNECTED)
+        pws_connected = (
+            raw_pws_connected if isinstance(raw_pws_connected, bool) else None
+        )
+
         result = {
             ATTR_VACUUM_STATE: vacuum_state,
             ATTR_CALCULATED_STATUS: calculated_state,
@@ -174,6 +202,7 @@ class SystemDetails:
             ATTR_TURN_ON_COUNT: turn_on_count,
             ATTR_TIME_ZONE: f"{time_zone_name} ({time_zone})",
             ATTR_ACTIVITY: activity,
+            ATTR_PWS_CONNECTED: pws_connected,
         }
 
         return result

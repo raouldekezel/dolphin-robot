@@ -48,6 +48,7 @@ from ..common.consts import (
     ATTR_ATTRIBUTES,
     ATTR_EXPECTED_END_TIME,
     ATTR_IS_ON,
+    ATTR_LAST_SEEN,
     ATTR_RESET_FBI,
     ATTR_START_TIME,
     ATTR_STATUS,
@@ -79,6 +80,7 @@ from ..common.consts import (
     DATA_KEY_NEXT_SCHEDULED_CYCLE_TIME,
     DATA_KEY_NEXT_SCHEDULED_MODE,
     DATA_KEY_NEXT_SCHEDULED_RUN,
+    DATA_KEY_POWER_SUPPLY,
     DATA_KEY_POWER_SUPPLY_STATUS,
     DATA_KEY_PWS_ERROR,
     DATA_KEY_REMOTE,
@@ -88,6 +90,7 @@ from ..common.consts import (
     DATA_KEY_RSSI,
     DATA_KEY_STATUS,
     DATA_KEY_VACUUM,
+    DATA_LAST_RECEIVE_DATA_TIMESTAMP,
     DATA_LED_ENABLE,
     DATA_LED_INTENSITY,
     DATA_LED_MODE,
@@ -97,6 +100,7 @@ from ..common.consts import (
     DATA_SECTION_DELAY,
     DATA_SECTION_DYNAMIC,
     DATA_SECTION_FILTER_BAG_INDICATION,
+    DATA_SECTION_LAST_RECEIVE_DATA,
     DATA_SECTION_LED,
     DATA_SECTION_PWS_ERROR,
     DATA_SECTION_ROBOT_ERROR,
@@ -1019,6 +1023,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             slugify(DATA_KEY_CYCLE_TIME): self._get_cycle_time_data,
             slugify(DATA_KEY_CYCLE_TIME_LEFT): self._get_cycle_time_left_data,
             slugify(DATA_KEY_AWS_BROKER): self._get_aws_broker_data,
+            slugify(DATA_KEY_POWER_SUPPLY): self._get_power_supply_data,
             slugify(DATA_KEY_ROBOT_ERROR): self._get_robot_error_data,
             slugify(DATA_KEY_PWS_ERROR): self._get_pws_error_data,
             slugify(DATA_KEY_BATTERY): self._get_battery_data,
@@ -1412,6 +1417,38 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         }
 
         return result
+
+    def _get_power_supply_data(self, _entity_description) -> dict | None:
+        """PWS↔cloud session flag mirrored from the shadow (FEAT-07).
+
+        Raw signal, no debounce (see #145 design decision). `last_seen`
+        carries the epoch-seconds `LastReceiveData.timestamp` as a UTC
+        datetime; absent (None) when the shadow never carried the
+        section or when the timestamp is 0.
+        """
+        pws_connected = self._system_details.pws_connected
+
+        if pws_connected is True:
+            is_on: bool | None = True
+        elif pws_connected is False:
+            is_on = False
+        else:
+            is_on = None
+
+        last_receive_data = self.aws_data.get(DATA_SECTION_LAST_RECEIVE_DATA, {}) or {}
+        raw_timestamp = last_receive_data.get(DATA_LAST_RECEIVE_DATA_TIMESTAMP)
+        last_seen = None
+
+        if isinstance(raw_timestamp, (int, float)) and raw_timestamp:
+            try:
+                last_seen = datetime.fromtimestamp(raw_timestamp, tz=dt_util.UTC)
+            except (OSError, OverflowError, ValueError):
+                last_seen = None
+
+        return {
+            ATTR_IS_ON: is_on,
+            ATTR_ATTRIBUTES: {ATTR_LAST_SEEN: last_seen},
+        }
 
     def _get_robot_error_data(self, entity_description) -> dict | None:
         result = self._get_error_code(entity_description, DATA_SECTION_ROBOT_ERROR)

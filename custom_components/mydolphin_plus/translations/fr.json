@@ -99,6 +99,9 @@
       "aws_broker": {
         "name": "Broker AWS"
       },
+      "power_supply": {
+        "name": "Alimentation"
+      },
       "weekly_scheduler": {
         "name": "Programmateur hebdomadaire"
       }
