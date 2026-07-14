@@ -24,6 +24,7 @@ from homeassistant.const import (
     SERVICE_TURN_ON,
 )
 from homeassistant.core import Event, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
@@ -1614,6 +1615,27 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     async def _pickup(self, _entity_description: EntityDescription):
         _LOGGER.debug("Pickup vacuum")
 
+        # BUG-21 — refuse to write a start toward a PWS whose cloud
+        # session is down (Scenario B: a `desired.cleaningMode.mode`
+        # queued now would be replayed by the firmware on reconnect,
+        # producing an auto-start no operator issued). Raw read of the
+        # `isConnected.connected` flag (FEAT-07 parse); tri-state, and
+        # we refuse only on explicit `False` so a cold-start `None`
+        # falls through to the existing `_publish` no-op path. Ordering
+        # is load-bearing: it must precede the HARD-11 guard, the
+        # `_pause_issued_at` reset and `_arm_optimistic_start` so a
+        # refused start touches neither the overlay TTL nor the guard's
+        # bookkeeping.
+        if self._system_details.pws_connected is False:
+            _LOGGER.warning(
+                "Pickup refused: power supply disconnected "
+                "(isConnected.connected=false)"
+            )
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="power_supply_disconnected",
+            )
+
         # HARD-11 — share the start-serialization guard with `_vacuum_start`:
         # `pickup` writes via the same `set_cleaning_mode` primitive and
         # therefore carries the same BUG-19 / BUG-20 race risk.
@@ -1635,6 +1657,22 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
     async def _vacuum_start(self, _entity_description: EntityDescription, _state):
         _LOGGER.debug("Start vacuum")
+
+        # BUG-21 — refuse to write a start toward a PWS whose cloud
+        # session is down (see `_pickup` for the full rationale). Same
+        # tri-state policy: refuse only on explicit `False`, `None`
+        # falls through. Raw signal, no debounce — the cost asymmetry
+        # from the BUG-21 Q1 analysis favours fail-safe refusal (one
+        # retry on a 20 s flap vs. a queued `desired` on a real outage).
+        if self._system_details.pws_connected is False:
+            _LOGGER.warning(
+                "Start refused: power supply disconnected "
+                "(isConnected.connected=false)"
+            )
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="power_supply_disconnected",
+            )
 
         # HARD-11 — refuse a new start while the previous start→stop
         # mini-cycle is unacknowledged. Load-bearing guard derived from the

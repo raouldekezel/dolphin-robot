@@ -358,5 +358,10 @@
         "water": "Water line"
       }
     }
+  },
+  "exceptions": {
+    "power_supply_disconnected": {
+      "message": "The robot's power supply is disconnected (powered off or offline)."
+    }
   }
 }
