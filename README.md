@@ -24,6 +24,7 @@ the device behavior.
 - Translate properly authentication flow in French
 - Allows configuration options to hide unused or unimplemented cleaning modes.
 - Gives different icons to the cleaning mode cycle times for easier setup.
+- Adds a power supply connected sensor to detect robot unrecheable because of lack of power or wifi down. 
 - Adds a documented library of real-device traces with their interpretation ([`docs/diag/`](https://github.com/raouldekezel/dolphin-robot/tree/deploy/docs/diag)).
 - Miscellaneous issues fixed  (see the [Releases](https://github.com/raouldekezel/dolphin-robot/releases) page).
 
