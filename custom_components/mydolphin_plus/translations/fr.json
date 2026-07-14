@@ -358,5 +358,10 @@
         }
       }
     }
+  },
+  "exceptions": {
+    "power_supply_disconnected": {
+      "message": "L'alimentation du robot est déconnectée (hors tension ou hors ligne)."
+    }
   }
 }

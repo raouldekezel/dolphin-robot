@@ -373,6 +373,12 @@ DATA_KEY_NEXT_SCHEDULED_MODE = "Next Scheduled Mode"
 DATA_KEY_NEXT_SCHEDULED_CYCLE_TIME = "Next Scheduled Cycle Time"
 
 TRANSLATION_KEY_ERROR_INSTRUCTIONS = "state_attributes.instructions.state"
+# BUG-21 Fix 1 — raised by `_vacuum_start` / `_pickup` when the PWS
+# cloud session is known-down (`isConnected.connected == False`).
+# Shared across both handlers so a rename lands in one place; the base
+# string lives under `exceptions.power_supply_disconnected` in
+# `strings.json` and the en/fr/it translation files.
+TRANSLATION_KEY_EXCEPTION_POWER_SUPPLY_DISCONNECTED = "power_supply_disconnected"
 ERROR_CLEAN_CODES = [0, 255]
 
 EVENT_ERROR = f"{DOMAIN}_error"
