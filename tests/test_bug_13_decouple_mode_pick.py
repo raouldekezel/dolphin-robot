@@ -105,7 +105,11 @@ def _make_coordinator_stub(
     stub = MagicMock()
     stub._desired_clean_mode = desired
     stub._last_seen_reported_clean_mode = last_seen
-    stub._system_details = SimpleNamespace(is_active=is_active)
+    # BUG-21 — connected PWS is the assumed precondition; the gate lives
+    # in `_vacuum_start` / `_pickup` and needs the flag to be True to
+    # let the BUG-13 commit path run. Refusal is covered in the BUG-21
+    # test file.
+    stub._system_details = SimpleNamespace(is_active=is_active, pws_connected=True)
     stub._has_real_data = False
     stub._aws_client = MagicMock()
     stub._aws_client.data = {}

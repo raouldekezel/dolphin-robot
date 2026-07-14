@@ -97,6 +97,12 @@ def _make_coordinator_stub(
         calculated_state=real_calculated_state,
         is_active=is_active,
         data={},
+        # BUG-21 — connected PWS is the assumed precondition for every
+        # HARD-11 path; the BUG-21 gate flips them into a
+        # ``ServiceValidationError`` and would break the overlay/guard
+        # coverage below. The BUG-21 test file exercises the refusal
+        # path directly.
+        pws_connected=True,
     )
     stub._has_real_data = has_real_data
     stub._aws_client = MagicMock()

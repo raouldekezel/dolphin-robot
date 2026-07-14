@@ -358,5 +358,10 @@
         "water": "Linea d'acqua"
       }
     }
+  },
+  "exceptions": {
+    "power_supply_disconnected": {
+      "message": "L'alimentazione del robot è disconnessa (spenta o offline)."
+    }
   }
 }
