@@ -129,6 +129,7 @@ from ..common.consts import (
     RECONNECT_BACKOFF_MAX,
     SIGNAL_API_STATUS,
     SIGNAL_AWS_CLIENT_STATUS,
+    TRANSLATION_KEY_EXCEPTION_POWER_SUPPLY_DISCONNECTED,
     UPDATE_API_INTERVAL,
     UPDATE_WS_INTERVAL,
 )
@@ -1633,7 +1634,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             )
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
-                translation_key="power_supply_disconnected",
+                translation_key=TRANSLATION_KEY_EXCEPTION_POWER_SUPPLY_DISCONNECTED,
             )
 
         # HARD-11 — share the start-serialization guard with `_vacuum_start`:
@@ -1671,7 +1672,7 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             )
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
-                translation_key="power_supply_disconnected",
+                translation_key=TRANSLATION_KEY_EXCEPTION_POWER_SUPPLY_DISCONNECTED,
             )
 
         # HARD-11 — refuse a new start while the previous start→stop
