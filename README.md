@@ -23,10 +23,10 @@ the device behavior.
 - Fixes French labels for the cleaning modes and the robot state. Some Italian fixed too.
 - Translate properly authentication flow in French
 - Allows configuration options to hide unused or unimplemented cleaning modes.
-- Allows the Locate button to be hidden when it is not useful.
-- Gives different icons to the cleaning mode cycle times for easier setup.
+- Allows the Locate button to be hidden from the vacuum controls.
+- Uses distinct, meaningful icons for cleaning modes, cycle times, status and error entities.
 - Adds a power supply connected sensor to detect robot unrecheable because of lack of power or wifi down.
-- Raises an explicit error when a robot action is attempted while it is disconnected.
+- Raises an explicit error when Run or Pickup is requested while the robot is disconnected.
 - Adds a documented library of real-device traces with their interpretation ([`docs/diag/`](https://github.com/raouldekezel/dolphin-robot/tree/deploy/docs/diag)).
 - Miscellaneous issues fixed  (see the [Releases](https://github.com/raouldekezel/dolphin-robot/releases) page).
 
