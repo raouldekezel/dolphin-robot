@@ -23,6 +23,7 @@ the device behavior.
 - Fixes French labels for the cleaning modes and the robot state. Some Italian fixed too.
 - Translate properly authentication flow in French
 - Allows configuration options to hide unused or unimplemented cleaning modes.
+- Allows the Locate button to be hidden when it is not useful.
 - Gives different icons to the cleaning mode cycle times for easier setup.
 - Adds a power supply connected sensor to detect robot unrecheable because of lack of power or wifi down.
 - Raises an explicit error when a robot action is attempted while it is disconnected.
