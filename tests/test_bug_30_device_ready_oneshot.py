@@ -183,32 +183,40 @@ async def test_aws_reconnect_reinits_without_redispatch(ready_signals):
 
 
 # ---------------------------------------------------------------------------
-# 5. A config-entry reload builds a fresh coordinator with the latch reset.
+# 5. A reload builds a coordinator independent of the previous one.
 # ---------------------------------------------------------------------------
 
 
-def test_latch_class_default_is_false():
-    # Class-level default so `MagicMock(spec=...)` stubs expose it and,
-    # more importantly, so every freshly constructed coordinator starts
-    # un-dispatched.
-    assert MyDolphinPlusCoordinator._device_ready_dispatched is False
-
-
 @pytest.mark.asyncio
-async def test_reload_creates_fresh_coordinator_with_latch_reset(hass):
+async def test_reload_coordinator_is_independent(hass, ready_signals):
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={}, title="Fake Dolphin")
     entry.add_to_hass(hass)
     config_manager = _FakeConfigManager(entry)
 
-    token = config_entries.current_entry.set(entry)
-    try:
-        coordinator = MyDolphinPlusCoordinator(hass, config_manager)
-    finally:
-        config_entries.current_entry.reset(token)
+    def _build() -> MyDolphinPlusCoordinator:
+        token = config_entries.current_entry.set(entry)
+        try:
+            return MyDolphinPlusCoordinator(hass, config_manager)
+        finally:
+            config_entries.current_entry.reset(token)
 
-    # A reload replaces the coordinator instance; the new one is ready to
-    # dispatch again on its first CONNECTED.
-    assert coordinator._device_ready_dispatched is False
+    # Drive the first coordinator through its first CONNECTED transition —
+    # it dispatches once and arms its own latch.
+    first = _build()
+    first._aws_client = MagicMock()
+    first._aws_client.update_api_data = AsyncMock()
+    first._aws_client.initialize = AsyncMock()
+    first._is_fully_connected = MagicMock(return_value=True)
+
+    await first._on_api_status_changed(entry.entry_id, ConnectivityStatus.CONNECTED)
+
+    assert first._device_ready_dispatched is True
+    assert len(_ready_only(ready_signals)) == 1
+
+    # A reload replaces the coordinator; the new instance carries none of
+    # the first one's state and is ready to dispatch on its own CONNECTED.
+    second = _build()
+    assert second._device_ready_dispatched is False
 
 
 # ---------------------------------------------------------------------------

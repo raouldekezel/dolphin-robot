@@ -225,12 +225,6 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     # `initialize()` has set it (spec is derived from `dir()`).
     _no_op_unsub: Callable[[], None] | None = None
 
-    # Gates SIGNAL_DEVICE_READY to one dispatch per coordinator lifetime;
-    # a config-entry reload builds a fresh coordinator, which resets it.
-    # Class-level default so a `MagicMock(spec=…)` stub exposes the
-    # attribute — same rationale as `_no_op_unsub` above.
-    _device_ready_dispatched: bool = False
-
     def __init__(self, hass, config_manager: ConfigManager):
         """Initialize my coordinator."""
         super().__init__(
@@ -252,6 +246,8 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
         self._last_update_ws = 0
         self._reconnection_attempts = 0
+        # One SIGNAL_DEVICE_READY dispatch per coordinator lifetime; a
+        # config-entry reload builds a fresh coordinator, which resets it.
         self._device_ready_dispatched = False
         # FEAT-03 — visible cleaning modes. Single source of truth for
         # `vacuum.fan_speed_list`, `select.desired_clean_mode.options`,
