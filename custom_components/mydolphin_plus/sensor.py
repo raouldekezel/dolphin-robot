@@ -17,7 +17,7 @@ from .common.consts import (
     DATA_ROBOT_NAME,
     ERROR_CLEAN_CODES,
     EVENT_ERROR,
-    SIGNAL_DEVICE_NEW,
+    SIGNAL_DEVICE_READY,
     TRANSLATION_KEY_ERROR_INSTRUCTIONS,
 )
 from .common.entity_descriptions import MyDolphinPlusSensorEntityDescription
@@ -30,7 +30,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities
 ):
     @callback
-    def _async_device_new(entry_id: str):
+    def _async_device_ready(entry_id: str):
         if entry.entry_id != entry_id:
             return
 
@@ -43,7 +43,7 @@ async def async_setup_entry(
         )
 
     entry.async_on_unload(
-        async_dispatcher_connect(hass, SIGNAL_DEVICE_NEW, _async_device_new)
+        async_dispatcher_connect(hass, SIGNAL_DEVICE_READY, _async_device_ready)
     )
 
 

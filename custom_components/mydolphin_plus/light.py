@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .common.base_entity import MyDolphinPlusBaseEntity, async_setup_entities
-from .common.consts import ATTR_ATTRIBUTES, ATTR_IS_ON, SIGNAL_DEVICE_NEW
+from .common.consts import ATTR_ATTRIBUTES, ATTR_IS_ON, SIGNAL_DEVICE_READY
 from .common.entity_descriptions import MyDolphinPlusLightEntityDescription
 from .managers.coordinator import MyDolphinPlusCoordinator
 
@@ -20,7 +20,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities
 ):
     @callback
-    def _async_device_new(entry_id: str):
+    def _async_device_ready(entry_id: str):
         if entry.entry_id != entry_id:
             return
 
@@ -33,7 +33,7 @@ async def async_setup_entry(
         )
 
     entry.async_on_unload(
-        async_dispatcher_connect(hass, SIGNAL_DEVICE_NEW, _async_device_new)
+        async_dispatcher_connect(hass, SIGNAL_DEVICE_READY, _async_device_ready)
     )
 
 

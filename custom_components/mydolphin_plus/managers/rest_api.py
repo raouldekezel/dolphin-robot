@@ -45,7 +45,6 @@ from ..common.consts import (
     MIN_TOKEN_FETCH_INTERVAL,
     RECONNECT_BACKOFF_MAX,
     SIGNAL_API_STATUS,
-    SIGNAL_DEVICE_NEW,
     TO_REDACT,
 )
 from ..common.integration_info import IntegrationInfo
@@ -266,8 +265,6 @@ class RestAPI:
     _config_manager: ConfigManager
     _integration_info: IntegrationInfo
 
-    _device_loaded: bool
-
     def __init__(self, hass: HomeAssistant | None, config_manager: ConfigManager):
         try:
             self._hass = hass
@@ -276,7 +273,6 @@ class RestAPI:
             self._integration_info = IntegrationInfo()
             self._status = None
             self._session = None
-            self._device_loaded = False
             self._local_async_dispatcher_send = None
             # BUG-17: rate-limiter is session-scoped. Both fields start at 0.0
             # on every RestAPI construction; a fresh instance therefore takes
@@ -376,27 +372,6 @@ class RestAPI:
 
         return True
 
-    async def update(self):
-        if self._status != ConnectivityStatus.CONNECTED:
-            return
-
-        if self._device_loaded:
-            return
-
-        _LOGGER.debug("Connected. Refresh details")
-
-        if not await self._ensure_id_token_valid():
-            return
-
-        if not await self._authenticate_user():
-            return
-
-        self._device_loaded = True
-
-        self._async_dispatcher_send(SIGNAL_DEVICE_NEW, self._config_manager.entry_id)
-
-        self._debug_log_api_data_updated()
-
     def _debug_log_api_data_updated(self):
         """Emit the post-login data summary, with secrets redacted.
 
@@ -431,6 +406,12 @@ class RestAPI:
         )
 
         await self._refresh_aws_credentials()
+
+        # Log the data summary only once credentials have reached
+        # CONNECTED — a FAILED/rate-limited outcome would log a
+        # half-populated payload.
+        if self._status == ConnectivityStatus.CONNECTED:
+            self._debug_log_api_data_updated()
 
     async def _ensure_id_token_valid(self) -> bool:
         expires_at = self._config_manager.id_token_expires_at or 0
@@ -676,9 +657,6 @@ class RestAPI:
                 log_message = f"{log_message}, {message}"
 
             _LOGGER.log(log_level, log_message)
-
-            if status.is_disconnected():
-                self._device_loaded = False
 
             self._status = status
 
