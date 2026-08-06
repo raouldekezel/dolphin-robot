@@ -143,7 +143,8 @@ class APITest:
     async def _update(self):
         _LOGGER.info("Update")
 
-        await self._api.update()
+        # The REST profile is loaded once by _api.initialize(); only the
+        # AWS shadow is polled here.
         await self._aws_client.update()
 
     async def _stop_navigation(self):
@@ -193,8 +194,8 @@ class APITest:
 
     async def _on_api_status_changed(self, status: ConnectivityStatus):
         if status == ConnectivityStatus.CONNECTED:
-            await self._api.update()
-
+            # Profile already loaded by _api.initialize(); hand the loaded
+            # data to AWS.
             await self._aws_client.update_api_data(self._api.data)
 
             await self._aws_client.initialize()

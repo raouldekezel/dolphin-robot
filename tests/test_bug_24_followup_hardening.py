@@ -60,7 +60,6 @@ def _stub():
     stub._api = MagicMock()
     stub._api.status = ConnectivityStatus.CONNECTED
     stub._api.initialize = AsyncMock()
-    stub._api.update = AsyncMock()
     stub._aws_client = MagicMock()
     stub._aws_client.status = ConnectivityStatus.FAILED
     stub._aws_client.terminate = AsyncMock()
@@ -73,6 +72,10 @@ def _stub():
     stub._config_manager = MagicMock()
     stub._config_manager.entry_id = "entry-id-1"
     stub.api_data = {}
+    # These cases model reconnect cascades (entities already added on the
+    # first CONNECTED). Pre-arm the latch so the handler exercises only
+    # the watchdog path and does not re-emit against the mock hass.
+    stub._device_ready_dispatched = True
 
     stub._schedule_next_retry = (
         lambda now_mono=None: MyDolphinPlusCoordinator._schedule_next_retry(

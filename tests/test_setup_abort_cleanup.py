@@ -147,7 +147,6 @@ def _build_coordinator(hass: HomeAssistant, entry: MockConfigEntry):
     coord._api = MagicMock()
     coord._api.status = ConnectivityStatus.NOT_CONNECTED
     coord._api.data = {}
-    coord._api.update = AsyncMock(return_value=None)
     coord._api.initialize = AsyncMock(return_value=None)
 
     coord._aws_client = MagicMock()

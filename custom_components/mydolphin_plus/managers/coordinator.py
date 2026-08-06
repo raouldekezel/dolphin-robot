@@ -26,7 +26,10 @@ from homeassistant.const import (
 from homeassistant.core import Event, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.debounce import Debouncer
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect,
+    async_dispatcher_send,
+)
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.entity_registry import (
     RegistryEntryDisabler,
@@ -129,8 +132,8 @@ from ..common.consts import (
     RECONNECT_BACKOFF_MAX,
     SIGNAL_API_STATUS,
     SIGNAL_AWS_CLIENT_STATUS,
+    SIGNAL_DEVICE_READY,
     TRANSLATION_KEY_EXCEPTION_POWER_SUPPLY_DISCONNECTED,
-    UPDATE_API_INTERVAL,
     UPDATE_WS_INTERVAL,
 )
 from ..common.joystick_direction import JoystickDirection
@@ -206,7 +209,6 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     _data_mapping: dict[str, Callable[[EntityDescription], dict | None]] | None
     _system_details: SystemDetails
 
-    _last_update_api: float
     _last_update_ws: float
 
     # FEAT-03 — class-level default is required so
@@ -222,6 +224,12 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
     # `MagicMock(spec=…)` in tests sees the attribute even before
     # `initialize()` has set it (spec is derived from `dir()`).
     _no_op_unsub: Callable[[], None] | None = None
+
+    # Gates SIGNAL_DEVICE_READY to one dispatch per coordinator lifetime;
+    # a config-entry reload builds a fresh coordinator, which resets it.
+    # Class-level default so a `MagicMock(spec=…)` stub exposes the
+    # attribute — same rationale as `_no_op_unsub` above.
+    _device_ready_dispatched: bool = False
 
     def __init__(self, hass, config_manager: ConfigManager):
         """Initialize my coordinator."""
@@ -242,9 +250,9 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._system_details = SystemDetails()
         self._has_real_data = False
 
-        self._last_update_api = 0
         self._last_update_ws = 0
         self._reconnection_attempts = 0
+        self._device_ready_dispatched = False
         # FEAT-03 — visible cleaning modes. Single source of truth for
         # `vacuum.fan_speed_list`, `select.desired_clean_mode.options`,
         # and the `disabled_by` state of the per-mode
@@ -389,14 +397,15 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
         self._seed_visible_modes(entry)
         # BUG-27 — DataUpdateCoordinator only reschedules its periodic
         # refresh when at least one listener is registered. Entities
-        # register on `SIGNAL_DEVICE_NEW`, which fires only after
-        # `_api.update()` — reachable only from a CONNECTED status. If
-        # the initial connection fails (e.g. Maytronics `getToken`
-        # refusing during a backend outage), status goes FAILED without
-        # ever reaching CONNECTED, no entities are added, no listeners
-        # exist, and the coordinator's tick never runs → the BUG-24
-        # tick-driven retry loop never fires and the integration stays
-        # dormant until manual reload. Register a no-op listener here so
+        # register on `SIGNAL_DEVICE_READY`, which this coordinator
+        # dispatches only on the first successful API CONNECTED
+        # transition (see `_on_api_status_changed`). If the initial
+        # connection fails (e.g. Maytronics `getToken` refusing during a
+        # backend outage), status goes FAILED without ever reaching
+        # CONNECTED, no entities are added, no listeners exist, and the
+        # coordinator's tick never runs → the BUG-24 tick-driven retry
+        # loop never fires and the integration stays dormant until manual
+        # reload. Register a no-op listener here so
         # the tick keeps running regardless of connection state. Stored
         # so `terminate` can drop it cleanly. Guard on `None` so a second
         # `initialize()` call (defensive — not part of the normal
@@ -605,7 +614,18 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             return
 
         if status == ConnectivityStatus.CONNECTED:
-            await self._api.update()
+            # api_data is already populated (RestAPI._login() runs
+            # _authenticate_user() before reaching CONNECTED), so entity
+            # descriptions are safe to build here. The test-set-dispatch
+            # sequence is synchronous, so concurrent callbacks cannot
+            # double-emit.
+            if not self._device_ready_dispatched:
+                self._device_ready_dispatched = True
+                async_dispatcher_send(
+                    self.hass,
+                    SIGNAL_DEVICE_READY,
+                    self._config_manager.entry_id,
+                )
 
             await self._aws_client.update_api_data(self.api_data)
 
@@ -979,11 +999,6 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
 
             if is_ready:
                 now = datetime.now().timestamp()
-
-                if now - self._last_update_api >= UPDATE_API_INTERVAL.total_seconds():
-                    await self._api.update()
-
-                    self._last_update_api = now
 
                 if now - self._last_update_ws >= UPDATE_WS_INTERVAL.total_seconds():
                     await self._aws_client.update()

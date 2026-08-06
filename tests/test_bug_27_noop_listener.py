@@ -3,8 +3,9 @@ an initial-connection failure.
 
 ``DataUpdateCoordinator`` only reschedules its refresh interval when at
 least one listener is registered. Our entities register on
-``SIGNAL_DEVICE_NEW``, which fires only after a successful
-``CONNECTED`` transition. If the initial ``_api.initialize()`` fails
+``SIGNAL_DEVICE_READY``, which the coordinator dispatches only on the
+first successful ``CONNECTED`` transition. If the initial
+``_api.initialize()`` fails
 (observed in vivo on 2026-07-11 during a Maytronics ``user-svc.b2c.svc``
 outage), the integration never reaches CONNECTED, no entities are
 added, and the coordinator's tick never runs → the BUG-24 tick-driven
