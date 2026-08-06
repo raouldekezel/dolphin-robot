@@ -23,6 +23,9 @@ repos:
           - --skip="./.*,./*.svg,*.svg,*.csv,*.json"
           - --quiet-level=2
         exclude_types: [csv, json]
+        # Diagnostic evidence artifacts are verbatim captures (truncated log
+        # lines, device strings) — spell-checking them is a category error.
+        exclude: ^docs/diag/.+\.(log|tsv|txt)$
   - repo: https://github.com/PyCQA/autoflake
     rev: v2.0.1
     hooks:
