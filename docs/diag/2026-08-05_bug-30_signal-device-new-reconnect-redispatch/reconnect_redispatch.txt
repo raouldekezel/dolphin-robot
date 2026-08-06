@@ -1,0 +1,126 @@
+======================================================================
+SECTION A — DISCRIMINATOR: REST-side disconnects vs bursts (whole log)
+  window: 2026-07-29 09:20 .. 2026-08-05 19:47 (home-assistant.log)
+======================================================================
+-- (A1) REST API Connected->Failed transitions (reset _device_loaded) --
+2026-07-30 20:54:36.484 ERROR (MainThread) [custom_components.mydolphin_plus.managers.rest_api] Status update Connected to the API --> Faile
+2026-08-04 14:07:52.401 WARNING (MainThread) [custom_components.mydolphin_plus.managers.rest_api] Status update Connected to the API --> Fai
+
+-- (A2) first dedup ERROR of each burst (one per re-discovery event) --
+2026-07-30 20:56:39.479 ERROR (MainThread) [homeassistant.components.select] Platform mydolphin_plus does not generate u
+2026-08-04 15:25:01.885 ERROR (MainThread) [homeassistant.components.select] Platform mydolphin_plus does not generate u
+
+-- (A3) count: aws_client-only failures that produced NO burst --
+aws_client Connected->Failed events: 15
+rest_api   Connected->Failed events: 2
+distinct dedup-burst minutes:        2
+
+======================================================================
+SECTION B — BURST 1 context (2026-07-30)
+======================================================================
+2026-07-30 20:53:31.012 ERROR (Dummy-13157) [custom_components.mydolphin_plus.managers.aws_client] Status update Connected to the API --> Failed to access API, AWS IoT connection interrupted, Error: AWS_ERROR_MQTT_TIMEOUT: Time limit between request and response has been exceeded.
+2026-07-30 20:53:31.014 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #1 scheduled in 1 minute(s)
+2026-07-30 20:54:33.761 INFO (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Firing reconnection attempt #1
+2026-07-30 20:54:36.484 ERROR (MainThread) [custom_components.mydolphin_plus.managers.rest_api] Status update Connected to the API --> Failed to access API, Failed to send HTTP request, Endpoint: https://apps.maytronics.com/mobapi/user/authenticate-user/, Method: POST, Error: Cannot connect to host apps.maytronics.com:443 ssl:default [Timeout while contacting DNS servers], Line: 517
+2026-07-30 20:54:36.484 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #2 scheduled in 2 minute(s)
+2026-07-30 20:56:36.761 INFO (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Firing reconnection attempt #2
+2026-07-30 20:56:39.188 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #3 scheduled in 4 minute(s)
+2026-07-30 20:56:39.479 ERROR (MainThread) [homeassistant.components.select] Platform mydolphin_plus does not generate unique IDs. ID select_REDACTED-ROBOT-SERIAL_nono_2_mode_led already exists - ignoring select.nono_2_mode_led
+2026-07-30 20:56:39.480 ERROR (MainThread) [homeassistant.components.select] Platform mydolphin_plus does not generate unique IDs. ID select_REDACTED-ROBOT-SERIAL_nono_2_prochain_mode_de_nettoyage already exists - ignoring select.nono_2_prochain_mode_de_nettoyage
+2026-07-30 20:56:39.481 ERROR (MainThread) [homeassistant.components.light] Platform mydolphin_plus does not generate unique IDs. ID light_REDACTED-ROBOT-SERIAL_nono_2_led already exists - ignoring light.nono_2_led
+2026-07-30 20:56:39.482 ERROR (MainThread) [homeassistant.components.binary_sensor] Platform mydolphin_plus does not generate unique IDs. ID binary_sensor_REDACTED-ROBOT-SERIAL_nono_2_broker_aws already exists - ignoring binary_sensor.nono_2_broker_aws
+2026-07-30 20:56:39.482 ERROR (MainThread) [homeassistant.components.binary_sensor] Platform mydolphin_plus does not generate unique IDs. ID binary_sensor_REDACTED-ROBOT-SERIAL_nono_2_alimentation already exists - ignoring binary_sensor.nono_2_alimentation
+2026-07-30 20:56:39.488 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_statut already exists - ignoring sensor.nono_2_statut
+2026-07-30 20:56:39.489 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_rssi already exists - ignoring sensor.nono_2_rssi
+2026-07-30 20:56:39.489 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_nom_du_reseau already exists - ignoring sensor.nono_2_nom_du_reseau
+2026-07-30 20:56:39.489 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_mode_de_nettoyage already exists - ignoring sensor.nono_2_mode_de_nettoyage
+2026-07-30 20:56:39.492 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_etat_de_l_alimentation already exists - ignoring sensor.nono_2_etat_de_l_alimentation
+2026-07-30 20:56:39.493 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_etat_du_robot already exists - ignoring sensor.nono_2_etat_du_robot
+2026-07-30 20:56:39.493 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_type_de_robot already exists - ignoring sensor.nono_2_type_de_robot
+2026-07-30 20:56:39.493 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_nombre_de_cycles already exists - ignoring sensor.nono_2_nombre_de_cycles
+2026-07-30 20:56:39.493 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_etat_du_filtre already exists - ignoring sensor.nono_2_etat_du_filtre
+2026-07-30 20:56:39.494 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_cycle_time already exists - ignoring sensor.nono_2_cycle_time
+2026-07-30 20:56:39.494 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_temps_restant_du_cycle already exists - ignoring sensor.nono_2_temps_restant_du_cycle
+2026-07-30 20:56:39.494 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_erreur_du_robot already exists - ignoring sensor.nono_2_erreur_du_robot
+2026-07-30 20:56:39.494 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_erreur_d_alimentation already exists - ignoring sensor.nono_2_erreur_d_alimentation
+2026-07-30 20:56:39.495 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_battery already exists - ignoring sensor.nono_2_battery
+2026-07-30 20:56:39.495 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_prochain_demarrage_planifie already exists - ignoring sensor.nono_2_prochain_demarrage_planifie
+2026-07-30 20:56:39.495 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_prochain_mode_planifie already exists - ignoring sensor.nono_2_prochain_mode_planifie
+2026-07-30 20:56:39.495 ERROR (MainThread) [homeassistant.components.sensor] Platform mydolphin_plus does not generate unique IDs. ID sensor_REDACTED-ROBOT-SERIAL_nono_2_duree_du_prochain_cycle_planifie already exists - ignoring sensor.nono_2_duree_du_prochain_cycle_planifie
+2026-07-30 20:56:39.496 ERROR (MainThread) [homeassistant.components.vacuum] Platform mydolphin_plus does not generate unique IDs. ID vacuum_REDACTED-ROBOT-SERIAL_nono_2 already exists - ignoring vacuum.nono_2
+2026-07-30 20:56:39.498 ERROR (MainThread) [homeassistant.components.number] Platform mydolphin_plus does not generate unique IDs. ID number_REDACTED-ROBOT-SERIAL_nono_2_intensite_led already exists - ignoring number.nono_2_intensite_led
+2026-07-30 20:56:39.498 ERROR (MainThread) [homeassistant.components.number] Platform mydolphin_plus does not generate unique IDs. ID number_REDACTED-ROBOT-SERIAL_nono_2_duree_du_cycle_complet already exists - ignoring number.nono_2_duree_du_cycle_complet
+2026-07-30 20:56:39.498 ERROR (MainThread) [homeassistant.components.number] Platform mydolphin_plus does not generate unique IDs. ID number_REDACTED-ROBOT-SERIAL_nono_2_duree_du_cycle_rapide already exists - ignoring number.nono_2_duree_du_cycle_rapide
+2026-07-30 20:56:39.499 ERROR (MainThread) [homeassistant.components.number] Platform mydolphin_plus does not generate unique IDs. ID number_REDACTED-ROBOT-SERIAL_nono_2_duree_du_cycle_sol_uniquement already exists - ignoring number.nono_2_duree_du_cycle_sol_uniquement
+2026-07-30 20:56:39.500 ERROR (MainThread) [homeassistant.components.number] Platform mydolphin_plus does not generate unique IDs. ID number_REDACTED-ROBOT-SERIAL_nono_2_duree_du_cycle_couverture_complete already exists - ignoring number.nono_2_duree_du_cycle_couverture_complete
+2026-07-30 20:56:39.501 ERROR (MainThread) [homeassistant.components.remote] Platform mydolphin_plus does not generate unique IDs. ID remote_REDACTED-ROBOT-SERIAL_nono_2 already exists - ignoring remote.nono_2
+
+======================================================================
+SECTION C — BURST 2 context (2026-08-04)
+======================================================================
+2026-08-04 14:05:52.858 ERROR (Dummy-82598) [custom_components.mydolphin_plus.managers.aws_client] Status update Connected to the API --> Failed to access API, AWS IoT connection interrupted, Error: AWS_ERROR_MQTT_TIMEOUT: Time limit between request and response has been exceeded.
+2026-08-04 14:05:52.859 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #1 scheduled in 1 minute(s)
+2026-08-04 14:07:21.761 INFO (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Firing reconnection attempt #1
+2026-08-04 14:07:52.401 WARNING (MainThread) [custom_components.mydolphin_plus.managers.rest_api] Status update Connected to the API --> Failed to access API, refresh transient failure (Cognito InitiateAuth network failure: ) — will retry
+2026-08-04 14:07:52.402 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #2 scheduled in 2 minute(s)
+2026-08-04 14:09:52.761 INFO (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Firing reconnection attempt #2
+2026-08-04 14:10:23.402 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #3 scheduled in 4 minute(s)
+2026-08-04 14:14:23.762 INFO (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Firing reconnection attempt #3
+2026-08-04 14:14:54.402 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #4 scheduled in 8 minute(s)
+2026-08-04 14:22:54.761 INFO (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Firing reconnection attempt #4
+2026-08-04 14:23:25.402 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #5 scheduled in 15 minute(s)
+2026-08-04 15:09:27.761 INFO (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Firing reconnection attempt #7
+2026-08-04 15:09:58.401 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #8 scheduled in 15 minute(s)
+2026-08-04 15:24:58.761 INFO (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Firing reconnection attempt #8
+2026-08-04 15:25:01.550 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #9 scheduled in 15 minute(s)
+2026-08-04 15:26:05.458 ERROR (Dummy-82631) [custom_components.mydolphin_plus.managers.aws_client] Status update Connected to the API --> Failed to access API, AWS IoT connection interrupted, Error: AWS_ERROR_MQTT_TIMEOUT: Time limit between request and response has been exceeded.
+2026-08-04 15:26:05.460 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #1 scheduled in 1 minute(s)
+2026-08-04 15:27:31.761 INFO (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Firing reconnection attempt #1
+2026-08-04 15:27:32.701 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #2 scheduled in 2 minute(s)
+2026-08-04 15:27:37.772 ERROR (Dummy-82633) [custom_components.mydolphin_plus.managers.aws_client] Status update Establishing connection to API --> Failed to access API, AWS IoT connection failed, Error: AWS_IO_DNS_QUERY_FAILED: A nonrecoverable failure when query to dns occurred.
+2026-08-04 15:29:32.761 INFO (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Firing reconnection attempt #2
+2026-08-04 15:29:33.654 WARNING (MainThread) [custom_components.mydolphin_plus.managers.coordinator] Connection failure - reconnection attempt #3 scheduled in 4 minute(s)
+2026-08-04 15:25:01.885 ERROR (MainThread) [homeassistant.components.select] Platform mydolphin_plus does not generate unique IDs. ID select_REDACTED-ROBOT-SERIAL_nono_2_mode_led already exists - ignoring select.nono_2_mode_led
+2026-08-04 15:25:01.885 ERROR (MainThread) [homeassistant.components.select] Platform mydolphin_plus does not generate unique IDs. ID select_REDACTED-ROBOT-SERIAL_nono_2_prochain_mode_de_nettoyage already exists - ignoring select.nono_2_prochain_mode_de_nettoyage
+2026-08-04 15:25:01.886 ERROR (MainThread) [homeassistant.components.light] Platform mydolphin_plus does not generate unique IDs. ID light_REDACTED-ROBOT-SERIAL_nono_2_led already exists - ignoring light.nono_2_led
+   [... 29 dedup ERRORs total, one per entity — truncated ...]
+2026-08-04 15:25:01.892 ERROR (MainThread) [homeassistant.components.remote] Platform mydolphin_plus does not generate unique IDs. ID remote_REDACTED-ROBOT-SERIAL_nono_2 already exists - ignoring remote.nono_2
+
+======================================================================
+SECTION D — BURST 3 (2026-07-27, from rotated home-assistant.log.1)
+======================================================================
+2026-07-27 01:10:53.823 ERROR (MainThread) [homeassistant.components.select] Platform mydolphin_plus does not generate u
+burst-3 dedup ERROR count: 29
+
+======================================================================
+SECTION E — per-entity dedup distribution in home-assistant.log (each entity ignored twice = 2 bursts)
+======================================================================
+      2 vacuum.nono_2
+      2 sensor.nono_2_type_de_robot
+      2 sensor.nono_2_temps_restant_du_cycle
+      2 sensor.nono_2_statut
+      2 sensor.nono_2_rssi
+      2 sensor.nono_2_prochain_mode_planifie
+      2 sensor.nono_2_prochain_demarrage_planifie
+      2 sensor.nono_2_nombre_de_cycles
+      2 sensor.nono_2_nom_du_reseau
+      2 sensor.nono_2_mode_de_nettoyage
+      2 sensor.nono_2_etat_du_robot
+      2 sensor.nono_2_etat_du_filtre
+      2 sensor.nono_2_etat_de_l_alimentation
+      2 sensor.nono_2_erreur_du_robot
+      2 sensor.nono_2_erreur_d_alimentation
+      2 sensor.nono_2_duree_du_prochain_cycle_planifie
+      2 sensor.nono_2_cycle_time
+      2 sensor.nono_2_battery
+      2 select.nono_2_prochain_mode_de_nettoyage
+      2 select.nono_2_mode_led
+      2 remote.nono_2
+      2 number.nono_2_intensite_led
+      2 number.nono_2_duree_du_cycle_sol_uniquement
+      2 number.nono_2_duree_du_cycle_rapide
+      2 number.nono_2_duree_du_cycle_couverture_complete
+      2 number.nono_2_duree_du_cycle_complet
+      2 light.nono_2_led
+      2 binary_sensor.nono_2_broker_aws
+      2 binary_sensor.nono_2_alimentation

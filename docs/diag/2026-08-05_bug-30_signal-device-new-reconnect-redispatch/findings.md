@@ -1,4 +1,4 @@
-# BUG-30 — reconnection re-fires `SIGNAL_DEVICE_NEW`, re-adding all entities (`v1.0.26b3-raoul.*`)
+# BUG-30 — reconnection re-fires `SIGNAL_DEVICE_NEW`, re-adding all entities (`deploy @ 1de9d80`)
 
 ## TL;DR
 
@@ -40,9 +40,11 @@ ID number_<serial>_nono_2_intensite_led already exists - ignoring number.nono_2_
 
 ## Context
 
-- Fork: `raouldekezel/dolphin-robot`, `deploy` branch, HACS install on a single
-  S2000 (`nono_2`, 29 entities across 7 platforms: 17 sensor, 5 number,
-  2 select, 2 binary_sensor, 1 light, 1 vacuum, 1 remote).
+- Fork: `raouldekezel/dolphin-robot`, analyzed base
+  `deploy @ 1de9d8083815d5390b7288d07532f5f790dc1f80` (every source line number
+  below refers to it). HACS install on a single S2000 (`nono_2`, 29 entities
+  across 7 platforms: 17 sensor, 5 number, 2 select, 2 binary_sensor, 1 light,
+  1 vacuum, 1 remote).
 - Source: `home-assistant.log` (2026-07-29 09:20 → 2026-08-05 19:47) and the
   rotated `home-assistant.log.1`. Both bursts occurred with
   `custom_components.mydolphin_plus` at its default (INFO) level — DEBUG was
@@ -94,7 +96,7 @@ de-duplicated, re-firing `SIGNAL_DEVICE_NEW` re-adds the entire catalogue.
 
 |         Δt | Time (CEST)  | Event                                                                                               | Source                        |
 | ---------: | ------------ | --------------------------------------------------------------------------------------------------- | ----------------------------- |
-|     −188 s | 20:53:31.012 | `aws_client` `Connected → Failed` (`AWS_ERROR_MQTT_TIMEOUT`) — API still `CONNECTED`                | `reconnect_redispatch.log:21` |
+|     −188 s | 20:53:31.012 | `aws_client` `Connected → Failed` (`AWS_ERROR_MQTT_TIMEOUT`) — API still `CONNECTED`                | `reconnect_redispatch.txt:21` |
 |     −123 s | 20:54:33.761 | coordinator `Firing reconnection attempt #1` (`_api.initialize()`)                                  | `:23`                         |
 | **−123 s** | 20:54:36.484 | **`rest_api` `Connected → Failed` (DNS timeout on `authenticate-user`)** → `_device_loaded = False` | `:24`                         |
 |       −3 s | 20:56:36.761 | coordinator `Firing reconnection attempt #2`                                                        | `:26`                         |
@@ -107,7 +109,7 @@ completed (attempt #8), 29 ERRORs in ~7 ms.
 
 ## Evidence
 
-- `reconnect_redispatch.log`
+- `reconnect_redispatch.txt`
   - **Section A** — the discriminator: 2 REST `Connected → Failed` vs 2 dedup
     bursts vs 15 AWS-only drops.
   - **Section B / C** — full per-burst context (both drops and both 29-ERROR
@@ -132,9 +134,17 @@ capture of the next REST reconnect with
 
 ## Fix direction
 
-Not implemented here (design options are enumerated on the BUG-30 issue
-thread). The robust, low-blast-radius fix is to make entity creation
-idempotent — either filter already-registered `unique_id`s inside
-`async_setup_entities` before `async_add_entities`, or gate the dispatch on a
-never-reset "entities dispatched" latch decoupled from the connection-state
-`_device_loaded` flag.
+Fixed in [PR #154](https://github.com/raouldekezel/dolphin-robot/pull/154).
+
+The two options sketched during triage were both rejected. Filtering
+already-registered `unique_id`s in `async_setup_entities` is unsafe: the entity
+registry is persistent, so after a reload it reports every entity as already
+known and the filter would add none of them. A second never-reset latch inside
+`RestAPI` only papers over the misuse. The accepted fix removes the coupling
+instead:
+
+- delete `RestAPI.update()` and `_device_loaded`;
+- dispatch a one-shot `SIGNAL_DEVICE_READY` from the coordinator, gated by a
+  never-reset `_device_ready_dispatched` latch (a config-entry reload builds a
+  fresh coordinator, which resets it);
+- drop the now-dead hourly REST-update tick branch.
