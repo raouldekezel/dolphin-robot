@@ -957,18 +957,14 @@ class MyDolphinPlusCoordinator(DataUpdateCoordinator):
             # retry (pre-fix the deadline was computed from the
             # start-of-attempt wall clock).
             end_mono = time.monotonic()
-            if self._api.status in _NEEDS_USER_STATUSES:
-                # OTP flow owns recovery; do not tick again. The
-                # deadline stays cleared (consumed at the top of the
-                # attempt) so a later successful reauth sees a clean
-                # slate.
-                return
-            # Reschedule while the compound state is not fully healthy
-            # — this catches the API-CONNECTED / AWS-FAILED path where
-            # the pre-fix predicate skipped the reschedule and let the
-            # next tick fire immediately. Idempotent seed dedupes
-            # against any deferred callback that also raced here.
-            if not self._is_fully_connected():
+            # Reschedule unless the API is in a user-action state (OTP
+            # flow owns recovery, deadline left cleared) or already fully
+            # connected. No return in this finally so an in-flight
+            # CancelledError propagates.
+            if (
+                self._api.status not in _NEEDS_USER_STATUSES
+                and not self._is_fully_connected()
+            ):
                 self._ensure_retry_scheduled(end_mono)
 
     async def _async_update_data(self):
